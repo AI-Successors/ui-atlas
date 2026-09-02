@@ -4,8 +4,8 @@ using UiAtlas.Core.Recording;
 namespace UiAtlas.Core.Recording.Windows;
 
 /// <summary>
-/// Repairs legacy partial root observations from their own immutable PNG. This
-/// is a build-time projection only; the sealed recording bundle is never edited.
+/// Repairs partial and visual-only observations from their own immutable PNG.
+/// This is a build-time projection only; the sealed recording bundle is never edited.
 /// </summary>
 public static class OfflineRecordingEnricher
 {
@@ -24,9 +24,10 @@ public static class OfflineRecordingEnricher
             var legacyStructureRecovery = RequiresLegacyStructureRecovery(frame.Automation);
             var incompleteRootRecovery = RequiresIncompleteRootRecovery(frame);
             var opaqueGalleryRecovery = RequiresOpaqueGalleryRecovery(frame.Automation);
+            var visualReclassification = RequiresVisualReclassification(frame.Automation);
             if ((!string.Equals(frame.Trigger, "adaptive-root-change", StringComparison.Ordinal) ||
-                 !frame.AutomationTimedOut && frame.AutomationStatus != "partial") &&
-                !legacyStructureRecovery && !opaqueGalleryRecovery)
+                  !frame.AutomationTimedOut && frame.AutomationStatus != "partial") &&
+                !legacyStructureRecovery && !opaqueGalleryRecovery && !visualReclassification)
             {
                 result.Add(frame);
                 continue;
@@ -60,7 +61,7 @@ public static class OfflineRecordingEnricher
                 var stale = !opaqueGalleryRecovery &&
                             LooksStale(alignedAutomation, words, window.Bounds, pixels.Width, pixels.Height);
                 var opaqueRegions = VisualFallbackPolicy.FindOpaqueRegions(alignedAutomation, window.Bounds);
-                var reclassifyVisual = RequiresVisualReclassification(alignedAutomation);
+                var reclassifyVisual = visualReclassification || RequiresVisualReclassification(alignedAutomation);
                 if (!stale && opaqueRegions.Count == 0 && !reclassifyVisual &&
                     !legacyStructureRecovery && !incompleteRootRecovery)
                 {
@@ -95,7 +96,13 @@ public static class OfflineRecordingEnricher
                 await Task.WhenAll(visualTask, legacyTask).ConfigureAwait(false);
                 var visual = await visualTask.ConfigureAwait(false);
                 var legacy = await legacyTask.ConfigureAwait(false);
-                IReadOnlyList<AutomationObservation> repaired = DeduplicateGeometry(stableNative.Concat(legacy).Concat(visual))
+                var popupText = IsVisualPopupFallback(frame)
+                    ? VisualSurfaceScanner.DiscoverPopupTextListControls(target, pixels, words)
+                    : [];
+                if (popupText.Count > 0)
+                    visual = visual.Where(control => !IsVisualFallbackControl(control)).ToArray();
+                IReadOnlyList<AutomationObservation> repaired = DeduplicateGeometry(
+                        stableNative.Concat(legacy).Concat(visual).Concat(popupText))
                     .GroupBy(ControlIdentity, StringComparer.Ordinal)
                     .Select(group => group.OrderByDescending(ControlQuality).First())
                     .OrderBy(control => control.Bounds.Y)

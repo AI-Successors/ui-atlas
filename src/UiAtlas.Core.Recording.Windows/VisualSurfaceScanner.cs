@@ -53,6 +53,271 @@ public static class VisualSurfaceScanner
             })
             .ToArray();
 
+    internal static IReadOnlyList<AutomationObservation> DiscoverPopupTextListControls(
+        WindowTarget target,
+        OpaqueSurfaceScanner.PixelFrame frame,
+        IReadOnlyList<VisualTextObservation> words)
+    {
+        ArgumentNullException.ThrowIfNull(target);
+        ArgumentNullException.ThrowIfNull(frame);
+        ArgumentNullException.ThrowIfNull(words);
+        if (frame.Width < 32 || frame.Height < 48 || target.Bounds.Width <= 0 || target.Bounds.Height <= 0)
+            return [];
+
+        var candidates = TextLineSegments(words)
+            .Select(segment => segment with { Text = NormalizePopupItemText(segment.Text) })
+            .Where(segment => IsPopupItemText(segment.Text) &&
+                              segment.Bounds.Width > 0 &&
+                              segment.Bounds.Height is >= 6 and <= 40 &&
+                              segment.Bounds.X >= 0 && segment.Bounds.Y >= 0 &&
+                              segment.Bounds.X + segment.Bounds.Width <= frame.Width &&
+                              segment.Bounds.Y + segment.Bounds.Height <= frame.Height)
+            .OrderBy(segment => segment.Bounds.Y + segment.Bounds.Height / 2)
+            .ThenBy(segment => segment.Bounds.X)
+            .ToArray();
+        if (candidates.Length < 3)
+            return [];
+
+        var xTolerance = Math.Max(16, frame.Width / 5);
+        var anchorX = candidates
+            .Select(candidate => new
+            {
+                candidate.Bounds.X,
+                Count = candidates.Count(other => Math.Abs(other.Bounds.X - candidate.Bounds.X) <= xTolerance)
+            })
+            .OrderByDescending(item => item.Count)
+            .ThenBy(item => item.X)
+            .First().X;
+        var aligned = candidates
+            .Where(candidate => Math.Abs(candidate.Bounds.X - anchorX) <= xTolerance)
+            .GroupBy(candidate => candidate.Bounds.Y + candidate.Bounds.Height / 2)
+            .Select(group => group.OrderByDescending(candidate => candidate.Bounds.Width).First())
+            .OrderBy(candidate => candidate.Bounds.Y + candidate.Bounds.Height / 2)
+            .ToArray();
+        if (aligned.Length < 3)
+            return [];
+
+        var centers = aligned.Select(item => item.Bounds.Y + item.Bounds.Height / 2).ToArray();
+        var positiveGaps = centers.Zip(centers.Skip(1), (first, second) => second - first)
+            .Where(gap => gap > 0)
+            .OrderBy(gap => gap)
+            .ToArray();
+        if (positiveGaps.Length == 0)
+            return [];
+        var typicalGap = positiveGaps[positiveGaps.Length / 2];
+        if (typicalGap is < 10 or > 64)
+            return [];
+
+        aligned = ExpandPopupTextRows(frame, candidates, aligned, typicalGap);
+        centers = aligned.Select(item => item.Bounds.Y + item.Bounds.Height / 2).ToArray();
+
+        var scaleX = frame.Width / (double)target.Bounds.Width;
+        var scaleY = frame.Height / (double)target.Bounds.Height;
+        var itemBounds = new RectI[aligned.Length];
+        for (var index = 0; index < aligned.Length; index++)
+        {
+            var top = index == 0
+                ? Math.Max(0, centers[index] - typicalGap / 2)
+                : (centers[index - 1] + centers[index]) / 2;
+            var bottom = index == aligned.Length - 1
+                ? Math.Min(frame.Height, centers[index] + typicalGap / 2)
+                : (centers[index] + centers[index + 1]) / 2;
+            itemBounds[index] = new RectI(1, top, Math.Max(1, frame.Width - 2), Math.Max(12, bottom - top));
+        }
+
+        var listBounds = Union(itemBounds);
+        var listIdentity = StableVisualIdentity(
+            "List",
+            "",
+            StructureToken(listBounds, new RectI(0, 0, frame.Width, frame.Height), "popup-text-list"),
+            "");
+        var listId = "visual:v3:" + listIdentity;
+        var result = new List<AutomationObservation>(aligned.Length + 1)
+        {
+            CreateObservation(target, listBounds, scaleX, scaleY, listId, "", "Popup list",
+                "List", "list", listId, null, null, ["Selection"])
+        };
+        for (var index = 0; index < aligned.Length; index++)
+        {
+            var item = aligned[index];
+            var displayName = string.IsNullOrWhiteSpace(item.Text) ? "List item" : item.Text;
+            var identity = StableVisualIdentity(
+                "ListItem",
+                item.Text,
+                $"{listIdentity}|item:{index}",
+                "");
+            result.Add(CreateObservation(
+                    target,
+                    itemBounds[index],
+                    scaleX,
+                    scaleY,
+                    "visual:v3:" + identity,
+                    listId,
+                    displayName,
+                    "ListItem",
+                    "list-item",
+                    listId,
+                    null,
+                    null,
+                    ["SelectionItem"])
+                with
+                {
+                    IsSelected = HasDistinctPopupRowBackground(frame, itemBounds[index], item.Bounds)
+                });
+        }
+        return result;
+    }
+
+    private static string NormalizePopupItemText(string value) =>
+        string.Join(' ', value.Split((char[]?)null,
+            StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)).Trim();
+
+    private static bool IsPopupItemText(string value) =>
+        value.Any(char.IsLetterOrDigit) || value is "..." or "…";
+
+    private static TextSegment[] ExpandPopupTextRows(
+        OpaqueSurfaceScanner.PixelFrame frame,
+        IReadOnlyList<TextSegment> candidates,
+        IReadOnlyList<TextSegment> aligned,
+        int typicalGap)
+    {
+        var bands = FindDarkTextBands(frame)
+            .Where(band => band.Bounds.Height <= Math.Min(26, typicalGap - 2))
+            .ToArray();
+        if (bands.Length < aligned.Count)
+            return aligned.ToArray();
+
+        var firstCenter = aligned[0].Bounds.Y + aligned[0].Bounds.Height / 2;
+        var lastCenter = aligned[^1].Bounds.Y + aligned[^1].Bounds.Height / 2;
+        var phaseTolerance = Math.Max(4, typicalGap / 3);
+        var expanded = bands
+            .Where(band =>
+            {
+                var center = band.Bounds.Y + band.Bounds.Height / 2;
+                if (center < firstCenter - typicalGap * 4 || center > lastCenter + typicalGap * 2)
+                    return false;
+                var remainder = Math.Abs(center - firstCenter) % typicalGap;
+                return Math.Min(remainder, typicalGap - remainder) <= phaseTolerance;
+            })
+            .Select(band =>
+            {
+                var center = band.Bounds.Y + band.Bounds.Height / 2;
+                var label = candidates
+                    .Where(candidate => Math.Abs(
+                        candidate.Bounds.Y + candidate.Bounds.Height / 2 - center) <= phaseTolerance)
+                    .OrderBy(candidate => Math.Abs(candidate.Bounds.X - band.Bounds.X))
+                    .ThenByDescending(candidate => candidate.Bounds.Width)
+                    .FirstOrDefault();
+                return new TextSegment(label?.Text ?? string.Empty, band.Bounds);
+            })
+            .OrderBy(item => item.Bounds.Y + item.Bounds.Height / 2)
+            .ToArray();
+        return expanded.Length >= aligned.Count ? expanded : aligned.ToArray();
+    }
+
+    private static IReadOnlyList<TextSegment> FindDarkTextBands(OpaqueSurfaceScanner.PixelFrame frame)
+    {
+        var active = new List<(int Y, int Left, int Right)>();
+        for (var y = 1; y < frame.Height - 1; y++)
+        {
+            var left = frame.Width;
+            var right = -1;
+            var count = 0;
+            for (var x = 2; x < frame.Width - 2; x++)
+            {
+                var offset = (y * frame.Width + x) * 4;
+                if (frame.Pixels[offset + 3] < 32)
+                    continue;
+                var luminance = (frame.Pixels[offset] * 29 + frame.Pixels[offset + 1] * 150 +
+                                 frame.Pixels[offset + 2] * 77) >> 8;
+                if (luminance >= 170)
+                    continue;
+                left = Math.Min(left, x);
+                right = Math.Max(right, x);
+                count++;
+            }
+            if (count >= 2)
+                active.Add((y, left, right));
+        }
+
+        var result = new List<TextSegment>();
+        for (var index = 0; index < active.Count;)
+        {
+            var first = active[index];
+            var lastY = first.Y;
+            var left = first.Left;
+            var right = first.Right;
+            index++;
+            while (index < active.Count && active[index].Y - lastY <= 3)
+            {
+                lastY = active[index].Y;
+                left = Math.Min(left, active[index].Left);
+                right = Math.Max(right, active[index].Right);
+                index++;
+            }
+
+            var height = lastY - first.Y + 1;
+            if (height >= 4 && right - left + 1 >= 2)
+                result.Add(new TextSegment(string.Empty, new RectI(left, first.Y, right - left + 1, height)));
+        }
+        return result;
+    }
+
+    private static bool HasDistinctPopupRowBackground(
+        OpaqueSurfaceScanner.PixelFrame frame,
+        RectI row,
+        RectI text)
+    {
+        var baseline = AverageLightColor(frame, new RectI(1, 1,
+            Math.Max(1, frame.Width - 2), Math.Max(1, frame.Height - 2)), null);
+        var sampleLeft = Math.Max(row.X, text.X - 8);
+        var sampleRight = Math.Min(row.X + row.Width, text.X + text.Width + 24);
+        var sample = AverageLightColor(frame,
+            new RectI(sampleLeft, row.Y, Math.Max(1, sampleRight - sampleLeft), row.Height),
+            text);
+        if (baseline.Count < 16 || sample.Count < 8)
+            return false;
+
+        return Math.Abs(sample.Blue - baseline.Blue) +
+               Math.Abs(sample.Green - baseline.Green) +
+               Math.Abs(sample.Red - baseline.Red) >= 18;
+    }
+
+    private static (double Blue, double Green, double Red, int Count) AverageLightColor(
+        OpaqueSurfaceScanner.PixelFrame frame,
+        RectI bounds,
+        RectI? excluded)
+    {
+        long blue = 0;
+        long green = 0;
+        long red = 0;
+        var count = 0;
+        var left = Math.Clamp(bounds.X, 0, frame.Width);
+        var top = Math.Clamp(bounds.Y, 0, frame.Height);
+        var right = Math.Clamp(bounds.X + bounds.Width, left, frame.Width);
+        var bottom = Math.Clamp(bounds.Y + bounds.Height, top, frame.Height);
+        for (var y = top; y < bottom; y++)
+        for (var x = left; x < right; x++)
+        {
+            if (excluded is { } omitted && ContainsPoint(omitted, x, y))
+                continue;
+            var offset = (y * frame.Width + x) * 4;
+            if (frame.Pixels[offset + 3] < 32)
+                continue;
+            var luminance = (frame.Pixels[offset] * 29 + frame.Pixels[offset + 1] * 150 +
+                             frame.Pixels[offset + 2] * 77) >> 8;
+            if (luminance < 150)
+                continue;
+            blue += frame.Pixels[offset];
+            green += frame.Pixels[offset + 1];
+            red += frame.Pixels[offset + 2];
+            count++;
+        }
+        return count == 0
+            ? (0, 0, 0, 0)
+            : (blue / (double)count, green / (double)count, red / (double)count, count);
+    }
+
     public static IReadOnlyList<AutomationObservation> DiscoverDatabaseGridControls(
         WindowTarget target,
         OpaqueSurfaceScanner.PixelFrame frame,

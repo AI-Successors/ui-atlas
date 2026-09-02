@@ -1212,8 +1212,24 @@ internal static class Program
         await using var session = new ManualRecordingSession(
             target,
             output,
-            overlay.HideForScreenshotAsync,
-            overlay.RestoreAfterScreenshot);
+            async cancellationToken =>
+            {
+                await overlay.HideForScreenshotAsync(cancellationToken).ConfigureAwait(false);
+                try
+                {
+                    await panel.HideForScreenshotAsync(cancellationToken).ConfigureAwait(false);
+                }
+                catch
+                {
+                    overlay.RestoreAfterScreenshot();
+                    throw;
+                }
+            },
+            () =>
+            {
+                panel.RestoreAfterScreenshot();
+                overlay.RestoreAfterScreenshot();
+            });
         session.Start(explicitConsent: true);
         // The click that chose a recording mode and any user input used while the
         // initial bounded scan is running must never become the first recorded
@@ -6800,6 +6816,8 @@ internal sealed class RecordingControlPanel : IDisposable
     private long? _selectedTargetHwnd;
     private bool _autoPassActive;
     private bool _isCompactCollapsed;
+    private int _screenshotVisibilityHolds;
+    private int _restorePanelAfterScreenshot;
     private volatile bool _sessionModeChooserOpen;
     private volatile bool _sessionModeChooserResumeMode;
     private volatile bool _enableHoverAndFocusDiscovery = true;
@@ -10786,6 +10804,56 @@ internal sealed class RecordingControlPanel : IDisposable
 
     private void ClosePanel() => _window?.Close();
 
+    public async Task HideForScreenshotAsync(CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var holds = Interlocked.Increment(ref _screenshotVisibilityHolds);
+        try
+        {
+            if (holds == 1 && _dispatcher is not null && !_dispatcher.HasShutdownStarted)
+            {
+                _dispatcher.Invoke(() =>
+                {
+                    if (_window?.IsVisible != true || _window.WindowState == System.Windows.WindowState.Minimized)
+                    {
+                        Interlocked.Exchange(ref _restorePanelAfterScreenshot, 0);
+                        return;
+                    }
+
+                    Interlocked.Exchange(ref _restorePanelAfterScreenshot, 1);
+                    _window.Hide();
+                });
+            }
+
+            _ = DwmFlush();
+            await Task.Delay(20, CancellationToken.None).ConfigureAwait(false);
+        }
+        catch
+        {
+            RestoreAfterScreenshot();
+            throw;
+        }
+    }
+
+    public void RestoreAfterScreenshot()
+    {
+        var holds = Interlocked.Decrement(ref _screenshotVisibilityHolds);
+        if (holds < 0)
+        {
+            Interlocked.Exchange(ref _screenshotVisibilityHolds, 0);
+            holds = 0;
+        }
+        if (holds != 0 || Interlocked.Exchange(ref _restorePanelAfterScreenshot, 0) == 0 ||
+            _dispatcher is null || _dispatcher.HasShutdownStarted)
+            return;
+
+        _dispatcher.BeginInvoke(() =>
+        {
+            if (_window is not null && _window.WindowState != System.Windows.WindowState.Minimized)
+                _window.Show();
+        });
+    }
+
     private void MinimizeWindow()
     {
         if (_window is null)
@@ -14226,6 +14294,9 @@ internal sealed class RecordingControlPanel : IDisposable
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool SetWindowDisplayAffinity(nint hwnd, uint affinity);
+
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmFlush();
 
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
     private struct ShellFileInfo

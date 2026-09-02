@@ -1437,6 +1437,70 @@ public sealed class AdaptiveExtractionCascadeTests
     }
 
     [Fact]
+    public void PopupTextListCreatesOneControlPerVisibleRowAndKeepsSelection()
+    {
+        const int width = 80;
+        const int height = 170;
+        var pixels = new byte[width * height * 4];
+        FillRect(pixels, width, new RectI(0, 0, width, height), 255, 255, 255);
+        FillRect(pixels, width, new RectI(1, 71, width - 2, 30), 238, 238, 238);
+        var target = new WindowTarget(10, 10, 20, "EXCEL", DateTimeOffset.UnixEpoch,
+            "", "Net UI Tool Window", new RectI(100, 200, width, height));
+        VisualTextObservation[] words =
+        [
+            new("8", new RectI(12, 20, 8, 12), 0),
+            new("9", new RectI(12, 50, 8, 12), 1),
+            new("11", new RectI(12, 80, 16, 12), 2),
+            new("12", new RectI(12, 110, 16, 12), 3),
+            new("14", new RectI(12, 140, 16, 12), 4)
+        ];
+
+        var controls = VisualSurfaceScanner.DiscoverPopupTextListControls(
+            target,
+            new OpaqueSurfaceScanner.PixelFrame(width, height, pixels),
+            words);
+
+        var list = Assert.Single(controls, control => control.ControlType == "ControlType.List");
+        var items = controls.Where(control => control.ControlType == "ControlType.ListItem").ToArray();
+        Assert.Equal(["8", "9", "11", "12", "14"], items.Select(item => item.Name));
+        Assert.All(items, item => Assert.Equal(list.RuntimeId, item.ParentRuntimeId));
+        Assert.True(Assert.Single(items, item => item.Name == "11").IsSelected);
+        Assert.All(items.Where(item => item.Name != "11"), item => Assert.False(item.IsSelected));
+    }
+
+    [Fact]
+    public void PopupTextListKeepsPaintedRowsWhoseShortLabelsOcrMissed()
+    {
+        const int width = 80;
+        const int height = 200;
+        var pixels = new byte[width * height * 4];
+        FillRect(pixels, width, new RectI(0, 0, width, height), 255, 255, 255);
+        FillRect(pixels, width, new RectI(1, 66, width - 2, 28), 238, 238, 238);
+        foreach (var center in new[] { 20, 50, 80, 110, 140, 170 })
+            FillRect(pixels, width, new RectI(12, center - 5, 8, 10), 40, 40, 40);
+        var target = new WindowTarget(10, 10, 20, "EXCEL", DateTimeOffset.UnixEpoch,
+            "", "Net UI Tool Window", new RectI(100, 200, width, height));
+        VisualTextObservation[] words =
+        [
+            new("9", new RectI(12, 44, 8, 12), 0),
+            new("12", new RectI(12, 104, 16, 12), 1),
+            new("14", new RectI(12, 134, 16, 12), 2),
+            new("16", new RectI(12, 164, 16, 12), 3)
+        ];
+
+        var controls = VisualSurfaceScanner.DiscoverPopupTextListControls(
+            target,
+            new OpaqueSurfaceScanner.PixelFrame(width, height, pixels),
+            words);
+
+        var items = controls.Where(control => control.ControlType == "ControlType.ListItem").ToArray();
+        Assert.Equal(6, items.Length);
+        Assert.Equal(2, items.Count(item => item.Name == "List item"));
+        Assert.True(items[2].IsSelected);
+        Assert.Equal(items.Length, items.Select(item => item.RuntimeId).Distinct(StringComparer.Ordinal).Count());
+    }
+
+    [Fact]
     public void ManualClickPromotesTheSameVisualFallbackNode()
     {
         var target = new WindowTarget(10, 10, 20, "opaque", DateTimeOffset.UnixEpoch,

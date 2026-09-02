@@ -2888,6 +2888,8 @@ public sealed class ExplorerWindow : Window
         if (control is null) return;
         var surface = _model.LayerFor(control.Level).Surfaces.FirstOrDefault(candidate => candidate.Id == control.OwnerSurfaceId);
         if (surface is null) return;
+        var surfaceChanged = _selectedSurface is null ||
+                             !string.Equals(_selectedSurface.Id, surface.Id, StringComparison.Ordinal);
         _inspectionLevel = surface.Level;
         _selectedSurface = surface;
         _selectedSurfaceScope = [surface];
@@ -2896,7 +2898,7 @@ public sealed class ExplorerWindow : Window
             control,
             _model.VariantsFor(_selectedSurfaceScope, control),
             _selectedVariant);
-        _resetAppMapZoomOnNextRender = true;
+        _resetAppMapZoomOnNextRender = surfaceChanged;
         _synchronizing = true;
         if (!_hierarchyItems.ContainsKey(control.Id))
             BuildHierarchy(_search.Text.Trim(), control.Id);
