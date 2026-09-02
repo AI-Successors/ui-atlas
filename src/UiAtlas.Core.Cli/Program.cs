@@ -6885,7 +6885,7 @@ internal sealed class RecordingControlPanel : IDisposable
             {
                 Title = $"UiAtlas recording - {_recordingId}",
                 Topmost = true,
-                ShowInTaskbar = false,
+                ShowInTaskbar = true,
                 ResizeMode = System.Windows.ResizeMode.NoResize,
                 WindowStyle = System.Windows.WindowStyle.None,
                 SizeToContent = System.Windows.SizeToContent.WidthAndHeight,
@@ -7403,7 +7403,7 @@ internal sealed class RecordingControlPanel : IDisposable
         grid.Children.Add(bottomNav);
 
         UpdateIdleContentVisibility();
-        return BuildRecorderShell(grid, RecorderFrameHeight, RecorderCardHeight, "Minimize panel");
+        return BuildRecorderShell(grid, RecorderFrameHeight, RecorderCardHeight, "Compact panel");
     }
 
     private System.Windows.Controls.Border BuildActiveShell()
@@ -7530,7 +7530,7 @@ internal sealed class RecordingControlPanel : IDisposable
         System.Windows.Controls.Grid.SetRow(activeBottomNav, 3);
         grid.Children.Add(activeBottomNav);
 
-        return BuildRecorderShell(grid, RecorderFrameHeight, RecorderCardHeight, "Minimize panel");
+        return BuildRecorderShell(grid, RecorderFrameHeight, RecorderCardHeight, "Compact panel");
     }
 
     private System.Windows.Controls.Border BuildCompactShell()
@@ -7643,7 +7643,13 @@ internal sealed class RecordingControlPanel : IDisposable
         grid.Children.Add(actionRow);
 
         RefreshCompactShellState();
-        return BuildRecorderShell(grid, CompactShellFrameHeight, CompactShellHeight, "Expand panel", CompactFrameWidth);
+        return BuildRecorderShell(
+            grid,
+            CompactShellFrameHeight,
+            CompactShellHeight,
+            "Expand panel",
+            CompactFrameWidth,
+            compactToggleExpands: true);
     }
 
     private void SetCurrentView(RecorderView view)
@@ -10780,6 +10786,15 @@ internal sealed class RecordingControlPanel : IDisposable
 
     private void ClosePanel() => _window?.Close();
 
+    private void MinimizeWindow()
+    {
+        if (_window is null)
+            return;
+
+        CloseIdleMenus();
+        _window.WindowState = System.Windows.WindowState.Minimized;
+    }
+
     private void CloseIdleMenus()
     {
         _pendingIdlePopupRequest = IdlePopupRequest.None;
@@ -11245,7 +11260,8 @@ internal sealed class RecordingControlPanel : IDisposable
         double frameHeight,
         double designHeight,
         string toggleToolTip,
-        double frameWidth = RecorderFrameWidth)
+        double frameWidth = RecorderFrameWidth,
+        bool compactToggleExpands = false)
     {
         var shellGrid = new System.Windows.Controls.Grid();
         shellGrid.Children.Add(child);
@@ -11262,9 +11278,15 @@ internal sealed class RecordingControlPanel : IDisposable
                 0)
         };
 
-        var toggleButton = WindowUtilityButton(CreateMinimizeIcon, ToggleCompactMode, toggleToolTip);
+        var toggleButton = WindowUtilityButton(
+            compactToggleExpands ? CreateExpandPanelIcon : CreateCompactPanelIcon,
+            ToggleCompactMode,
+            toggleToolTip);
         toggleButton.Margin = new System.Windows.Thickness(0, 0, WindowUtilityButtonGap, 0);
         utilityRow.Children.Add(toggleButton);
+        var minimizeButton = WindowUtilityButton(CreateMinimizeIcon, MinimizeWindow, "Minimize recorder to taskbar");
+        minimizeButton.Margin = new System.Windows.Thickness(0, 0, WindowUtilityButtonGap, 0);
+        utilityRow.Children.Add(minimizeButton);
         utilityRow.Children.Add(WindowUtilityButton(CreateCloseIcon, ClosePanel, "Close recorder"));
         System.Windows.Controls.Panel.SetZIndex(utilityRow, 12);
         shellGrid.Children.Add(utilityRow);
@@ -13995,6 +14017,16 @@ internal sealed class RecordingControlPanel : IDisposable
 
         return canvas;
     }
+
+    private static System.Windows.FrameworkElement CreateCompactPanelIcon(System.Windows.Media.Brush brush) =>
+        CreateUtilityIcon(
+            CreateStrokedPath("M3.5 5.5L6 8L3.5 10.5", brush, 1.7),
+            CreateStrokedPath("M12.5 5.5L10 8L12.5 10.5", brush, 1.7));
+
+    private static System.Windows.FrameworkElement CreateExpandPanelIcon(System.Windows.Media.Brush brush) =>
+        CreateUtilityIcon(
+            CreateStrokedPath("M6 5.5L3.5 8L6 10.5", brush, 1.7),
+            CreateStrokedPath("M10 5.5L12.5 8L10 10.5", brush, 1.7));
 
     private static System.Windows.FrameworkElement CreateMinimizeIcon(System.Windows.Media.Brush brush) =>
         CreateUtilityIcon(
