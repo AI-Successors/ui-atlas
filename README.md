@@ -138,7 +138,7 @@ The repository carries the license in [LICENSE](LICENSE). Newly authored files a
 
 ## Authors and maintainers
 
-UIAtlas was created and developed by **Daniel Kornev** and **Irina Nikitenko**.
+UIAtlas was created and developed by **Daniel Kornev** and **Irina Nikitenko** as founders of AI Successors Corp.
 
 - **Daniel Kornev** — [LinkedIn](https://www.linkedin.com/in/danielkornev/)
 - **Irina Nikitenko** — [LinkedIn](https://www.linkedin.com/in/irina-nikitenko-07598657/)
