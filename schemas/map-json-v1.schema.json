@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ui-atlas.org/schemas/map-json-v1.schema.json",
+  "title": "UiAtlas human-readable map JSON v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["formatVersion", "generatedUtc", "source", "app", "process", "rawDataStreams", "rawWorld", "semanticWorld"],
+  "properties": {
+    "formatVersion": { "const": "ui-atlas.map.json/1" },
+    "generatedUtc": { "type": "string", "format": "date-time" },
+    "source": {
+      "type": "object", "additionalProperties": false,
+      "required": ["graphFormatVersion", "graphId", "semanticHash", "privacyProfile"],
+      "properties": {
+        "graphFormatVersion": { "const": "ui-atlas.uikg/2" },
+        "graphId": { "type": "string" },
+        "semanticHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "privacyProfile": { "const": "sensitive-identities/1" }
+      }
+    },
+    "app": { "$ref": "#/$defs/identity" },
+    "process": {
+      "type": "object", "additionalProperties": false, "required": ["name", "applicationId"],
+      "properties": { "name": { "type": "string" }, "applicationId": { "type": "string" } }
+    },
+    "rawDataStreams": { "$ref": "#/$defs/world" },
+    "rawWorld": { "$ref": "#/$defs/world" },
+    "semanticWorld": { "$ref": "#/$defs/world" }
+  },
+  "$defs": {
+    "identity": {
+      "type": "object", "additionalProperties": false, "required": ["id", "name", "properties"],
+      "properties": { "id": { "type": "string" }, "name": { "type": "string" }, "properties": { "$ref": "#/$defs/properties" } }
+    },
+    "world": {
+      "type": "object", "additionalProperties": false, "required": ["windows"],
+      "properties": { "windows": { "type": "array", "maxItems": 10000, "items": { "$ref": "#/$defs/window" } } }
+    },
+    "window": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "name", "kind", "lineage", "properties", "variants"],
+      "properties": {
+        "id": { "type": "string" }, "name": { "type": "string" }, "kind": { "type": "string" },
+        "ownerWindowId": { "type": "string" }, "lineage": { "$ref": "#/$defs/windowLineage" },
+        "properties": { "$ref": "#/$defs/properties" },
+        "variants": { "type": "array", "maxItems": 10000, "items": { "$ref": "#/$defs/variant" } }
+      }
+    },
+    "variant": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "name", "frameSequence", "visibleByDefault", "reason", "lineage", "controls"],
+      "properties": {
+        "id": { "type": "string" }, "name": { "type": "string" }, "bundleId": { "type": "string" }, "frameSequence": { "type": "integer", "minimum": 0 },
+        "visibleByDefault": { "type": "boolean" }, "reason": { "type": "string" },
+        "lineage": { "$ref": "#/$defs/variantLineage" },
+        "controls": { "type": "array", "maxItems": 100000, "items": { "$ref": "#/$defs/control" } }
+      }
+    },
+    "control": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "name", "kind", "lineage", "properties"],
+      "properties": {
+        "id": { "type": "string" }, "name": { "type": "string" }, "kind": { "type": "string" },
+        "parentControlId": { "type": "string" }, "bounds": { "$ref": "#/$defs/rect" },
+        "lineage": { "$ref": "#/$defs/controlLineage" }, "properties": { "$ref": "#/$defs/properties" }
+      }
+    },
+    "windowLineage": {
+      "type": "object", "additionalProperties": false, "required": ["sourceWindowIds"],
+      "properties": { "sourceWindowIds": { "$ref": "#/$defs/ids" } }
+    },
+    "variantLineage": {
+      "type": "object", "additionalProperties": false, "required": ["sourceWindowIds", "sourceVariantIds"],
+      "properties": { "sourceWindowIds": { "$ref": "#/$defs/ids" }, "sourceVariantIds": { "$ref": "#/$defs/ids" } }
+    },
+    "controlLineage": {
+      "type": "object", "additionalProperties": false, "required": ["sourceControlIds"],
+      "properties": { "sourceControlIds": { "$ref": "#/$defs/ids" } }
+    },
+    "ids": { "type": "array", "uniqueItems": true, "items": { "type": "string" } },
+    "properties": {
+      "type": "object", "additionalProperties": { "oneOf": [
+        { "type": "string" }, { "type": "array", "items": { "type": "string" }, "uniqueItems": true }
+      ] }
+    },
+    "rect": {
+      "type": "object", "additionalProperties": false, "required": ["x", "y", "width", "height"],
+      "properties": { "x": { "type": "integer" }, "y": { "type": "integer" }, "width": { "type": "integer", "minimum": 0 }, "height": { "type": "integer", "minimum": 0 } }
+    }
+  }
+}

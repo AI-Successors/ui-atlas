@@ -1,0 +1,9 @@
+# Threat model
+
+Protected assets are desktop pixels, input timing, accessibility metadata, local identity/path information, process identity, bundle integrity, canonical graph integrity, and the availability of the recorder/explorer.
+
+Trust boundaries are the selected desktop application, Windows accessibility providers, low-level input callbacks, archive files, JSON, SQLite, image decoders, and the optional compatibility consumer. A selected application may hang or lie through accessibility APIs. A bundle, graph, or compatibility publication may be malicious. A lower-integrity recorder may be unable to inspect a higher-integrity target.
+
+Controls include sealed HWND/root-owner/PID/process-start identity, root-owner scoping, collection-time redaction, a UI Automation helper killed on timeout, node/depth/response limits, scoped per-window pixel copying, archive preflight without extraction, path and alias rejection, compressed/uncompressed limits, SHA-256, strict JSON, graph integrity and Raw/Semantic lineage validation, compatibility ID/reference/count validation, SQLite schema allowlisting and resource caps, atomic publication, and a no-network dependency policy. Privacy-safe export rekeys all entities and removes coordinates and source linkage; identity-bearing compatibility publication requires explicit acknowledgement.
+
+Residual risks include sensitive static labels or pixels, accessibility providers that block inside operating-system calls until the watchdog terminates the helper, screenshot codec vulnerabilities, local users with access to retained files, same-identity processes that concurrently mutate the user-owned catalog after a safety check, HWND reuse between validations, and visual capture limitations documented separately. Do not run the tool elevated over a catalog writable by a lower-integrity process, and do not open untrusted evidence with elevated privileges.

@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ui-atlas.org/schemas/map-json-v2.schema.json",
+  "title": "UiAtlas human-readable map JSON v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["formatVersion", "generatedUtc", "source", "app", "process", "rawDataStreams", "rawWorld", "semanticWorld", "interactionTrace", "routeGraph", "affordances", "negativeExamples"],
+  "properties": {
+    "formatVersion": { "const": "ui-atlas.map.json/2" },
+    "generatedUtc": { "type": "string", "format": "date-time" },
+    "source": {
+      "type": "object", "additionalProperties": false,
+      "required": ["graphFormatVersion", "graphId", "semanticHash", "privacyProfile"],
+      "properties": {
+        "graphFormatVersion": { "const": "ui-atlas.uikg/4" },
+        "graphId": { "type": "string" },
+        "semanticHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "privacyProfile": { "const": "sensitive-identities/1" }
+      }
+    },
+    "app": { "$ref": "map-json-v1.schema.json#/$defs/identity" },
+    "process": {
+      "type": "object", "additionalProperties": false, "required": ["name", "applicationId"],
+      "properties": { "name": { "type": "string" }, "applicationId": { "type": "string" } }
+    },
+    "rawDataStreams": { "$ref": "map-json-v1.schema.json#/$defs/world" },
+    "rawWorld": { "$ref": "map-json-v1.schema.json#/$defs/world" },
+    "semanticWorld": { "$ref": "map-json-v1.schema.json#/$defs/world" },
+    "interactionTrace": {
+      "type": "array", "maxItems": 10000,
+      "items": {
+        "type": "object", "additionalProperties": false, "required": ["sessionId", "steps"],
+        "properties": {
+          "sessionId": { "type": "string" },
+          "steps": { "type": "array", "maxItems": 10000, "items": { "$ref": "#/$defs/step" } }
+        }
+      }
+    },
+    "routeGraph": { "type": "array", "maxItems": 100000, "items": { "type": "object" } },
+    "affordances": { "type": "array", "maxItems": 100000, "items": { "type": "object" } },
+    "negativeExamples": { "type": "array", "maxItems": 100000, "items": { "type": "object" } }
+  },
+  "$defs": {
+    "step": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "operationId", "sequence", "attempt", "actor", "gesture", "action", "outcome", "sourceStateId", "sourceControlId", "sourceControlName", "targetStateIds", "sourceFrameSequence", "inputSequences", "resultFrameSequences", "startedUtc", "completedUtc", "diagnosticCode"],
+      "properties": {
+        "id": { "type": "string" }, "operationId": { "type": "string" },
+        "sequence": { "type": "integer", "minimum": 1 }, "attempt": { "type": "integer", "minimum": 1 },
+        "actor": { "enum": ["User", "AutoExplorer", "DerivedCandidate"] },
+        "gesture": { "enum": ["Click", "DoubleClick", "Drag", "Wheel", "Keyboard", "ProgrammaticInvoke", "ProgrammaticSelect"] },
+        "action": { "enum": ["Invoke", "Select", "Expand", "Collapse", "Toggle", "SetValue", "Scroll", "MoveResize", "Dismiss", "Unknown"] },
+        "outcome": { "enum": ["Succeeded", "NoChange", "Failed", "TimedOut", "Cancelled", "Unobserved"] },
+        "sourceStateId": { "type": "string" }, "sourceControlId": { "type": "string" }, "sourceControlName": { "type": "string" },
+        "targetStateIds": { "type": "array", "uniqueItems": true, "items": { "type": "string" } },
+        "sourceFrameSequence": { "type": "integer", "minimum": 1 },
+        "inputSequences": { "type": "array", "uniqueItems": true, "items": { "type": "integer", "minimum": 1 } },
+        "resultFrameSequences": { "type": "array", "uniqueItems": true, "items": { "type": "integer", "minimum": 1 } },
+        "startedUtc": { "type": "string", "format": "date-time" },
+        "completedUtc": { "type": "string", "format": "date-time" },
+        "diagnosticCode": { "type": "string" }
+      }
+    }
+  }
+}

@@ -1,0 +1,21 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/UiAtlas.Core.Contracts/UiAtlas.Core.Contracts.csproj" />
+    <Project Path="src/UiAtlas.Core.Recording/UiAtlas.Core.Recording.csproj" />
+    <Project Path="src/UiAtlas.Core.Recording.Windows/UiAtlas.Core.Recording.Windows.csproj" />
+    <Project Path="src/UiAtlas.Core.Build/UiAtlas.Core.Build.csproj" />
+    <Project Path="src/UiAtlas.Core.Storage/UiAtlas.Core.Storage.csproj" />
+    <Project Path="src/UiAtlas.Core.Reader/UiAtlas.Core.Reader.csproj" />
+    <Project Path="src/UiAtlas.Core.Migration/UiAtlas.Core.Migration.csproj" />
+    <Project Path="src/UiAtlas.Core.Migration.Firebird/UiAtlas.Core.Migration.Firebird.csproj" />
+    <Project Path="src/UiAtlas.Core.Desktop/UiAtlas.Core.Desktop.csproj" />
+    <Project Path="src/UiAtlas.Core.Cli/UiAtlas.Core.Cli.csproj" />
+  </Folder>
+  <Folder Name="/samples/">
+    <Project Path="samples/UiAtlas.Core.Consumer/UiAtlas.Core.Consumer.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/UiAtlas.Core.Tests/UiAtlas.Core.Tests.csproj" />
+    <Project Path="tests/UiAtlas.Core.Windows.Tests/UiAtlas.Core.Windows.Tests.csproj" />
+  </Folder>
+</Solution>

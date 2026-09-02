@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ui-atlas.org/schemas/uikg-export-v1.schema.json",
+  "title": "UiAtlas organized UI Knowledge Graph export v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["formatVersion", "metadata", "nodeOrder", "edgeOrder", "app", "process", "rawDataStreams", "rawWorld", "semanticWorld"],
+  "properties": {
+    "formatVersion": { "const": "ui-atlas.uikg.export/1" },
+    "metadata": { "$ref": "uikg-v4.schema.json#/properties/metadata" },
+    "nodeOrder": { "type": "array", "maxItems": 100000, "uniqueItems": true, "items": { "$ref": "uikg-v2.schema.json#/$defs/id" } },
+    "edgeOrder": { "type": "array", "maxItems": 100000, "uniqueItems": true, "items": { "$ref": "uikg-v2.schema.json#/$defs/id" } },
+    "app": { "$ref": "#/$defs/area" },
+    "process": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["applicationId", "name"],
+      "properties": {
+        "applicationId": { "$ref": "uikg-v2.schema.json#/$defs/id" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 4096 }
+      }
+    },
+    "rawDataStreams": { "$ref": "#/$defs/area" },
+    "rawWorld": { "$ref": "#/$defs/area" },
+    "semanticWorld": { "$ref": "#/$defs/area" }
+  },
+  "$defs": {
+    "area": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["nodes", "edges"],
+      "properties": {
+        "nodes": { "type": "array", "maxItems": 100000, "items": { "$ref": "uikg-v2.schema.json#/$defs/node" } },
+        "edges": { "type": "array", "maxItems": 100000, "items": { "$ref": "uikg-v4.schema.json#/$defs/edge" } }
+      }
+    }
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "version": 2,
+  "dependencies": {
+    "net10.0": {
+      "uiatlas.core.contracts": {
+        "type": "Project"
+      },
+      "uiatlas.core.recording": {
+        "type": "Project",
+        "dependencies": {
+          "UiAtlas.Core.Contracts": "[1.0.0, )"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="../UiAtlas.Core.Contracts/UiAtlas.Core.Contracts.csproj" />
+    <ProjectReference Include="../UiAtlas.Core.Recording/UiAtlas.Core.Recording.csproj" />
+  </ItemGroup>
+</Project>

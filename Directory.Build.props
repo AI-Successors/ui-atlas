@@ -1,0 +1,21 @@
+<Project>
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
+    <Deterministic>true</Deterministic>
+    <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
+    <PathMap>$(MSBuildProjectDirectory)=/_/$(MSBuildProjectName)</PathMap>
+    <BaseIntermediateOutputPath Condition="'$(UiAtlasIsolatedBuildRoot)' != ''">$(UiAtlasIsolatedBuildRoot)\obj\$(MSBuildProjectName)\</BaseIntermediateOutputPath>
+    <BaseOutputPath Condition="'$(UiAtlasIsolatedBuildRoot)' != ''">$(UiAtlasIsolatedBuildRoot)\bin\$(MSBuildProjectName)\</BaseOutputPath>
+    <DefaultItemExcludes Condition="'$(UiAtlasIsolatedBuildRoot)' != ''">$(DefaultItemExcludes);$(MSBuildProjectDirectory)\obj\**;$(MSBuildProjectDirectory)\bin\**</DefaultItemExcludes>
+    <PathMap Condition="'$(UiAtlasIsolatedBuildRoot)' != ''">$(MSBuildProjectDirectory)=/_/$(MSBuildProjectName),$(UiAtlasIsolatedBuildRoot)=/_/build</PathMap>
+    <DeterministicSourcePaths>true</DeterministicSourcePaths>
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+    <RestoreLockedMode Condition="'$(LockedRestore)' == 'true'">true</RestoreLockedMode>
+    <RepositoryUrl>https://github.com/AI-Successors/ui-atlas</RepositoryUrl>
+  </PropertyGroup>
+</Project>

@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Versioned recording and canonical UI graph contracts.</Description>
+  </PropertyGroup>
+</Project>

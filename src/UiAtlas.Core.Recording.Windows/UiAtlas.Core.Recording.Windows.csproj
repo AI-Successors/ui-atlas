@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.WindowsDesktop.App.WPF" />
+    <PackageReference Include="Interop.UIAutomationClient" />
+    <ProjectReference Include="../UiAtlas.Core.Contracts/UiAtlas.Core.Contracts.csproj" />
+    <ProjectReference Include="../UiAtlas.Core.Recording/UiAtlas.Core.Recording.csproj" />
+  </ItemGroup>
+</Project>

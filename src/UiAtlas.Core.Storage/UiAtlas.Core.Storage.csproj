@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="../UiAtlas.Core.Contracts/UiAtlas.Core.Contracts.csproj" />
+    <ProjectReference Include="../UiAtlas.Core.Recording/UiAtlas.Core.Recording.csproj" />
+    <ProjectReference Include="../UiAtlas.Core.Build/UiAtlas.Core.Build.csproj" />
+    <PackageReference Include="Microsoft.Data.Sqlite" />
+    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" />
+  </ItemGroup>
+</Project>

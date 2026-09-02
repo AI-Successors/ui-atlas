@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ui-atlas.org/schemas/uikg-v4.schema.json",
+  "title": "UiAtlas UI Knowledge Graph v4",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["metadata", "nodes", "edges"],
+  "properties": {
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["formatVersion", "toolVersion", "graphId", "builtUtc", "sourceBundleId", "semanticHash", "privacyProfile"],
+      "properties": {
+        "formatVersion": { "const": "ui-atlas.uikg/4" },
+        "toolVersion": { "type": "string" },
+        "graphId": { "$ref": "uikg-v2.schema.json#/$defs/id" },
+        "builtUtc": { "type": "string", "format": "date-time" },
+        "sourceBundleId": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "sourceBundleIds": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1, "maxLength": 256 } },
+        "logicalMapId": { "type": "string", "maxLength": 256 },
+        "semanticHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "privacyProfile": { "enum": ["safe/1", "full-evidence/1"] }
+      }
+    },
+    "nodes": { "type": "array", "maxItems": 100000, "items": { "$ref": "uikg-v2.schema.json#/$defs/node" } },
+    "edges": { "type": "array", "maxItems": 100000, "items": { "$ref": "#/$defs/edge" } }
+  },
+  "$defs": {
+    "edge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "fromId", "toId", "properties", "evidence"],
+      "properties": {
+        "id": { "$ref": "uikg-v2.schema.json#/$defs/id" },
+        "kind": { "enum": ["contains", "observed-transition", "opens-popup", "interaction"] },
+        "fromId": { "$ref": "uikg-v2.schema.json#/$defs/id" },
+        "toId": { "$ref": "uikg-v2.schema.json#/$defs/id" },
+        "properties": { "type": "array", "maxItems": 1000, "items": { "$ref": "uikg-v2.schema.json#/$defs/property" } },
+        "evidence": { "type": "array", "maxItems": 10000, "items": { "$ref": "uikg-v2.schema.json#/$defs/evidence" } }
+      }
+    }
+  }
+}

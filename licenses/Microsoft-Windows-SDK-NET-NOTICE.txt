@@ -1,0 +1,15 @@
+Microsoft.Windows.SDK.NET runtime projection notice
+
+UiAtlas's Windows OCR support redistributes Microsoft.Windows.SDK.NET.dll from
+Microsoft.Windows.SDK.NET.Ref 10.0.19041.57. Copyright (c) Microsoft
+Corporation. All rights reserved.
+
+Use and redistribution of that Microsoft binary are governed by the Microsoft
+Windows Software Development Kit license terms, not by UiAtlas's MIT license.
+The authoritative license is published by Microsoft at:
+
+https://aka.ms/WinSDKLicenseURL
+
+The NuGet package metadata requires acceptance of those license terms and
+identifies Microsoft as the author and owner. This notice does not relicense
+the Microsoft binary or claim that it is open-source software.

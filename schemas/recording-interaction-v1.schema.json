@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ui-atlas.org/schemas/recording-interaction-v1.schema.json",
+  "title": "UiAtlas interaction observation v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["interactionId", "operationId", "attempt", "sequence", "actor", "gesture", "action", "sourceFrameSequence", "inputSequences", "resultFrameSequences", "startedUtc", "completedUtc", "outcome", "diagnosticCode"],
+  "properties": {
+    "interactionId": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "operationId": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "attempt": { "type": "integer", "minimum": 1 },
+    "sequence": { "type": "integer", "minimum": 1 },
+    "actor": { "enum": ["User", "AutoExplorer", "DerivedCandidate"] },
+    "gesture": { "enum": ["Click", "DoubleClick", "Drag", "Wheel", "Keyboard", "ProgrammaticInvoke", "ProgrammaticSelect"] },
+    "action": { "enum": ["Invoke", "Select", "Expand", "Collapse", "Toggle", "SetValue", "Scroll", "MoveResize", "Dismiss", "Unknown"] },
+    "sourceFrameSequence": { "type": "integer", "minimum": 1 },
+    "sourceControl": { "anyOf": [{ "$ref": "recording-frame-v1.schema.json#/$defs/control" }, { "type": "null" }] },
+    "inputSequences": { "type": "array", "maxItems": 50000, "uniqueItems": true, "items": { "type": "integer", "minimum": 1 } },
+    "resultFrameSequences": { "type": "array", "uniqueItems": true, "items": { "type": "integer", "minimum": 1 } },
+    "startedUtc": { "type": "string", "format": "date-time" },
+    "completedUtc": { "type": "string", "format": "date-time" },
+    "outcome": { "enum": ["Succeeded", "NoChange", "Failed", "TimedOut", "Cancelled", "Unobserved"] },
+    "diagnosticCode": { "type": "string", "maxLength": 256 }
+  }
+}

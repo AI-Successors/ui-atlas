@@ -1,0 +1,53 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>ui-atlas</AssemblyName>
+    <RootNamespace>UiAtlas.Core.Cli</RootNamespace>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.WindowsDesktop.App.WPF" />
+    <ProjectReference Include="../UiAtlas.Core.Contracts/UiAtlas.Core.Contracts.csproj" />
+    <ProjectReference Include="../UiAtlas.Core.Recording/UiAtlas.Core.Recording.csproj" />
+    <ProjectReference Include="../UiAtlas.Core.Recording.Windows/UiAtlas.Core.Recording.Windows.csproj" />
+    <ProjectReference Include="../UiAtlas.Core.Build/UiAtlas.Core.Build.csproj" />
+    <ProjectReference Include="../UiAtlas.Core.Storage/UiAtlas.Core.Storage.csproj" />
+    <ProjectReference Include="../UiAtlas.Core.Reader/UiAtlas.Core.Reader.csproj" />
+    <ProjectReference Include="../UiAtlas.Core.Migration.Firebird/UiAtlas.Core.Migration.Firebird.csproj"
+                      ReferenceOutputAssembly="false"
+                      AdditionalProperties="Platform=x86" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="Assets\recorder-reference.png">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="Assets\recorder-icon-*.png">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="Assets\recorder-icon-*.svg">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="Assets\recorder-wave-art.png">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="Assets\recorder-popup-underlay.png">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+  <Target Name="PublishDesktopExplorer" AfterTargets="Publish" Condition="'$(PublishDesktopExplorer)' != 'false'">
+    <MSBuild
+      Projects="$(MSBuildThisFileDirectory)..\UiAtlas.Core.Desktop\UiAtlas.Core.Desktop.csproj"
+      Targets="Publish"
+      Properties="Configuration=$(Configuration);PublishDir=$(PublishDir);PublishDesktopExplorer=false" />
+  </Target>
+  <Target Name="CopyFirebirdMigrationAdapter" AfterTargets="Build" Condition="'$(DesignTimeBuild)' != 'true'">
+    <ItemGroup>
+      <FirebirdMigrationAdapterFiles Include="$(MSBuildProjectDirectory)\..\UiAtlas.Core.Migration.Firebird\bin\$(Configuration)\net10.0-windows\**\*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(FirebirdMigrationAdapterFiles)"
+          DestinationFiles="@(FirebirdMigrationAdapterFiles->'$(OutDir)migration-firebird\%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true" />
+  </Target>
+</Project>

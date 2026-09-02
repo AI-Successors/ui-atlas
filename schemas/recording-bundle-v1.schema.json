@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ui-atlas.org/schemas/recording-bundle-v1.schema.json",
+  "title": "UiAtlas recording manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["formatVersion", "toolVersion", "sessionId", "startedUtc", "endedUtc", "outcome", "target", "privacy", "retention", "explicitConsent", "eventCount", "frameCount", "hashAlgorithm", "files"],
+  "properties": {
+    "formatVersion": { "const": "ui-atlas.recording/1" },
+    "toolVersion": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "sessionId": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "startedUtc": { "type": "string", "format": "date-time" },
+    "endedUtc": { "type": "string", "format": "date-time" },
+    "outcome": { "enum": ["complete", "partial", "cancelled", "failed"] },
+    "target": {
+      "type": "object", "additionalProperties": false,
+      "required": ["selectedHwnd", "rootOwnerHwnd", "processId", "processName", "processStartedUtc", "policy"],
+      "properties": {
+        "selectedHwnd": { "type": "integer" }, "rootOwnerHwnd": { "type": "integer" },
+        "processId": { "type": "integer", "minimum": 0 }, "processName": { "type": "string", "maxLength": 512 },
+        "processStartedUtc": { "type": "string", "format": "date-time" }, "policy": { "const": "selected-root-owner-and-owned-popups/1" },
+        "productVersion": { "type": "string", "maxLength": 512 }, "originalFilename": { "type": "string", "maxLength": 512 },
+        "companyName": { "type": "string", "maxLength": 512 }, "productName": { "type": "string", "maxLength": 512 }
+      }
+    },
+    "privacy": { "$ref": "#/$defs/privacy" },
+    "retention": {
+      "type": "object", "additionalProperties": false, "required": ["retainOnCancel", "name"],
+      "properties": { "retainOnCancel": { "type": "boolean" }, "name": { "type": "string", "maxLength": 100 } }
+    },
+    "explicitConsent": { "const": true },
+    "eventCount": { "type": "integer", "minimum": 0, "maximum": 50000 },
+    "frameCount": { "type": "integer", "minimum": 0 },
+    "hashAlgorithm": { "const": "SHA-256" },
+    "files": {
+      "type": "array", "minItems": 1, "maxItems": 10000,
+      "items": {
+        "type": "object", "additionalProperties": false, "required": ["path", "length", "mediaType", "sha256", "immutable"],
+        "properties": {
+          "path": { "type": "string", "minLength": 1, "maxLength": 240 },
+          "length": { "type": "integer", "minimum": 0, "maximum": 67108864 },
+          "mediaType": { "enum": ["application/json", "application/x-ndjson", "image/png", "application/octet-stream"] },
+          "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "immutable": { "type": "boolean" }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "privacy": {
+      "type": "object", "additionalProperties": false,
+      "required": ["literalTypedTextCaptured", "executablePathsCaptured", "screenshotsRetained", "name"],
+      "properties": {
+        "literalTypedTextCaptured": { "type": "boolean" }, "executablePathsCaptured": { "type": "boolean" },
+        "screenshotsRetained": { "type": "boolean" }, "name": { "type": "string", "maxLength": 100 }
+      }
+    }
+  }
+}

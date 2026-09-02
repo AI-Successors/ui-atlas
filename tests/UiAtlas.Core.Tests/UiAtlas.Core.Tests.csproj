@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/UiAtlas.Core.Contracts/UiAtlas.Core.Contracts.csproj" />
+    <ProjectReference Include="../../src/UiAtlas.Core.Recording/UiAtlas.Core.Recording.csproj" />
+    <ProjectReference Include="../../src/UiAtlas.Core.Build/UiAtlas.Core.Build.csproj" />
+    <ProjectReference Include="../../src/UiAtlas.Core.Cli/UiAtlas.Core.Cli.csproj" />
+    <ProjectReference Include="../../src/UiAtlas.Core.Storage/UiAtlas.Core.Storage.csproj" />
+    <ProjectReference Include="../../src/UiAtlas.Core.Reader/UiAtlas.Core.Reader.csproj" />
+    <ProjectReference Include="../../src/UiAtlas.Core.Migration/UiAtlas.Core.Migration.csproj" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" PrivateAssets="all" />
+  </ItemGroup>
+</Project>

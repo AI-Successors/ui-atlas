@@ -1,0 +1,21 @@
+name: ci
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.200
+      - run: dotnet restore UiAtlas.Core.slnx --locked-mode
+      - run: dotnet build UiAtlas.Core.slnx -c Release --no-restore -m:1 -nr:false
+      - run: dotnet test UiAtlas.Core.slnx -c Release --no-build --no-restore -m:1
+      - shell: pwsh
+        run: ./tools/Test-RepositoryBoundary.ps1
+      - shell: pwsh
+        run: ./tools/Smoke-Offline.ps1

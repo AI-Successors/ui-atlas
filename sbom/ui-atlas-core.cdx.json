@@ -1,0 +1,38 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.6",
+  "serialNumber": "urn:uuid:79a7e35c-b31e-5f58-9c0f-c9a7703987da",
+  "version": 1,
+  "metadata": {
+    "timestamp": "2026-08-11T00:00:00Z",
+    "component": { "bom-ref": "pkg:generic/ui-atlas.core@1.9.0", "type": "application", "name": "ui-atlas.core", "version": "1.9.0", "licenses": [{ "license": { "id": "MIT" } }] },
+    "properties": [{ "name": "ui-atlas:scope", "value": "runtime" }]
+  },
+  "components": [
+    { "bom-ref": "pkg:nuget/FirebirdSql.Data.FirebirdClient@10.3.4", "type": "library", "name": "FirebirdSql.Data.FirebirdClient", "version": "10.3.4", "purl": "pkg:nuget/FirebirdSql.Data.FirebirdClient@10.3.4", "licenses": [{ "license": { "name": "Initial Developer's Public License 1.0" } }] },
+    { "bom-ref": "pkg:nuget/Interop.UIAutomationClient@10.19041.0", "type": "library", "name": "Interop.UIAutomationClient", "version": "10.19041.0", "purl": "pkg:nuget/Interop.UIAutomationClient@10.19041.0", "licenses": [{ "license": { "id": "MIT" } }] },
+    { "bom-ref": "pkg:nuget/Microsoft.Data.Sqlite@10.0.10", "type": "library", "name": "Microsoft.Data.Sqlite", "version": "10.0.10", "purl": "pkg:nuget/Microsoft.Data.Sqlite@10.0.10", "licenses": [{ "license": { "id": "MIT" } }] },
+    { "bom-ref": "pkg:nuget/Microsoft.Data.Sqlite.Core@10.0.10", "type": "library", "name": "Microsoft.Data.Sqlite.Core", "version": "10.0.10", "purl": "pkg:nuget/Microsoft.Data.Sqlite.Core@10.0.10", "licenses": [{ "license": { "id": "MIT" } }] },
+    { "bom-ref": "pkg:nuget/Microsoft.Windows.SDK.NET.Ref@10.0.19041.57", "type": "library", "name": "Microsoft.Windows.SDK.NET", "version": "10.0.19041.57", "purl": "pkg:nuget/Microsoft.Windows.SDK.NET.Ref@10.0.19041.57", "licenses": [{ "license": { "name": "Microsoft Windows SDK License" } }], "properties": [{ "name": "ui-atlas:runtime-artifact", "value": "Microsoft.Windows.SDK.NET.dll" }] },
+    { "bom-ref": "pkg:nuget/Microsoft.Windows.CsWinRT@2.2.0", "type": "library", "name": "WinRT.Runtime", "version": "2.2.0", "purl": "pkg:nuget/Microsoft.Windows.CsWinRT@2.2.0", "licenses": [{ "license": { "id": "MIT" } }], "properties": [{ "name": "ui-atlas:runtime-artifact", "value": "WinRT.Runtime.dll" }] },
+    { "bom-ref": "pkg:nuget/SQLitePCLRaw.bundle_e_sqlite3@3.0.5", "type": "library", "name": "SQLitePCLRaw.bundle_e_sqlite3", "version": "3.0.5", "purl": "pkg:nuget/SQLitePCLRaw.bundle_e_sqlite3@3.0.5", "licenses": [{ "license": { "id": "Apache-2.0" } }] },
+    { "bom-ref": "pkg:nuget/SQLitePCLRaw.config.e_sqlite3@3.0.5", "type": "library", "name": "SQLitePCLRaw.config.e_sqlite3", "version": "3.0.5", "purl": "pkg:nuget/SQLitePCLRaw.config.e_sqlite3@3.0.5", "licenses": [{ "license": { "id": "Apache-2.0" } }] },
+    { "bom-ref": "pkg:nuget/SQLitePCLRaw.core@3.0.5", "type": "library", "name": "SQLitePCLRaw.core", "version": "3.0.5", "purl": "pkg:nuget/SQLitePCLRaw.core@3.0.5", "licenses": [{ "license": { "id": "Apache-2.0" } }] },
+    { "bom-ref": "pkg:nuget/SQLitePCLRaw.provider.e_sqlite3@3.0.5", "type": "library", "name": "SQLitePCLRaw.provider.e_sqlite3", "version": "3.0.5", "purl": "pkg:nuget/SQLitePCLRaw.provider.e_sqlite3@3.0.5", "licenses": [{ "license": { "id": "Apache-2.0" } }] },
+    { "bom-ref": "pkg:nuget/SQLite@3.53.4", "type": "library", "name": "SQLite", "version": "3.53.4", "purl": "pkg:nuget/SQLite@3.53.4", "licenses": [{ "license": { "name": "Public Domain" } }] }
+  ],
+  "dependencies": [
+    { "ref": "pkg:generic/ui-atlas.core@1.9.0", "dependsOn": ["pkg:nuget/FirebirdSql.Data.FirebirdClient@10.3.4", "pkg:nuget/Interop.UIAutomationClient@10.19041.0", "pkg:nuget/Microsoft.Data.Sqlite@10.0.10", "pkg:nuget/Microsoft.Windows.SDK.NET.Ref@10.0.19041.57", "pkg:nuget/Microsoft.Windows.CsWinRT@2.2.0", "pkg:nuget/SQLitePCLRaw.bundle_e_sqlite3@3.0.5"] },
+    { "ref": "pkg:nuget/FirebirdSql.Data.FirebirdClient@10.3.4", "dependsOn": [] },
+    { "ref": "pkg:nuget/Interop.UIAutomationClient@10.19041.0", "dependsOn": [] },
+    { "ref": "pkg:nuget/Microsoft.Data.Sqlite@10.0.10", "dependsOn": ["pkg:nuget/Microsoft.Data.Sqlite.Core@10.0.10", "pkg:nuget/SQLitePCLRaw.bundle_e_sqlite3@3.0.5", "pkg:nuget/SQLitePCLRaw.core@3.0.5"] },
+    { "ref": "pkg:nuget/Microsoft.Data.Sqlite.Core@10.0.10", "dependsOn": ["pkg:nuget/SQLitePCLRaw.core@3.0.5"] },
+    { "ref": "pkg:nuget/Microsoft.Windows.SDK.NET.Ref@10.0.19041.57", "dependsOn": ["pkg:nuget/Microsoft.Windows.CsWinRT@2.2.0"] },
+    { "ref": "pkg:nuget/Microsoft.Windows.CsWinRT@2.2.0", "dependsOn": [] },
+    { "ref": "pkg:nuget/SQLitePCLRaw.bundle_e_sqlite3@3.0.5", "dependsOn": ["pkg:nuget/SQLite@3.53.4", "pkg:nuget/SQLitePCLRaw.config.e_sqlite3@3.0.5"] },
+    { "ref": "pkg:nuget/SQLitePCLRaw.config.e_sqlite3@3.0.5", "dependsOn": ["pkg:nuget/SQLitePCLRaw.provider.e_sqlite3@3.0.5"] },
+    { "ref": "pkg:nuget/SQLitePCLRaw.provider.e_sqlite3@3.0.5", "dependsOn": ["pkg:nuget/SQLitePCLRaw.core@3.0.5"] },
+    { "ref": "pkg:nuget/SQLitePCLRaw.core@3.0.5", "dependsOn": [] },
+    { "ref": "pkg:nuget/SQLite@3.53.4", "dependsOn": [] }
+  ]
+}

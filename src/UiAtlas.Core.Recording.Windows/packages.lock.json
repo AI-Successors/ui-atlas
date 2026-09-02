@@ -1,0 +1,22 @@
+{
+  "version": 2,
+  "dependencies": {
+    "net10.0-windows10.0.19041": {
+      "Interop.UIAutomationClient": {
+        "type": "Direct",
+        "requested": "[10.19041.0, )",
+        "resolved": "10.19041.0",
+        "contentHash": "Me5vKNZ1JSg6txTsPQXaWx7fVNh+fmcUPPwtDKJtqvbMM0N8aoa/l/QPolkJIRnasCabCNt4v2zG4p1Q9HU98A=="
+      },
+      "uiatlas.core.contracts": {
+        "type": "Project"
+      },
+      "uiatlas.core.recording": {
+        "type": "Project",
+        "dependencies": {
+          "UiAtlas.Core.Contracts": "[1.0.0, )"
+        }
+      }
+    }
+  }
+}

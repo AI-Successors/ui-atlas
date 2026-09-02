@@ -1,0 +1,118 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ui-atlas.org/schemas/ui-atlas-vnext-compat-v1.schema.json",
+  "title": "UiAtlas vNext authoring compatibility publication",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "kind", "projectId", "generatedUtc", "UiAtlasCore", "buildRevision", "authoring"],
+  "properties": {
+    "schemaVersion": { "const": 5 },
+    "kind": { "const": "uikg/vnext" },
+    "projectId": { "type": "string", "pattern": "^[A-Za-z0-9._-]{1,128}$" },
+    "generatedUtc": { "type": "string", "format": "date-time" },
+    "UiAtlasCore": {
+      "type": "object", "additionalProperties": false,
+      "required": ["adapterVersion", "privacyProfile", "sourceFormatVersion", "sourceSemanticHash"],
+      "properties": {
+        "adapterVersion": { "const": "ui-atlas-vnext-compat/1" }, "privacyProfile": { "const": "sensitive-identities/1" },
+        "sourceFormatVersion": { "const": "ui-atlas.uikg/2" }, "sourceSemanticHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      }
+    },
+    "buildRevision": {
+      "type": "object", "additionalProperties": false,
+      "required": ["buildId", "projectId", "generatedUtc", "sourcePackageCount"],
+      "properties": {
+        "buildId": { "$ref": "#/$defs/id" }, "projectId": { "type": "string" },
+        "generatedUtc": { "type": "string", "format": "date-time" }, "sourcePackageCount": { "type": "integer", "minimum": 0, "maximum": 10000 }
+      }
+    },
+    "authoring": {
+      "type": "object", "additionalProperties": false,
+      "required": ["applications", "windows", "controls"],
+      "properties": {
+        "applications": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/application" } },
+        "windows": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/window" } },
+        "controls": { "type": "array", "items": { "$ref": "#/$defs/control" } }
+      }
+    },
+    "observationPackages": {
+      "type": "array", "maxItems": 10000,
+      "items": { "$ref": "#/$defs/observationPackage" }
+    }
+  },
+  "$defs": {
+    "id": { "type": "string", "pattern": "^[a-z-]+_[0-9a-f]{24}$" },
+    "application": {
+      "type": "object", "additionalProperties": false, "required": ["applicationId", "name", "inTwinDefault"],
+      "properties": { "applicationId": { "$ref": "#/$defs/id" }, "name": { "type": "string", "maxLength": 4096 }, "inTwinDefault": { "type": "boolean" } }
+    },
+    "window": {
+      "type": "object", "additionalProperties": false,
+      "required": ["windowId", "sceneId", "applicationId", "kind", "title", "mode", "chromeMode", "x", "y", "width", "height", "isModal", "showInTaskbar", "alwaysOnTop", "defaultZIndex", "semanticSurfaceId", "semanticSurfaceKind", "semanticSurfaceDisplay"],
+      "properties": {
+        "windowId": { "$ref": "#/$defs/id" }, "sceneId": { "const": 0 }, "applicationId": { "$ref": "#/$defs/id" },
+        "kind": { "$ref": "#/$defs/text" }, "title": { "$ref": "#/$defs/text" }, "mode": { "$ref": "#/$defs/text" }, "chromeMode": { "$ref": "#/$defs/text" },
+        "x": { "$ref": "#/$defs/coordinate" }, "y": { "$ref": "#/$defs/coordinate" }, "width": { "$ref": "#/$defs/size" }, "height": { "$ref": "#/$defs/size" },
+        "isModal": { "type": "boolean" }, "showInTaskbar": { "type": "boolean" }, "alwaysOnTop": { "type": "boolean" }, "defaultZIndex": { "type": "integer" },
+        "processName": { "$ref": "#/$defs/text" }, "className": { "$ref": "#/$defs/text" }, "originalFilename": { "$ref": "#/$defs/text" },
+        "productVersion": { "$ref": "#/$defs/text" }, "companyName": { "$ref": "#/$defs/text" }, "productName": { "$ref": "#/$defs/text" },
+        "semanticSurfaceId": { "$ref": "#/$defs/id" }, "semanticSurfaceKind": { "$ref": "#/$defs/text" }, "semanticSurfaceDisplay": { "$ref": "#/$defs/text" },
+        "semanticParentSurfaceId": { "$ref": "#/$defs/id" }, "semanticPopupFamilyId": { "$ref": "#/$defs/id" }, "semanticPopupVariantId": { "$ref": "#/$defs/id" }
+      }
+    },
+    "control": {
+      "type": "object", "additionalProperties": false,
+      "required": ["controlId", "controlKey", "sceneId", "windowId", "controlType", "role", "label", "canonicalKind", "supportedPatterns", "stableSelectors", "identity", "structure", "x", "y", "width", "height"],
+      "properties": {
+        "controlId": { "$ref": "#/$defs/id" }, "controlKey": { "$ref": "#/$defs/id" }, "sceneId": { "const": 0 }, "windowId": { "$ref": "#/$defs/id" },
+        "controlType": { "$ref": "#/$defs/text" }, "role": { "$ref": "#/$defs/text" }, "label": { "$ref": "#/$defs/text" }, "canonicalKind": { "$ref": "#/$defs/text" },
+        "supportedPatterns": { "$ref": "#/$defs/stringArray" }, "stableSelectors": { "$ref": "#/$defs/stringArray" },
+        "identity": { "$ref": "#/$defs/identity" }, "structure": { "$ref": "#/$defs/structure" },
+        "x": { "$ref": "#/$defs/coordinate" }, "y": { "$ref": "#/$defs/coordinate" }, "width": { "$ref": "#/$defs/size" }, "height": { "$ref": "#/$defs/size" }
+      }
+    },
+    "observationPackage": {
+      "type": "object", "additionalProperties": false,
+      "required": ["packageId", "kind", "displayName", "variantId", "sceneId", "sourceSessionId", "recordingSessionKey", "source", "confidence", "observedUtc", "captureReason", "materializationStatus", "buildRevisionId", "artifacts", "streams"],
+      "properties": {
+        "packageId": { "$ref": "#/$defs/id" }, "kind": { "const": "observation_package.variant" }, "displayName": { "$ref": "#/$defs/text" },
+        "variantId": { "$ref": "#/$defs/id" }, "sceneId": { "type": "integer", "minimum": 1 },
+        "sourceSessionId": { "type": "string", "format": "uuid" }, "recordingSessionKey": { "$ref": "#/$defs/id" },
+        "source": { "const": "manual-recording" }, "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "observedUtc": { "type": "string", "format": "date-time" }, "captureReason": { "const": "ManualMapStep" },
+        "materializationStatus": { "const": "reproducible" }, "buildRevisionId": { "$ref": "#/$defs/id" },
+        "artifacts": { "type": "array", "minItems": 1, "maxItems": 1, "items": { "$ref": "#/$defs/observationArtifact" } },
+        "streams": { "type": "array", "minItems": 2, "maxItems": 2, "items": { "$ref": "#/$defs/observationStream" } }
+      }
+    },
+    "observationArtifact": {
+      "type": "object", "additionalProperties": false,
+      "required": ["artifactId", "kind", "path", "mediaType", "payloadJson"],
+      "properties": {
+        "artifactId": { "$ref": "#/$defs/id" }, "kind": { "const": "artifact.observation_entry" }, "path": { "type": "string", "pattern": "^raw/observations/frame-[0-9]{6}\\.json$" },
+        "mediaType": { "const": "application/json" }, "payloadJson": { "type": "string", "maxLength": 16777216 }
+      }
+    },
+    "observationStream": {
+      "type": "object", "additionalProperties": false,
+      "required": ["streamId", "kind", "status", "source", "confidence", "observedUtc", "artifactIds"],
+      "properties": {
+        "streamId": { "$ref": "#/$defs/id" }, "kind": { "enum": ["stream.win32", "stream.uia"] }, "status": { "const": "captured" },
+        "source": { "const": "manual" }, "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "observedUtc": { "type": "string", "format": "date-time" }, "artifactIds": { "type": "array", "minItems": 1, "maxItems": 64, "items": { "$ref": "#/$defs/id" } }
+      }
+    },
+    "identity": {
+      "type": "object", "additionalProperties": false, "required": ["semanticSurfaceId", "semanticSurfaceKind"],
+      "properties": { "automationId": { "$ref": "#/$defs/text" }, "name": { "$ref": "#/$defs/text" }, "className": { "$ref": "#/$defs/text" }, "frameworkId": { "$ref": "#/$defs/text" }, "semanticSurfaceId": { "$ref": "#/$defs/id" }, "semanticSurfaceKind": { "$ref": "#/$defs/text" } }
+    },
+    "structure": {
+      "type": "object", "additionalProperties": false, "required": ["partOfWindow", "containerPath"],
+      "properties": { "parentControlId": { "$ref": "#/$defs/id" }, "partOfWindow": { "$ref": "#/$defs/id" }, "containerPath": { "$ref": "#/$defs/text" } }
+    },
+    "text": { "type": "string", "maxLength": 4096 },
+    "coordinate": { "type": "integer", "minimum": -1000000, "maximum": 1000000 },
+    "size": { "type": "integer", "minimum": 0, "maximum": 1000000 },
+    "stringArray": { "type": "array", "maxItems": 128, "items": { "type": "string", "maxLength": 4096 } }
+  }
+}

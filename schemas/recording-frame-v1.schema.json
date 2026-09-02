@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ui-atlas.org/schemas/recording-frame-v1.schema.json",
+  "title": "UiAtlas recording frame observation v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["sequence", "timestampUtc", "frameEntry", "window", "automation", "automationTimedOut", "automationStatus", "trigger"],
+  "properties": {
+    "sequence": { "type": "integer", "minimum": 1 },
+    "timestampUtc": { "type": "string", "format": "date-time" },
+    "frameEntry": { "type": "string", "maxLength": 240 },
+    "window": { "$ref": "#/$defs/window" },
+    "automation": { "type": "array", "maxItems": 20000, "items": { "$ref": "#/$defs/control" } },
+    "automationTimedOut": { "type": "boolean" },
+    "automationStatus": { "type": "string", "maxLength": 128 },
+    "trigger": { "type": "string", "maxLength": 4096 },
+    "scopedWindows": { "type": ["array", "null"], "maxItems": 32, "items": { "$ref": "#/$defs/window" } },
+    "episodeSequence": { "type": ["integer", "null"], "minimum": 1 },
+    "postTriggerDelayMs": { "type": ["integer", "null"], "minimum": 0, "maximum": 60000 },
+    "capturePhase": { "enum": ["baseline", "action", "post-trigger", "materialized", "final"] },
+    "actionObservedUtc": { "type": ["string", "null"], "format": "date-time" },
+    "observationScope": { "enum": ["full-root", "popup-delta", "control-delta"] },
+    "observedWindowHwnds": { "type": ["array", "null"], "maxItems": 32, "uniqueItems": true, "items": { "type": "integer" } },
+    "screenshotBounds": { "anyOf": [{ "$ref": "#/$defs/rect" }, { "type": "null" }] },
+    "baseFrameSequence": { "type": ["integer", "null"], "minimum": 1 },
+    "interactionSource": { "anyOf": [{ "$ref": "#/$defs/control" }, { "type": "null" }] },
+    "interactionId": { "type": ["string", "null"], "maxLength": 128 }
+  },
+  "$defs": {
+    "rect": {
+      "type": "object", "additionalProperties": false, "required": ["x", "y", "width", "height"],
+      "properties": { "x": { "type": "integer" }, "y": { "type": "integer" }, "width": { "type": "integer", "minimum": 0 }, "height": { "type": "integer", "minimum": 0 } }
+    },
+    "window": {
+      "type": "object", "additionalProperties": false,
+      "required": ["hwnd", "rootOwnerHwnd", "processId", "className", "title", "bounds", "isVisible", "isEnabled", "isMinimized", "isCloaked", "dpi"],
+      "properties": {
+        "hwnd": { "type": "integer" }, "rootOwnerHwnd": { "type": "integer" }, "processId": { "type": "integer", "minimum": 0 },
+        "className": { "type": "string", "maxLength": 4096 }, "title": { "type": "string", "maxLength": 4096 }, "bounds": { "$ref": "#/$defs/rect" },
+        "isVisible": { "type": "boolean" }, "isEnabled": { "type": "boolean" }, "isMinimized": { "type": "boolean" }, "isCloaked": { "type": "boolean" },
+        "dpi": { "type": "integer", "minimum": 1, "maximum": 2000 }, "ownerHwnd": { "type": "integer" }, "zOrder": { "type": "integer" },
+        "style": { "type": "integer" }, "exStyle": { "type": "integer" }, "isToolWindow": { "type": "boolean" }, "isTopMost": { "type": "boolean" }
+      }
+    },
+    "control": {
+      "type": "object", "additionalProperties": false,
+      "required": ["runtimeId", "parentRuntimeId", "automationId", "name", "controlType", "className", "bounds", "isEnabled", "isOffscreen", "frameworkId"],
+      "properties": {
+        "runtimeId": { "type": "string", "maxLength": 4096 }, "parentRuntimeId": { "type": "string", "maxLength": 4096 },
+        "automationId": { "type": "string", "maxLength": 4096 }, "name": { "type": "string", "maxLength": 4096 },
+        "controlType": { "type": "string", "maxLength": 512 }, "className": { "type": "string", "maxLength": 4096 },
+        "bounds": { "$ref": "#/$defs/rect" }, "isEnabled": { "type": "boolean" }, "isOffscreen": { "type": "boolean" },
+        "frameworkId": { "type": "string", "maxLength": 512 }, "windowHwnd": { "type": "integer" },
+        "supportedPatterns": { "type": ["array", "null"], "maxItems": 128, "items": { "type": "string", "maxLength": 512 } },
+        "hasKeyboardFocus": { "type": "boolean" }, "isSelected": { "type": "boolean" },
+        "toggleState": { "type": ["string", "null"], "maxLength": 512 },
+        "expandCollapseState": { "type": ["string", "null"], "maxLength": 512 },
+        "visualRole": { "type": ["string", "null"], "maxLength": 128 },
+        "ocrText": { "type": ["string", "null"], "maxLength": 4096 },
+        "visualGroupId": { "type": ["string", "null"], "maxLength": 4096 },
+        "tableRow": { "type": ["integer", "null"], "minimum": 0 },
+        "tableColumn": { "type": ["integer", "null"], "minimum": 0 }
+      }
+    }
+  }
+}

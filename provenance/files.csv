@@ -1,0 +1,156 @@
+target_path,work_type,source_commit,source_relative_path,copyright_owner,license,purpose_and_disposition,review_evidence
+docs/2026-08-11-uikg-editor-review-pr-rollout.md,original,,,repository copyright holder,MIT,original review-driven implementation rollout
+docs/2026-08-11-uikg-editor-second-review-pr-rollout.md,original,,,repository copyright holder,MIT,original second-review correction rollout
+docs/2026-08-11-uikg-editor-third-review-pr-rollout.md,original,,,repository copyright holder,MIT,original third-review fidelity rollout
+docs/2026-08-11-export-recording-followup-pr-rollout.md,original,,,repository copyright holder,MIT,original export and recording follow-up rollout
+docs/2026-08-11-human-readable-map-export-pr-rollout.md,original,,,repository copyright holder,MIT,original hierarchical map export rollout
+Directory.Build.props,original,,,repository copyright holder,MIT,original configuration
+Directory.Packages.props,original,,,repository copyright holder,MIT,original configuration
+licenses/Interop.UIAutomationClient-MIT.txt,vendored-license,,,Roman,MIT,redistribution license text from Interop.UIAutomationClient 10.19041.0 NuGet package
+licenses/FirebirdSql.Data.FirebirdClient-IDPL-1.0.txt,vendored-license,,,FirebirdSQL,Initial Developer's Public License 1.0,redistribution license text from FirebirdSql.Data.FirebirdClient 10.3.4 NuGet package
+global.json,original,,,repository copyright holder,MIT,original configuration
+UiAtlas.Core.slnx,original,,,repository copyright holder,MIT,original configuration
+src/UiAtlas.Core.Contracts/FormatVersions.cs,original,,,repository copyright holder,MIT,original implementation
+src/UiAtlas.Core.Contracts/Geometry.cs,original,,,repository copyright holder,MIT,original implementation
+src/UiAtlas.Core.Contracts/GraphContracts.cs,original,,,repository copyright holder,MIT,original implementation
+src/UiAtlas.Core.Contracts/RecordingContracts.cs,original,,,repository copyright holder,MIT,original implementation
+src/UiAtlas.Core.Contracts/UiAtlas.Core.Contracts.csproj,original,,,repository copyright holder,MIT,original configuration
+src/UiAtlas.Core.Recording/BundleSecurity.cs,behavioral-reference-only,623f581c15e9d415a46d4d4949b09f6570d10ffe,VmDemo/src/VmDemo.Control.Contracts/ControlContractValidator.cs,repository copyright holder,MIT,independently authored bundle guard; exact overlap limited to conventional Windows reserved-name validation,ownership and reuse confirmed by repository owner; independent similarity review 2026-08-09
+src/UiAtlas.Core.Recording/JsonDefaults.cs,original,,,repository copyright holder,MIT,original implementation
+src/UiAtlas.Core.Recording/RecordingBundle.cs,original,,,repository copyright holder,MIT,original implementation
+src/UiAtlas.Core.Recording/RecordingBundleWriter.cs,original,,,repository copyright holder,MIT,original implementation
+src/UiAtlas.Core.Recording/UiAtlas.Core.Recording.csproj,original,,,repository copyright holder,MIT,original configuration
+src/UiAtlas.Core.Recording.Windows/NativeMethods.cs,behavioral-reference-only,623f581c15e9d415a46d4d4949b09f6570d10ffe,Successors.Windows.Composition/Composition/Interop/WindowEnumerationHelper.cs,repository copyright holder,MIT,zero copied lines; independently authored Win32 declarations,ownership and reuse confirmed by repository owner; independent similarity review 2026-08-09
+src/UiAtlas.Core.Recording.Windows/NativeUiaCollector.cs,original,,,repository copyright holder,MIT,original isolated native UI Automation compatibility collector
+src/UiAtlas.Core.Recording.Windows/OpaqueSurfaceScanner.cs,original,,,repository copyright holder,MIT,original bounded hover and keyboard-focus evidence collector without activation
+src/UiAtlas.Core.Recording.Windows/SafeSyntheticInput.cs,original,,,repository copyright holder,MIT,original tagged non-activating pointer and keyboard probe input with user cancellation guard
+src/UiAtlas.Core.Recording.Windows/WindowCatalog.cs,behavioral-reference-only,623f581c15e9d415a46d4d4949b09f6570d10ffe,"Successors.Windows.Composition/Composition/DesktopWindowManager.cs; UiMappingApp2/Recording/ObservedWindowOwnershipResolver.cs",repository copyright holder,MIT,zero copied lines; independently authored root-owner catalog,"ownership and reuse confirmed by repository owner; reference blob 92744733983bc3cfc2e989a4e2bde32feed2956c"
+src/UiAtlas.Core.Recording.Windows/LowLevelInputMonitor.cs,behavioral-reference-only,623f581c15e9d415a46d4d4949b09f6570d10ffe,UiMappingApp2/Recording/InputRecorder.cs,repository copyright holder,MIT,zero copied lines; independently authored scoped privacy-first hooks,ownership and reuse confirmed by repository owner; independent similarity review 2026-08-09
+src/UiAtlas.Core.Recording.Windows/ManualTargetInputWaiter.cs,adapted,623f581c15e9d415a46d4d4949b09f6570d10ffe,UiMappingApp2/DesktopObserver/DesktopObserverOverlayWindow.cs,repository copyright holder,MIT,adapted Slow and Rich 30ms mouse-release polling and target-scope gate for standalone one-click and two-click capture,ownership and reuse confirmed by repository owner 2026-08-09
+src/UiAtlas.Core.Recording.Windows/AdaptiveCaptureCoordinator.cs,original,,,repository copyright holder,MIT,original non-blocking baseline tab and popup-delta capture coordinator,
+src/UiAtlas.Core.Recording.Windows/BoundedAutomationCollector.cs,behavioral-reference-only,623f581c15e9d415a46d4d4949b09f6570d10ffe,UiMappingApp2/Recording/AutomationObservationCollector.cs,repository copyright holder,MIT,zero copied lines; independently authored bounded generic collector,ownership and reuse confirmed by repository owner; independent similarity review 2026-08-09
+src/UiAtlas.Core.Recording.Windows/UiaWorkerClient.cs,behavioral-reference-only,623f581c15e9d415a46d4d4949b09f6570d10ffe,UiMappingApp2/Recording/AutomationObservationWorker.cs,repository copyright holder,MIT,zero copied lines; independently authored process watchdog,ownership and reuse confirmed by repository owner; independent similarity review 2026-08-09
+src/UiAtlas.Core.Recording.Windows/WindowsGraphicsCapture.cs,behavioral-reference-only,623f581c15e9d415a46d4d4949b09f6570d10ffe,VmDemo/src/VmDemo.HostStreamer/Capture/GraphicsCaptureItemFactory.cs,repository copyright holder,MIT,independently authored narrow native capture using operating-system API contracts; no helper source copied,ownership and reuse confirmed by repository owner; only conventional public API declarations matched
+src/UiAtlas.Core.Recording.Windows/Properties/AssemblyInfo.cs,original,,,repository copyright holder,MIT,test visibility boundary
+src/UiAtlas.Core.Recording.Windows/ManualRecordingSession.cs,adapted,950cda30c64e8d0a11dddb5bd0262d52c841a31f,"UiMappingApp2/DesktopObserver/DesktopObserverOverlayWindow.cs; UiMappingApp2/Recording/RecordingController.cs",repository copyright holder,MIT,adapted Slow and Rich immediate and 50/200/800ms post-trigger evidence plus five-second materialization and observation-settlement state machine,ownership and reuse confirmed by repository owner 2026-08-10
+src/UiAtlas.Core.Recording.Windows/WindowSnapshotCapture.cs,original,,,repository copyright holder,MIT,original scoped per-window fallback
+src/UiAtlas.Core.Recording.Windows/GlobalUsings.cs,original,,,repository copyright holder,MIT,original implementation
+src/UiAtlas.Core.Recording.Windows/UiAtlas.Core.Recording.Windows.csproj,original,,,repository copyright holder,MIT,original configuration
+src/UiAtlas.Core.Build/StableIdentity.cs,original,,,repository copyright holder,MIT,original implementation
+src/UiAtlas.Core.Build/GraphValidator.cs,original,,,repository copyright holder,MIT,original implementation
+src/UiAtlas.Core.Build/GraphSemantics.cs,original,,,repository copyright holder,MIT,original implementation
+src/UiAtlas.Core.Build/RecordingGraphBuilder.cs,adapted,623f581c15e9d415a46d4d4949b09f6570d10ffe,"UiMappingApp2/UiKnowledgeGraph/UiKgAppMapReadModel.cs; UiMappingApp2/UiKnowledgeGraph/UiKgRawSurfaceIdentity.cs; UiMappingApp2/UiKnowledgeGraph/NativeWindowSurfaceClassifier.cs; UiMappingApp2/Recording/ObservedWindowSurfaceClassifier.cs",repository copyright holder,MIT,adapted recording-specific world materialization plus transient-popup classification effective owner scoping and semantic display naming without product/runtime branches,ownership and reuse confirmed by repository owner 2026-08-11
+src/UiAtlas.Core.Build/UiAtlas.Core.Build.csproj,original,,,repository copyright holder,MIT,original configuration
+src/UiAtlas.Core.Storage/AtomicFile.cs,original,,,repository copyright holder,MIT,original implementation
+src/UiAtlas.Core.Storage/GraphExport.cs,original,,,repository copyright holder,MIT,original implementation
+src/UiAtlas.Core.Storage/GraphJsonStore.cs,original,,,repository copyright holder,MIT,original five-area JSON envelope and legacy reader
+src/UiAtlas.Core.Storage/HumanReadableMapExporter.cs,original,,,repository copyright holder,MIT,original hierarchical windows variants controls export and SQLite publication
+src/UiAtlas.Core.Storage/SqliteGraphStore.cs,behavioral-reference-only,623f581c15e9d415a46d4d4949b09f6570d10ffe,UiMappingApp2/UiKnowledgeGraph/UiKnowledgeGraphVNextSqliteStore.cs,repository copyright holder,MIT,zero copied lines; fresh bounded three-table store,ownership and reuse confirmed by repository owner; independent similarity review 2026-08-09
+src/UiAtlas.Core.Storage/UiAtlas.Core.Storage.csproj,original,,,repository copyright holder,MIT,original configuration
+src/UiAtlas.Core.Storage/LocalArtifactCatalog.cs,original,,,repository copyright holder,MIT,original contained local artifact catalog
+src/UiAtlas.Core.Reader/UiGraphReader.cs,original,,,repository copyright holder,MIT,original implementation
+src/UiAtlas.Core.Reader/ExplorerReadModel.cs,behavioral-reference-only,623f581c15e9d415a46d4d4949b09f6570d10ffe,UiMappingApp2/UiKnowledgeGraph/UiKgSurfaceTopologyReadModel.cs,repository copyright holder,MIT,zero copied lines; fresh canonical-only read model,ownership and reuse confirmed by repository owner; independent similarity review 2026-08-09
+src/UiAtlas.Core.Reader/UiAtlas.Core.Reader.csproj,original,,,repository copyright holder,MIT,original configuration
+src/UiAtlas.Core.Reader/UiEvidenceReader.cs,original,,,repository copyright holder,MIT,validated WPF-free evidence reader
+src/UiAtlas.Core.Cli/Program.cs,adapted,950cda30c64e8d0a11dddb5bd0262d52c841a31f,UiMappingApp2/DesktopObserver/DesktopObserverOverlayWindow.cs,repository copyright holder,MIT,original CLI with adapted Slow and Rich manual capture sequencing plus continuous target-click arming,ownership and reuse confirmed by repository owner 2026-08-10
+src/UiAtlas.Core.Cli/UiAtlas.Core.Cli.csproj,original,,,repository copyright holder,MIT,original configuration
+src/UiAtlas.Core.Desktop/Program.cs,original,,,repository copyright holder,MIT,original implementation
+src/UiAtlas.Core.Desktop/ExplorerWindow.cs,adapted,623f581c15e9d415a46d4d4949b09f6570d10ffe,"UiMappingApp2/UiKnowledgeGraph/UiKnowledgeGraphExplorerWindow.xaml; UiMappingApp2/UiKnowledgeGraph/UiKnowledgeGraphExplorerWindow.xaml.cs; UiMappingApp2/UiKnowledgeGraph/UiKgAppMapWindow.xaml",repository copyright holder,MIT,focused read-only three-level editor with surface-local evidence canonical crop stacking fill and five-mode AppMap projection semantics without higher-level workflow runtime or authoring branches,ownership and reuse confirmed by repository owner 2026-08-11
+src/UiAtlas.Core.Desktop/app.manifest,original,,,repository copyright holder,MIT,original configuration
+src/UiAtlas.Core.Desktop/UiAtlas.Core.Desktop.csproj,original,,,repository copyright holder,MIT,original configuration
+samples/UiAtlas.Core.Consumer/Program.cs,original,,,repository copyright holder,MIT,original implementation
+samples/UiAtlas.Core.Consumer/UiAtlas.Core.Consumer.csproj,original,,,repository copyright holder,MIT,original configuration
+samples/UiAtlas.Core.SyntheticTarget/Program.cs,original,,,repository copyright holder,MIT,original synthetic fixture application
+samples/UiAtlas.Core.SyntheticTarget/app.manifest,original,,,repository copyright holder,MIT,original configuration
+samples/UiAtlas.Core.SyntheticTarget/UiAtlas.Core.SyntheticTarget.csproj,original,,,repository copyright holder,MIT,original configuration
+tests/UiAtlas.Core.Tests/BundleSecurityTests.cs,original,,,repository copyright holder,MIT,original synthetic tests
+tests/UiAtlas.Core.Tests/GraphPipelineTests.cs,original,,,repository copyright holder,MIT,original synthetic tests
+tests/UiAtlas.Core.Tests/UiEvidenceReaderTests.cs,original,,,repository copyright holder,MIT,original evidence binding tests
+tests/UiAtlas.Core.Tests/RepositoryBoundaryTests.cs,original,,,repository copyright holder,MIT,original boundary tests
+tests/UiAtlas.Core.Tests/SyntheticBundleFactory.cs,original,,,repository copyright holder,MIT,original synthetic fixture
+tests/UiAtlas.Core.Tests/TempDirectory.cs,original,,,repository copyright holder,MIT,original test helper
+tests/UiAtlas.Core.Tests/GlobalUsings.cs,original,,,repository copyright holder,MIT,original configuration
+tests/UiAtlas.Core.Tests/UiAtlas.Core.Tests.csproj,original,,,repository copyright holder,MIT,original configuration
+tests/UiAtlas.Core.Tests/LocalArtifactCatalogTests.cs,original,,,repository copyright holder,MIT,original catalog containment and lifecycle tests
+tests/UiAtlas.Core.Windows.Tests/WindowCatalogTests.cs,original,,,repository copyright holder,MIT,original synthetic tests
+tests/UiAtlas.Core.Windows.Tests/UiaWorkerClientTests.cs,original,,,repository copyright holder,MIT,original watchdog timeout test
+tests/UiAtlas.Core.Windows.Tests/GlobalUsings.cs,original,,,repository copyright holder,MIT,original configuration
+tests/UiAtlas.Core.Windows.Tests/UiAtlas.Core.Windows.Tests.csproj,original,,,repository copyright holder,MIT,original configuration
+tests/UiAtlas.Core.Windows.Tests/ManualTargetInputWaiterTests.cs,original,,,repository copyright holder,MIT,original adapted click-wait behavior tests
+schemas/recording-bundle-v1.schema.json,original,,,repository copyright holder,MIT,original schema
+schemas/uikg-v1.schema.json,original,623f581c15e9d415a46d4d4949b09f6570d10ffe,SemanticTraceUiGraph.schema.json,repository copyright holder,MIT,original schema,independent similarity review 2026-08-09; exact match limited to conventional JSON Schema rectangle definition
+README.md,original,,,repository copyright holder,MIT,original documentation
+docs/architecture.md,original,,,repository copyright holder,MIT,original documentation
+docs/recording-bundle-v1.md,original,,,repository copyright holder,MIT,original documentation
+docs/uikg-v1.md,original,,,repository copyright holder,MIT,original documentation
+docs/privacy.md,original,,,repository copyright holder,MIT,original documentation
+docs/threat-model.md,original,,,repository copyright holder,MIT,original documentation
+docs/known-limitations.md,original,,,repository copyright holder,MIT,original documentation
+SECURITY.md,original,,,repository copyright holder,MIT,original documentation
+CONTRIBUTING.md,original,,,repository copyright holder,MIT,original documentation
+THIRD-PARTY-NOTICES.md,original,,,repository copyright holder,MIT,metadata derived from package manifests
+sbom/ui-atlas-core.cdx.json,generated,,,repository copyright holder,MIT,generated dependency metadata
+tools/Test-RepositoryBoundary.ps1,original,,,repository copyright holder,MIT,original audit script
+tools/Smoke-Offline.ps1,original,,,repository copyright holder,MIT,original validation script
+tools/Package.ps1,original,,,repository copyright holder,MIT,original packaging script
+tools/Test-Package.ps1,original,,,repository copyright holder,MIT,original package compliance script
+tools/ui-atlas.cmd,original,,,repository copyright holder,MIT,original framework-dependent CLI launcher
+docs/release.md,original,,,repository copyright holder,MIT,original documentation
+docs/qualification.md,original,,,repository copyright holder,MIT,measured Windows qualification record
+.github/workflows/ci.yml,original,,,repository copyright holder,MIT,original configuration
+licenses/Apache-2.0.txt,third-party-license,,,Apache Software Foundation,Apache-2.0,verbatim standard redistribution license
+licenses/Microsoft.Data.Sqlite-MIT.txt,third-party-license,,,NET Foundation and Contributors,MIT,redistribution notice for managed SQLite dependency
+licenses/SQLite-public-domain.txt,third-party-license,,,SQLite authors,Public-Domain,verbatim package redistribution statement
+licenses/CsWinRT-MIT.txt,vendored-license,,,Microsoft Corporation,MIT,verbatim redistribution license from Microsoft.Windows.CsWinRT 2.2.0 NuGet package
+licenses/Microsoft-Windows-SDK-NET-NOTICE.txt,vendor-notice,,,Microsoft Corporation,Microsoft Windows SDK License,redistribution notice and authoritative license link for Microsoft.Windows.SDK.NET.Ref 10.0.19041.57
+.gitattributes,original,,,repository copyright holder,MIT,deterministic line-ending and binary-asset policy,
+.gitignore,adapted,61268c1e435c8f5b1c523fcb1545c6948f00933a,github/gitignore/VisualStudio.gitignore,github/gitignore contributors,CC0-1.0,verbatim upstream Visual Studio ignore template plus repository-local /dist/ rule,initial file byte-for-byte matched upstream commit 61268c1e435c8f5b1c523fcb1545c6948f00933a; local /dist/ added in ec2ae0f
+LICENSE,existing-modified,5df8bbee8bb60c708e6513c10fb2beb2d68c47ae,LICENSE,"AI Successors, Inc.",MIT,repository license with current copyright notice,manual history diff and owner confirmation 2026-08-09
+provenance/files.csv,original,,,repository copyright holder,MIT,file-level provenance ledger,
+docs/ui-atlas-compatibility.md,original,,,repository copyright holder,MIT,original compatibility and import documentation,
+docs/uikg-v2.md,original,,,repository copyright holder,MIT,original Raw and Semantic World format documentation,
+schemas/ui-atlas-vnext-compat-v1.schema.json,behavioral-reference-only,623f581c15e9d415a46d4d4949b09f6570d10ffe,"UiMappingApp2/UiKnowledgeGraph/UiKnowledgeGraphVNextModels.cs; UiMappingApp2/UiKnowledgeGraph/UiKnowledgeGraphVNextStore.cs",repository copyright holder,MIT,zero copied implementation lines; independently authored strict schema for the documented wire contract,ownership and reuse confirmed by repository owner; independent conformance review 2026-08-09
+schemas/recording-frame-v1.schema.json,original,623f581c15e9d415a46d4d4949b09f6570d10ffe,SemanticTraceUiGraph.schema.json,repository copyright holder,MIT,original frame observation schema,independent similarity review 2026-08-09; exact match limited to conventional JSON Schema rectangle definition
+schemas/recording-statebook-v1.schema.json,original,,,repository copyright holder,MIT,original rebuildable statebook schema,
+schemas/uikg-v2.schema.json,original,623f581c15e9d415a46d4d4949b09f6570d10ffe,SemanticTraceUiGraph.schema.json,repository copyright holder,MIT,original Raw and Semantic World graph schema,independent similarity review 2026-08-09; exact match limited to conventional JSON Schema rectangle definition
+schemas/uikg-export-v1.schema.json,original,,,repository copyright holder,MIT,original five-area JSON interchange envelope,
+schemas/map-json-v1.schema.json,original,,,repository copyright holder,MIT,original human-readable hierarchical map export schema,
+src/UiAtlas.Core.Build/GraphMigration.cs,original,,,repository copyright holder,MIT,original explicit v1 graph migration,
+src/UiAtlas.Core.Storage/UiAtlasVNextCompatibilityExporter.cs,adapted,950cda30c64e8d0a11dddb5bd0262d52c841a31f,"UiMappingApp2/UiKnowledgeGraph/UiKnowledgeGraphVNextModels.cs; UiMappingApp2/Recording/WindowObservationRecorder.cs; UiMappingApp2/UiKnowledgeGraph/UiKgAppMapReadModel.cs",repository copyright holder,MIT,schema-5 authoring and sanitized raw observation-package publication adapted without Atlas workflow runtime or machine-path fields,ownership and reuse confirmed by repository owner 2026-08-10
+tests/UiAtlas.Core.Tests/UiAtlasCompatibilityTests.cs,original,,,repository copyright holder,MIT,original synthetic compatibility conformance tests,
+tests/UiAtlas.Core.Tests/RawSemanticWorldTests.cs,original,,,repository copyright holder,MIT,original synthetic Raw and Semantic World tests,
+src/UiAtlas.Core.Reader/UiMappingReadModel.cs,adapted,623f581c15e9d415a46d4d4949b09f6570d10ffe,"UiMappingApp2/UiKnowledgeGraph/UiKgAppMapReadModel.cs; UiMappingApp2/UiKnowledgeGraph/UiKgSurfaceTopologyReadModel.cs",repository copyright holder,MIT,focused WPF-free three-level AppMap projection crop stacking primary-lane topology and deterministic higher-world observation curation,ownership and reuse confirmed by repository owner 2026-08-11
+tests/UiAtlas.Core.Tests/UiMappingReadModelTests.cs,adapted,950cda30c64e8d0a11dddb5bd0262d52c841a31f,"FaraUiAgent.Tests/UiKgAppMapReadModelTests.cs; FaraUiAgent.Tests/UiKgSurfaceTopologyReadModelTests.cs",repository copyright holder,MIT,focused synthetic parity characterizations for progressive horizons and evidence,ownership and reuse confirmed by repository owner 2026-08-10
+samples/UiAtlas.Core.Consumer/packages.lock.json,generated,,,NuGet tooling,metadata,locked dependency graph,
+samples/UiAtlas.Core.SyntheticTarget/packages.lock.json,generated,,,NuGet tooling,metadata,locked dependency graph,
+src/UiAtlas.Core.Build/packages.lock.json,generated,,,NuGet tooling,metadata,locked dependency graph,
+src/UiAtlas.Core.Cli/packages.lock.json,generated,,,NuGet tooling,metadata,locked dependency graph,
+src/UiAtlas.Core.Contracts/packages.lock.json,generated,,,NuGet tooling,metadata,locked dependency graph,
+src/UiAtlas.Core.Desktop/packages.lock.json,generated,,,NuGet tooling,metadata,locked dependency graph,
+src/UiAtlas.Core.Reader/packages.lock.json,generated,,,NuGet tooling,metadata,locked dependency graph,
+src/UiAtlas.Core.Recording.Windows/packages.lock.json,generated,,,NuGet tooling,metadata,locked dependency graph,
+src/UiAtlas.Core.Recording/packages.lock.json,generated,,,NuGet tooling,metadata,locked dependency graph,
+src/UiAtlas.Core.Storage/packages.lock.json,generated,,,NuGet tooling,metadata,locked dependency graph,
+tests/UiAtlas.Core.Tests/packages.lock.json,generated,,,NuGet tooling,metadata,locked dependency graph,
+tests/UiAtlas.Core.Windows.Tests/packages.lock.json,generated,,,NuGet tooling,metadata,locked dependency graph,
+src/UiAtlas.Core.Migration/UiAtlas.Core.Migration.csproj,original,,,repository copyright holder,MIT,original normalized migration contracts and package writer project,
+src/UiAtlas.Core.Migration/CustomerMigrationContracts.cs,original,,,repository copyright holder,MIT,original normalized customer migration contracts,
+src/UiAtlas.Core.Migration/MigrationPackageWriter.cs,original,,,repository copyright holder,MIT,original deterministic checksummed migration package writer,
+src/UiAtlas.Core.Migration/packages.lock.json,generated,,,NuGet tooling,metadata,locked dependency graph,
+src/UiAtlas.Core.Migration.Firebird/UiAtlas.Core.Migration.Firebird.csproj,original,,,repository copyright holder,MIT,original isolated 32-bit Firebird source adapter project,
+src/UiAtlas.Core.Migration.Firebird/AbacreAhmsReader.cs,original,,,repository copyright holder,MIT,original read-only Abacre AHMS customer source adapter,
+src/UiAtlas.Core.Migration.Firebird/Program.cs,original,,,repository copyright holder,MIT,original Firebird migration command-line entry point,
+src/UiAtlas.Core.Migration.Firebird/packages.lock.json,generated,,,NuGet tooling,metadata,locked dependency graph,
+tests/UiAtlas.Core.Tests/MigrationPackageWriterTests.cs,original,,,repository copyright holder,MIT,original migration package safety and integrity tests,
+docs/interaction-trace.md,original,,,repository copyright holder,MIT,original Interaction Trace behavior and compatibility documentation,
+docs/uikg-v4.md,original,,,repository copyright holder,MIT,original UI Knowledge Graph v4 format documentation,
+schemas/recording-interaction-v1.schema.json,original,,,repository copyright holder,MIT,original interaction observation JSON schema,
+schemas/uikg-v4.schema.json,original,,,repository copyright holder,MIT,original UI Knowledge Graph v4 JSON schema,
+schemas/map-json-v2.schema.json,original,,,repository copyright holder,MIT,original human-readable interaction map JSON v2 schema,
+src/UiAtlas.Core.Cli/MapQualityInspector.cs,original,,,repository copyright holder,MIT,original map quality and capture-gap reporting,
+tests/UiAtlas.Core.Tests/MapQualityInspectorTests.cs,original,,,repository copyright holder,MIT,original quality-report regression tests,
+tools/Install-UiAtlas.ps1,original,,,repository copyright holder,MIT,original per-user release installer,
+tools/Test-CleanProfiles.ps1,original,,,repository copyright holder,MIT,original isolated clean-profile package qualification,
+samples/UiAtlas.Core.Consumer/README.md,original,,,repository copyright holder,MIT,original autotest and AI-agent integration sample documentation,
+docs/open-source-readiness.md,original,,,repository copyright holder,MIT,original public-beta readiness and evidence checklist,
+docs/demo-capture.md,original,,,repository copyright holder,MIT,original three-application proof-video capture scenario,

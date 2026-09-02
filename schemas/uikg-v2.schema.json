@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ui-atlas.org/schemas/uikg-v2.schema.json",
+  "title": "UiAtlas UI Knowledge Graph v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["metadata", "nodes", "edges"],
+  "properties": {
+    "metadata": {
+      "type": "object", "additionalProperties": false,
+      "required": ["formatVersion", "toolVersion", "graphId", "builtUtc", "sourceBundleId", "semanticHash", "privacyProfile"],
+      "properties": {
+        "formatVersion": { "const": "ui-atlas.uikg/2" }, "toolVersion": { "type": "string" },
+        "graphId": { "$ref": "#/$defs/id" }, "builtUtc": { "type": "string", "format": "date-time" },
+        "sourceBundleId": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "semanticHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "privacyProfile": { "enum": ["safe/1", "full-evidence/1"] }
+      }
+    },
+    "nodes": { "type": "array", "maxItems": 100000, "items": { "$ref": "#/$defs/node" } },
+    "edges": { "type": "array", "maxItems": 100000, "items": { "$ref": "#/$defs/edge" } }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "metadata": { "properties": { "privacyProfile": { "const": "safe/1" } } } } },
+      "then": {
+        "properties": {
+          "metadata": { "properties": { "builtUtc": { "const": "1970-01-01T00:00:00+00:00" }, "sourceBundleId": { "const": "[redacted]" }, "graphId": { "pattern": "^graph_[0-9a-f]{24}$" } } },
+          "nodes": { "items": { "properties": { "id": { "pattern": "^node_[0-9a-f]{24}$" }, "stableKey": { "pattern": "^node_[0-9a-f]{24}$" }, "label": { "pattern": "^(Application|Window|Surface|State|Control) [1-9][0-9]*$" }, "properties": { "minItems": 1, "maxItems": 1, "items": { "type": "object", "additionalProperties": false, "required": ["name", "value", "sensitive"], "properties": { "name": { "const": "area" }, "value": { "enum": ["app", "raw-data-streams", "raw-world", "semantic-world"] }, "sensitive": { "const": false } } } }, "evidence": { "items": { "properties": { "bounds": { "type": "null" }, "screenshotEntry": { "type": "null" } } } } } } },
+          "edges": { "items": { "properties": { "id": { "pattern": "^edge_[0-9a-f]{24}$" }, "properties": { "maxItems": 0 }, "evidence": { "items": { "properties": { "bounds": { "type": "null" }, "screenshotEntry": { "type": "null" } } } } } } }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "id": { "type": "string", "pattern": "^[a-z]+_[0-9a-f]{24}$" },
+    "property": {
+      "type": "object", "additionalProperties": false, "required": ["name", "value", "sensitive"],
+      "properties": { "name": { "type": "string", "maxLength": 128 }, "value": { "type": "string", "maxLength": 4096 }, "sensitive": { "type": "boolean" } }
+    },
+    "rect": {
+      "type": "object", "additionalProperties": false, "required": ["x", "y", "width", "height"],
+      "properties": { "x": { "type": "integer" }, "y": { "type": "integer" }, "width": { "type": "integer", "minimum": 0 }, "height": { "type": "integer", "minimum": 0 } }
+    },
+    "evidence": {
+      "type": "object", "additionalProperties": false, "required": ["bundleId", "frameSequence", "observationEntry"],
+      "properties": {
+        "bundleId": { "type": "string", "minLength": 1, "maxLength": 256 }, "frameSequence": { "type": "integer", "minimum": 0 },
+        "observationEntry": { "type": "string", "maxLength": 240 }, "bounds": { "anyOf": [{ "$ref": "#/$defs/rect" }, { "type": "null" }] },
+        "screenshotEntry": { "type": ["string", "null"], "maxLength": 240 }
+      },
+      "oneOf": [
+        { "properties": { "bundleId": { "const": "[redacted]" }, "frameSequence": { "const": 0 }, "observationEntry": { "const": "[redacted]" }, "screenshotEntry": { "type": "null" } } },
+        { "properties": { "bundleId": { "not": { "const": "[redacted]" } }, "frameSequence": { "minimum": 1 }, "observationEntry": { "pattern": "^raw/observations/frame-[0-9]{6}\\.json$" }, "screenshotEntry": { "anyOf": [{ "type": "null" }, { "type": "string", "pattern": "^raw/frames/frame-[0-9]{6}\\.png$" }] } } }
+      ]
+    },
+    "node": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "kind", "parentId", "stableKey", "label", "properties", "evidence"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" }, "kind": { "enum": ["application", "window", "surface", "state", "control"] },
+        "parentId": { "type": "string", "maxLength": 128 }, "stableKey": { "type": "string", "maxLength": 256 },
+        "label": { "type": "string", "maxLength": 4096 },
+        "properties": { "type": "array", "maxItems": 1000, "items": { "$ref": "#/$defs/property" } },
+        "evidence": { "type": "array", "maxItems": 10000, "items": { "$ref": "#/$defs/evidence" } }
+      }
+    },
+    "edge": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "kind", "fromId", "toId", "properties", "evidence"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" }, "kind": { "enum": ["contains", "observed-transition", "opens-popup"] },
+        "fromId": { "$ref": "#/$defs/id" }, "toId": { "$ref": "#/$defs/id" },
+        "properties": { "type": "array", "maxItems": 1000, "items": { "$ref": "#/$defs/property" } },
+        "evidence": { "type": "array", "maxItems": 10000, "items": { "$ref": "#/$defs/evidence" } }
+      }
+    }
+  }
+}
