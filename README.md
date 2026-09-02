@@ -135,9 +135,6 @@ See [architecture](docs/architecture.md), [recording format](docs/recording-bund
 
 The repository carries the license in [LICENSE](LICENSE). Newly authored files and behavioral-reference dispositions are recorded in [the provenance ledger](provenance/files.csv). Runtime and test dependencies are listed in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) and the [CycloneDX SBOM](sbom/ui-atlas-core.cdx.json).
 
-## Authors and maintainers
-
-UIAtlas was created and developed by **Daniel Kornev** and **Irina Nikitenko**.
 
 ## Authors and maintainers
 
