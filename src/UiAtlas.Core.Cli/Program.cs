@@ -6592,7 +6592,7 @@ internal sealed class RecordingControlPanel : IDisposable
     private static double ActiveProgressActionButtonHeight => 28d / RecorderContentScale;
     private static double ActiveProgressActionButtonCornerRadius => 8d / RecorderContentScale;
     private static double ActiveProgressActionButtonFontSize => 16d / RecorderContentScale;
-    private static double ActiveProgressActionButtonHorizontalPadding => 18d / RecorderContentScale;
+    private static double ActiveProgressActionButtonHorizontalPadding => 10d / RecorderContentScale;
     private static double PrimaryCircleSelectedShadowBlur => 20d / RecorderContentScale;
     private static double PrimaryCircleHoverShadowBlur => 16d / RecorderContentScale;
 
@@ -9834,7 +9834,7 @@ internal sealed class RecordingControlPanel : IDisposable
         var button = new System.Windows.Controls.Button
         {
             Content = labelBlock,
-            Width = ActiveProgressActionButtonMinWidth,
+            MinWidth = ActiveProgressActionButtonMinWidth,
             Height = ActiveProgressActionButtonHeight,
             Background = background,
             BorderBrush = background,

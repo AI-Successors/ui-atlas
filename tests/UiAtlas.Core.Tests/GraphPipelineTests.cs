@@ -730,51 +730,64 @@ public sealed class GraphPipelineTests
     }
 
     [Fact]
-    public void DialogTabsRemainVariantsOfOneDialogSurface()
+    public void DialogTabsRemainVariantsOfOneDialogSurfaceWhenTopMostFlagSettles()
     {
         var now = new DateTimeOffset(2026, 8, 31, 0, 0, 0, TimeSpan.Zero);
         var target = new TargetScope(1, 1, 7, "EXCEL", now.AddHours(-1));
         var manifest = new RecordingManifest(FormatVersions.RecordingBundle, FormatVersions.Tool, "dialog-tabs",
-            now, now.AddSeconds(2), RecordingOutcome.Complete, target, new(), new(), true, 0, 2);
+            now, now.AddSeconds(4), RecordingOutcome.Complete, target, new(), new(), true, 0, 4);
         var root = new WindowObservation(1, 1, 7, "XLMAIN", "Book1 - Excel", new(0, 0, 1200, 900),
             true, false, false, false, 96, Style: 0x10CF0000);
         var dialog = new WindowObservation(2, 99, 7, "bosa_sdm_XL9", "Page Setup", new(240, 140, 560, 520),
-            true, true, false, false, 96, OwnerHwnd: 99, Style: 0x10C80000);
+            true, true, false, false, 96, OwnerHwnd: 99, Style: 0x10C80000, ExStyle: 0x501);
+        var openingDialog = dialog with { ExStyle = 0x509, IsTopMost = true };
 
-        AutomationObservation[] DialogControls(string selectedTab, string pageControl) =>
+        AutomationObservation[] DialogControls(WindowObservation currentDialog, string selectedTab, string pageControl) =>
         [
-            new("dialog", "", "", "Page Setup", "ControlType.Window", dialog.ClassName,
-                dialog.Bounds, true, false, "Win32", dialog.Hwnd),
+            new("dialog", "", "", "Page Setup", "ControlType.Window", currentDialog.ClassName,
+                currentDialog.Bounds, true, false, "Win32", currentDialog.Hwnd),
             new("tabs", "dialog", "tabs", "Pages", "ControlType.Tab", "SysTabControl32",
-                new(260, 180, 500, 36), true, false, "Win32", dialog.Hwnd),
+                new(260, 180, 500, 36), true, false, "Win32", currentDialog.Hwnd),
             new("page", "tabs", "page", "Page", "ControlType.TabItem", "SysTabControl32",
-                new(260, 180, 70, 32), true, false, "Win32", dialog.Hwnd,
+                new(260, 180, 70, 32), true, false, "Win32", currentDialog.Hwnd,
                 ["SelectionItem"], IsSelected: selectedTab == "Page"),
             new("margins", "tabs", "margins", "Margins", "ControlType.TabItem", "SysTabControl32",
-                new(330, 180, 80, 32), true, false, "Win32", dialog.Hwnd,
+                new(330, 180, 80, 32), true, false, "Win32", currentDialog.Hwnd,
                 ["SelectionItem"], IsSelected: selectedTab == "Margins"),
+            new("header-footer", "tabs", "header-footer", "Header/Footer", "ControlType.TabItem", "SysTabControl32",
+                new(410, 180, 110, 32), true, false, "Win32", currentDialog.Hwnd,
+                ["SelectionItem"], IsSelected: selectedTab == "Header/Footer"),
+            new("sheet", "tabs", "sheet", "Sheet", "ControlType.TabItem", "SysTabControl32",
+                new(520, 180, 70, 32), true, false, "Win32", currentDialog.Hwnd,
+                ["SelectionItem"], IsSelected: selectedTab == "Sheet"),
             new("page-control", "dialog", pageControl, pageControl, "ControlType.Edit", "Edit",
-                new(300, 260, 180, 28), true, false, "Win32", dialog.Hwnd, ["Value"]),
+                new(300, 260, 180, 28), true, false, "Win32", currentDialog.Hwnd, ["Value"]),
             new("ok", "dialog", "OK", "OK", "ControlType.Button", "Button",
-                new(600, 610, 80, 28), true, false, "Win32", dialog.Hwnd, ["Invoke"])
+                new(600, 610, 80, 28), true, false, "Win32", currentDialog.Hwnd, ["Invoke"])
         ];
 
-        var first = new FrameObservation(1, now, "", root, DialogControls("Page", "Paper size"),
+        var first = new FrameObservation(1, now, "", root, DialogControls(openingDialog, "Sheet", "Print area"),
+            false, "ok", "adaptive-dialog:Page Setup", [root, openingDialog],
+            ObservationScope: "full-root", ObservedWindowHwnds: [openingDialog.Hwnd]);
+        var second = new FrameObservation(2, now.AddSeconds(1), "", root, DialogControls(dialog, "Page", "Paper size"),
             false, "ok", "adaptive-dialog:Page Setup", [root, dialog],
             ObservationScope: "full-root", ObservedWindowHwnds: [dialog.Hwnd]);
-        var second = new FrameObservation(2, now.AddSeconds(1), "", root, DialogControls("Margins", "Top margin"),
+        var third = new FrameObservation(3, now.AddSeconds(2), "", root, DialogControls(dialog, "Margins", "Top margin"),
+            false, "ok", "adaptive-dialog:Page Setup", [root, dialog],
+            ObservationScope: "full-root", ObservedWindowHwnds: [dialog.Hwnd]);
+        var fourth = new FrameObservation(4, now.AddSeconds(3), "", root, DialogControls(dialog, "Header/Footer", "Custom header"),
             false, "ok", "adaptive-dialog:Page Setup", [root, dialog],
             ObservationScope: "full-root", ObservedWindowHwnds: [dialog.Hwnd]);
 
-        var graph = new RecordingGraphBuilder().Build(new RecordingGraphInput(manifest, [first, second], []));
+        var graph = new RecordingGraphBuilder().Build(new RecordingGraphInput(manifest, [first, second, third, fourth], []));
         var surface = Assert.Single(graph.Nodes, node =>
             node.Kind == GraphNodeKind.Surface &&
             node.Properties.Any(property => property.Name == "layer" && property.Value == "raw-world") &&
             node.Properties.Any(property => property.Name == "surfaceClass" && property.Value == "RawDialogWindow"));
         var states = graph.Nodes.Where(node => node.Kind == GraphNodeKind.State && node.ParentId == surface.Id).ToArray();
 
-        Assert.Equal(2, states.Length);
-        Assert.Equal([1L, 2L], states.SelectMany(state => state.Evidence)
+        Assert.Equal(4, states.Length);
+        Assert.Equal([1L, 2L, 3L, 4L], states.SelectMany(state => state.Evidence)
             .Select(evidence => evidence.FrameSequence).Distinct().Order().ToArray());
     }
 

@@ -1594,6 +1594,10 @@ public sealed class RecordingGraphBuilder
     {
         if (role is "root" or "peer-root") return "RawWindow";
         if (string.Equals(window.ClassName, "#32770", StringComparison.OrdinalIgnoreCase)) return "RawDialogWindow";
+        // Office dialog windows can briefly carry WS_EX_TOPMOST while opening
+        // and drop it after the first tab interaction. That transient bit must
+        // not turn the first dialog page into a separate popup surface.
+        if (window.ClassName.StartsWith("bosa_sdm_", StringComparison.OrdinalIgnoreCase)) return "RawDialogWindow";
         if (string.Equals(window.ClassName, "#32768", StringComparison.OrdinalIgnoreCase)) return "RawPopupWindow";
         if (LooksLikeTransientPopup(window, rootBounds)) return "RawPopupWindow";
         if (window.IsToolWindow) return "RawToolWindow";
@@ -1644,11 +1648,13 @@ public sealed class RecordingGraphBuilder
         // independently addressable as state variants below that surface.
         var title = StableIdentity.Normalize(window.Title);
         if (string.IsNullOrWhiteSpace(title)) title = "untitled-dialog";
+        const long topMostExtendedStyle = 0x00000008L;
+        var stableExStyle = window.ExStyle & ~topMostExtendedStyle;
         return StableIdentity.Create(
             "dialog-shell",
             title,
             window.Style.ToString("x", CultureInfo.InvariantCulture),
-            window.ExStyle.ToString("x", CultureInfo.InvariantCulture));
+            stableExStyle.ToString("x", CultureInfo.InvariantCulture));
     }
 
     private static string BaseControlSignature(AutomationObservation control, RectI windowBounds)

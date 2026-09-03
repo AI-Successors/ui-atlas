@@ -211,6 +211,50 @@ public sealed class UiMappingReadModelTests
     }
 
     [Fact]
+    public void AppMapDrawsCachedWorksheetCellsAndButtonsAsUnverifiedControls()
+    {
+        var surfaceNode = new GraphNode("surface", GraphNodeKind.Surface, "app", "surface", "Excel",
+            [new GraphProperty("surfaceClass", "RawWindow")], []);
+        var surface = new UiMapSurfaceView("surface", UiUnderstandingLevel.RawWorld, "Excel",
+            "RawWindow", "app", new RectI(100, 100, 1200, 800), 2, [], [], surfaceNode);
+        var cell = CachedControl("cell", "A1", "DataItem", new RectI(240, 300, 80, 22));
+        var button = CachedControl("button", "Ready", "Button", new RectI(110, 875, 90, 20));
+
+        Assert.True(UiMapPresentation.ShouldRenderControl(cell, surface, UiMapProjectionMode.Controls));
+        Assert.True(UiMapPresentation.ShouldRenderControl(cell, surface, UiMapProjectionMode.Overlay));
+        Assert.True(UiMapPresentation.ShouldRenderControl(button, surface, UiMapProjectionMode.Controls));
+        Assert.True(UiMapPresentation.ShouldRenderControl(button, surface, UiMapProjectionMode.Overlay));
+    }
+
+    [Fact]
+    public void AppMapStillHidesCachedControlsWithoutUsableSurfaceGeometry()
+    {
+        var surfaceNode = new GraphNode("surface", GraphNodeKind.Surface, "app", "surface", "Excel",
+            [new GraphProperty("surfaceClass", "RawWindow")], []);
+        var surface = new UiMapSurfaceView("surface", UiUnderstandingLevel.RawWorld, "Excel",
+            "RawWindow", "app", new RectI(100, 100, 1200, 800), 2, [], [], surfaceNode);
+        var empty = CachedControl("empty", "Empty", "Button", new RectI(200, 200, 0, 20));
+        var outside = CachedControl("outside", "Outside", "DataItem", new RectI(1400, 100, 80, 22));
+
+        Assert.False(UiMapPresentation.ShouldRenderControl(empty, surface, UiMapProjectionMode.Controls));
+        Assert.False(UiMapPresentation.ShouldRenderControl(outside, surface, UiMapProjectionMode.Overlay));
+    }
+
+    private static UiMapControlView CachedControl(string id, string name, string kind, RectI bounds)
+    {
+        var node = new GraphNode(id, GraphNodeKind.Control, "surface", id, name,
+            [
+                new GraphProperty("controlType", kind),
+                new GraphProperty("frameworkId", "UiAtlas.Cached"),
+                new GraphProperty("effectivelyVisible", "False"),
+                new GraphProperty("offscreen", "True"),
+                new GraphProperty("verificationStatus", "Unverified")
+            ], []);
+        return new UiMapControlView(id, UiUnderstandingLevel.RawWorld, name, kind,
+            "surface", "", bounds, [], node);
+    }
+
+    [Fact]
     public void RawFrameVariantCountsAndDrawsUnverifiedVisualCandidates()
     {
         using var temp = new TempDirectory();

@@ -199,6 +199,7 @@ public static class UiMapPresentation
         // Keep the evidence inspectable while rendering only the effective visible
         // tree. Older maps do not have effectivelyVisible, so honor offscreen too.
         if (!IsVisualCandidate(control.Source) &&
+            !IsCachedControl(control.Source) &&
             (IsFalse(SourceProperty(control.Source, "effectivelyVisible")) ||
              IsTrue(SourceProperty(control.Source, "offscreen"))))
             return false;
@@ -271,6 +272,9 @@ public static class UiMapPresentation
 
     internal static bool IsVisualCandidate(GraphNode node) =>
         SourceProperty(node, "className") is "UiAtlas.VisualControlRegion" or "UiAtlas.HoverRegion";
+
+    internal static bool IsCachedControl(GraphNode node) =>
+        SourceProperty(node, "frameworkId").Equals("UiAtlas.Cached", StringComparison.OrdinalIgnoreCase);
 
     private static string SourceProperty(GraphNode node, string name) => node.Properties
         .FirstOrDefault(property => string.Equals(property.Name, name, StringComparison.OrdinalIgnoreCase))?.Value ?? string.Empty;
@@ -792,7 +796,8 @@ public sealed class UiMappingReadModel
         // Visual and hover candidates deliberately use offscreen/effectivelyVisible=false
         // to mean "not yet confirmed by an accessibility provider". They still have
         // observed screen geometry and must remain visible in the raw frame variant.
-        if (UiMapPresentation.IsVisualCandidate(control.Source))
+        if (UiMapPresentation.IsVisualCandidate(control.Source) ||
+            UiMapPresentation.IsCachedControl(control.Source))
             return control.Bounds.Width > 0 && control.Bounds.Height > 0;
 
         var effective = Property(control.Source, "effectivelyVisible");

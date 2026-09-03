@@ -435,6 +435,168 @@ public sealed class AdaptiveExtractionCascadeTests
     }
 
     [Fact]
+    public void VisualFallbackTreatsEachExcelTableStylePreviewAsOneButton()
+    {
+        const int width = 500;
+        const int height = 330;
+        var pixels = Enumerable.Repeat((byte)255, width * height * 4).ToArray();
+        for (var index = 3; index < pixels.Length; index += 4) pixels[index] = 255;
+        var target = new WindowTarget(
+            44, 22, 7, "EXCEL", DateTimeOffset.UnixEpoch, "Book1 - Excel", "Net UI Tool Window",
+            new RectI(0, 0, width, height));
+        int[] columns = [20, 130, 240, 350];
+        int[] rows = [42, 132, 222];
+        foreach (var top in rows)
+        foreach (var left in columns)
+        {
+            var card = new RectI(left, top, 90, 56);
+            FillRect(pixels, width, card, 230, 240, 250);
+            DrawBorder(pixels, width, card, 45);
+            for (var row = 0; row < 3; row++)
+            for (var column = 0; column < 4; column++)
+                DrawBorder(pixels, width,
+                    new RectI(left + column * 22, top + row * 18, 23, 19), 80);
+        }
+        VisualTextObservation[] words =
+        [
+            new("Light", new RectI(20, 10, 42, 14), 0),
+            new("Medium", new RectI(20, 100, 58, 14), 1),
+            new("Dark", new RectI(20, 190, 36, 14), 2)
+        ];
+
+        var controls = VisualSurfaceScanner.DiscoverCore(
+            target,
+            new OpaqueSurfaceScanner.PixelFrame(width, height, pixels),
+            [target.Bounds],
+            [],
+            words);
+
+        var buttons = controls.Where(control =>
+            control.ControlType == "ControlType.Button" &&
+            control.Name.Contains("table style", StringComparison.OrdinalIgnoreCase)).ToArray();
+        Assert.Equal(12, buttons.Length);
+        Assert.Contains(buttons, button => button.Name == "Light table style 1");
+        Assert.Contains(buttons, button => button.Name == "Medium table style 4");
+        Assert.Contains(buttons, button => button.Name == "Dark table style 4");
+        Assert.All(buttons, button => Assert.Contains("Invoke", button.SupportedPatterns ?? []));
+        Assert.DoesNotContain(controls, control =>
+            control.ControlType is "ControlType.Table" or "ControlType.DataItem" or "ControlType.List");
+    }
+
+    [Fact]
+    public async Task VisualFallbackTreatsTextOnlyExcelHeadingStylesAsSeparateButtons()
+    {
+        const int width = 820;
+        const int height = 260;
+        var pixels = Enumerable.Repeat((byte)255, width * height * 4).ToArray();
+        for (var index = 3; index < pixels.Length; index += 4) pixels[index] = 255;
+        var target = new WindowTarget(
+            44, 22, 7, "recorded-process", DateTimeOffset.UnixEpoch, "", "Net UI Tool Window",
+            new RectI(0, 0, width, height));
+        VisualTextObservation[] words =
+        [
+            new("Titles", new RectI(18, 20, 42, 16), 0),
+            new("and", new RectI(66, 20, 25, 16), 0),
+            new("Headings", new RectI(97, 20, 68, 16), 0),
+            new("Heading 1", new RectI(10, 58, 98, 22), 1),
+            new("Heading 2", new RectI(144, 58, 94, 22), 1),
+            new("Heading 3", new RectI(275, 58, 91, 22), 1),
+            new("Heading 4", new RectI(408, 60, 82, 18), 1),
+            new("Title", new RectI(543, 54, 50, 28), 1),
+            new("Total", new RectI(676, 58, 49, 22), 1),
+            new("Themed", new RectI(18, 112, 57, 16), 2),
+            new("Cell", new RectI(81, 112, 28, 16), 2),
+            new("Styles", new RectI(115, 112, 42, 16), 2)
+        ];
+
+        var controls = await VisualSurfaceScanner.DiscoverWithWordsAsync(
+            target,
+            new OpaqueSurfaceScanner.PixelFrame(width, height, pixels),
+            [target.Bounds],
+            [],
+            words,
+            CancellationToken.None);
+
+        var buttons = controls.Where(control => control.VisualRole == "cell-style-button").ToArray();
+        Assert.Equal(6, buttons.Length);
+        Assert.Equal(
+            ["Heading 1", "Heading 2", "Heading 3", "Heading 4", "Title", "Total"],
+            buttons.OrderBy(button => button.Bounds.X).Select(button => button.Name));
+        Assert.All(buttons, button =>
+        {
+            Assert.Equal("ControlType.Button", button.ControlType);
+            Assert.Contains("Invoke", button.SupportedPatterns ?? []);
+            Assert.True(button.Bounds.Width >= 80);
+            Assert.True(button.Bounds.Height >= 18);
+        });
+    }
+
+    [Fact]
+    public void VisualFallbackDoesNotTreatOrdinaryDocumentHeadingsAsCellStyleButtons()
+    {
+        const int width = 820;
+        const int height = 260;
+        var pixels = Enumerable.Repeat((byte)255, width * height * 4).ToArray();
+        var target = new WindowTarget(
+            44, 22, 7, "recorded-process", DateTimeOffset.UnixEpoch, "", "Net UI Tool Window",
+            new RectI(0, 0, width, height));
+        VisualTextObservation[] words =
+        [
+            new("Heading 1", new RectI(10, 58, 98, 22), 1),
+            new("Heading 2", new RectI(144, 58, 94, 22), 1),
+            new("Heading 3", new RectI(275, 58, 91, 22), 1),
+            new("Heading 4", new RectI(408, 60, 82, 18), 1),
+            new("Title", new RectI(543, 54, 50, 28), 1),
+            new("Total", new RectI(676, 58, 49, 22), 1)
+        ];
+
+        var controls = VisualSurfaceScanner.DiscoverCore(
+            target,
+            new OpaqueSurfaceScanner.PixelFrame(width, height, pixels),
+            [target.Bounds],
+            [],
+            words);
+
+        Assert.DoesNotContain(controls, control => control.VisualRole == "cell-style-button");
+    }
+
+    [Fact]
+    public void VisualFallbackSnapsCachedExcelWorksheetCellsToPaintedGridLines()
+    {
+        const int width = 500;
+        const int height = 300;
+        var pixels = Enumerable.Repeat((byte)255, width * height * 4).ToArray();
+        for (var index = 3; index < pixels.Length; index += 4) pixels[index] = 255;
+        int[] verticalEdges = [0, 32, 112, 192, 272, 352, 432, 480];
+        int[] horizontalEdges = [40, 64, 88, 112, 136, 160, 184, 208, 232, 260];
+        foreach (var x in verticalEdges.Where(x => x > 0 && x < width))
+            FillRect(pixels, width, new RectI(x, 40, 2, 220), 205, 205, 205);
+        foreach (var y in horizontalEdges.Where(y => y > 0 && y < height))
+            FillRect(pixels, width, new RectI(0, y, 480, 2), 205, 205, 205);
+
+        var target = new WindowTarget(
+            44, 22, 7, "EXCEL", DateTimeOffset.UnixEpoch, "Book1 - Excel", "XLMAIN",
+            new RectI(0, 0, width, height));
+        var staleGrid = new AutomationObservation(
+            "cache:grid", "", "", "Grid", "ControlType.DataGrid", "XLSpreadsheetGrid",
+            new RectI(0, 40, 480, 220), false, true, "UiAtlas.Cached", target.Hwnd);
+
+        var controls = VisualSurfaceScanner.DiscoverLegacySurfaceControls(
+            target,
+            new OpaqueSurfaceScanner.PixelFrame(width, height, pixels),
+            [staleGrid]);
+
+        var table = Assert.Single(controls, control => control.VisualRole == "table");
+        Assert.Equal("Worksheet grid", table.Name);
+        var headerB = Assert.Single(controls, control =>
+            control.VisualRole == "spreadsheet-column-header" && control.Name == "B");
+        Assert.Equal(new RectI(112, 40, 80, 24), headerB.Bounds);
+        var cellA1 = Assert.Single(controls, control =>
+            control.VisualRole == "spreadsheet-cell" && control.Name == "A1");
+        Assert.Equal(new RectI(32, 64, 80, 24), cellA1.Bounds);
+    }
+
+    [Fact]
     public void VisualFallbackRejectsNarrowUnlabelledArtworkFragment()
     {
         const int width = 180;

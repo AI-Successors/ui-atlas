@@ -25,9 +25,11 @@ public static class OfflineRecordingEnricher
             var incompleteRootRecovery = RequiresIncompleteRootRecovery(frame);
             var opaqueGalleryRecovery = RequiresOpaqueGalleryRecovery(frame.Automation);
             var visualReclassification = RequiresVisualReclassification(frame.Automation);
+            var cachedExcelGridRecovery = RequiresCachedExcelGridRecovery(frame.Automation);
             if ((!string.Equals(frame.Trigger, "adaptive-root-change", StringComparison.Ordinal) ||
                   !frame.AutomationTimedOut && frame.AutomationStatus != "partial") &&
-                !legacyStructureRecovery && !opaqueGalleryRecovery && !visualReclassification)
+                !legacyStructureRecovery && !opaqueGalleryRecovery && !visualReclassification &&
+                !cachedExcelGridRecovery)
             {
                 result.Add(frame);
                 continue;
@@ -63,7 +65,7 @@ public static class OfflineRecordingEnricher
                 var opaqueRegions = VisualFallbackPolicy.FindOpaqueRegions(alignedAutomation, window.Bounds);
                 var reclassifyVisual = visualReclassification || RequiresVisualReclassification(alignedAutomation);
                 if (!stale && opaqueRegions.Count == 0 && !reclassifyVisual &&
-                    !legacyStructureRecovery && !incompleteRootRecovery)
+                    !legacyStructureRecovery && !incompleteRootRecovery && !cachedExcelGridRecovery)
                 {
                     result.Add(frame);
                     continue;
@@ -74,6 +76,16 @@ public static class OfflineRecordingEnricher
                     : reclassifyVisual
                         ? alignedAutomation.Where(control => !IsVisualFallbackControl(control)).ToArray()
                         : alignedAutomation.ToArray();
+                // A cached Excel grid can be geometrically stale while still being the only
+                // reliable signal that this painted surface is a worksheet. Keep just its
+                // container as a structural hint for the pixel scanner; the stale container
+                // and cells are removed from the repaired result below.
+                var legacyKnown = cachedExcelGridRecovery
+                    ? stableNative.Concat(alignedAutomation.Where(IsCachedExcelGridContainer))
+                        .GroupBy(ControlIdentity, StringComparer.Ordinal)
+                        .Select(group => group.First())
+                        .ToArray()
+                    : stableNative;
                 Task<IReadOnlyList<AutomationObservation>> visualTask =
                     Task.FromResult<IReadOnlyList<AutomationObservation>>([]);
                 if (stale || reclassifyVisual || opaqueRegions.Count > 0 || incompleteRootRecovery)
@@ -87,16 +99,34 @@ public static class OfflineRecordingEnricher
                         cancellationToken);
                 }
                 Task<IReadOnlyList<AutomationObservation>> legacyTask =
-                    legacyStructureRecovery || stale || reclassifyVisual || incompleteRootRecovery
+                    legacyStructureRecovery || stale || reclassifyVisual || incompleteRootRecovery ||
+                    cachedExcelGridRecovery
                         ? Task.Run(
                             () => VisualSurfaceScanner.DiscoverLegacySurfaceControlsWithWordsAsync(
-                                target, pixels, stableNative, words, cancellationToken),
+                                target, pixels, legacyKnown, words, cancellationToken),
                             cancellationToken)
                         : Task.FromResult<IReadOnlyList<AutomationObservation>>([]);
                 await Task.WhenAll(visualTask, legacyTask).ConfigureAwait(false);
                 var visual = await visualTask.ConfigureAwait(false);
                 var legacy = await legacyTask.ConfigureAwait(false);
-                var popupText = IsVisualPopupFallback(frame)
+                var repairedExcelTables = cachedExcelGridRecovery
+                    ? legacy.Where(control =>
+                            string.Equals(control.Name, "Worksheet grid", StringComparison.Ordinal) &&
+                            NormalizeType(control.ControlType) == "Table")
+                        .ToArray()
+                    : [];
+                if (repairedExcelTables.Length > 0)
+                {
+                    stableNative = stableNative.Where(control => !IsCachedExcelWorksheetControl(control)).ToArray();
+                    // The general visual pass may also interpret every worksheet cell as a
+                    // generic field/table cell. Prefer the Excel-specific reconstruction so
+                    // one precise overlay is emitted instead of two competing grids.
+                    visual = visual.Where(control => !repairedExcelTables.Any(table =>
+                        IsVisualFallbackControl(control) && ContainsCenter(table.Bounds, control.Bounds))).ToArray();
+                }
+                var hasStructuredPopupGallery = visual.Any(control =>
+                    string.Equals(control.VisualRole, "cell-style-button", StringComparison.Ordinal));
+                var popupText = IsVisualPopupFallback(frame) && !hasStructuredPopupGallery
                     ? VisualSurfaceScanner.DiscoverPopupTextListControls(target, pixels, words)
                     : [];
                 if (popupText.Count > 0)
@@ -136,6 +166,13 @@ public static class OfflineRecordingEnricher
         IReadOnlyList<AutomationObservation> controls) =>
         controls.Any(VisualFallbackPolicy.IsOpaqueGalleryContainer);
 
+    internal static bool RequiresCachedExcelGridRecovery(
+        IReadOnlyList<AutomationObservation> controls) =>
+        controls.Any(control =>
+            control.FrameworkId.StartsWith("UiAtlas.Cached", StringComparison.OrdinalIgnoreCase) &&
+            control.ClassName.Equals("XLSpreadsheetGrid", StringComparison.OrdinalIgnoreCase) &&
+            control.Bounds.Width >= 240 && control.Bounds.Height >= 80);
+
     internal static bool RequiresIncompleteRootRecovery(FrameObservation frame)
     {
         ArgumentNullException.ThrowIfNull(frame);
@@ -155,6 +192,17 @@ public static class OfflineRecordingEnricher
 
     private static bool IsVisualFallbackControl(AutomationObservation control) =>
         control.FrameworkId.StartsWith("UiAtlas.Visual.", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsCachedExcelWorksheetControl(AutomationObservation control) =>
+        control.FrameworkId.StartsWith("UiAtlas.Cached", StringComparison.OrdinalIgnoreCase) &&
+        (control.ClassName.Equals("XLSpreadsheetGrid", StringComparison.OrdinalIgnoreCase) ||
+         control.ClassName.Equals("XLGridColumnHeader", StringComparison.OrdinalIgnoreCase) ||
+         control.ClassName.Equals("XLGridRowHeader", StringComparison.OrdinalIgnoreCase) ||
+         control.ClassName.Equals("XLSpreadsheetCell", StringComparison.OrdinalIgnoreCase));
+
+    private static bool IsCachedExcelGridContainer(AutomationObservation control) =>
+        control.FrameworkId.StartsWith("UiAtlas.Cached", StringComparison.OrdinalIgnoreCase) &&
+        control.ClassName.Equals("XLSpreadsheetGrid", StringComparison.OrdinalIgnoreCase);
 
     private static IEnumerable<AutomationObservation> DeduplicateGeometry(
         IEnumerable<AutomationObservation> controls)

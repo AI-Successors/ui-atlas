@@ -403,6 +403,7 @@ public static class VisualSurfaceScanner
                     scaleX, scaleY, frame.Width, frame.Height)
             })
             .Where(item => string.IsNullOrEmpty(item.Control.ParentRuntimeId) &&
+                           item.Control.VisualRole != "cell-style-button" &&
                            item.PixelBounds.Width >= 60 &&
                            item.PixelBounds.Height is >= 16 and <= 260 &&
                            NormalizeControlType(item.Control.ControlType) is "Edit" or "ComboBox" or "Button" or "List" &&
@@ -648,9 +649,16 @@ public static class VisualSurfaceScanner
 
         var scaleX = frame.Width / (double)target.Bounds.Width;
         var scaleY = frame.Height / (double)target.Bounds.Height;
+        var cellStyleCards = FindExcelCellStyleHeadingCards(target, frame, words);
+        var cellStyleBounds = cellStyleCards.Select(card => card.Bounds).ToArray();
+        var tableStyleCards = FindExcelTableStyleGalleryCards(target, frame, words);
+        var tableStyleBounds = tableStyleCards.Select(card => card.Bounds).ToArray();
         var structuralRectangles = ExpandGridRows(
-            frame,
-            FindRectangles(frame, new RectI(0, 0, frame.Width, frame.Height), allowWideField: true));
+                frame,
+                FindRectangles(frame, new RectI(0, 0, frame.Width, frame.Height), allowWideField: true))
+            .Where(bounds => !cellStyleBounds.Any(card => ContainsCenter(card, bounds)))
+            .Where(bounds => !tableStyleBounds.Any(card => ContainsCenter(card, bounds)))
+            .ToArray();
         var tables = FindKnownGridTables(target, frame, knownControls, scaleX, scaleY, [])
             .Concat(FindSparseTableGroups(structuralRectangles, words))
             .GroupBy(table => table.Bounds)
@@ -661,6 +669,8 @@ public static class VisualSurfaceScanner
         var tabStrips = FindClassicTabStrips(frame, words);
         var radioButtons = FindClassicRadioButtons(frame, words);
         var result = new List<AutomationObservation>();
+        AppendExcelCellStyleHeadingObservations(result, target, frame, cellStyleCards, scaleX, scaleY);
+        AppendExcelTableStyleGalleryObservations(result, target, frame, tableStyleCards, scaleX, scaleY);
         foreach (var table in tables)
             AppendTableObservations(result, target, frame, table, words, scaleX, scaleY);
         foreach (var combo in combos)
@@ -767,6 +777,13 @@ public static class VisualSurfaceScanner
         var classicRadioButtons = FindClassicRadioButtons(frame, words);
         var opaqueGalleryButtons = DiscoverOpaqueGalleryButtons(
             target, frame, knownControls, words, scaleX, scaleY);
+        var cellStyleCards = FindExcelCellStyleHeadingCards(target, frame, words);
+        var cellStyleBounds = cellStyleCards.Select(card => card.Bounds).ToArray();
+        var tableStyleCards = FindExcelTableStyleGalleryCards(target, frame, words)
+            .Where(card => pixelRegions.Any(region => ContainsCenter(region, card.Bounds)) &&
+                           !excludedPixelRegions.Any(region => ContainsCenter(region, card.Bounds)))
+            .ToArray();
+        var tableStyleBounds = tableStyleCards.Select(card => card.Bounds).ToArray();
         var templateGalleryRegions = knownControls
             .Where(VisualFallbackPolicy.IsTemplateGalleryContainer)
             .Select(gallery => TemplateGallerySearchPixels(
@@ -781,6 +798,14 @@ public static class VisualSurfaceScanner
         if (templateGalleryRegions.Length > 0)
             rectangles = rectangles
                 .Where(bounds => !templateGalleryRegions.Any(region => ContainsCenter(region, bounds)))
+                .ToList();
+        if (cellStyleBounds.Length > 0)
+            rectangles = rectangles
+                .Where(bounds => !cellStyleBounds.Any(region => ContainsCenter(region, bounds)))
+                .ToList();
+        if (tableStyleBounds.Length > 0)
+            rectangles = rectangles
+                .Where(bounds => !tableStyleBounds.Any(region => ContainsCenter(region, bounds)))
                 .ToList();
         if (knownGridTables.Count > 0)
             rectangles = rectangles
@@ -837,6 +862,8 @@ public static class VisualSurfaceScanner
             .ToList();
 
         var result = new List<AutomationObservation>();
+        AppendExcelCellStyleHeadingObservations(result, target, frame, cellStyleCards, scaleX, scaleY);
+        AppendExcelTableStyleGalleryObservations(result, target, frame, tableStyleCards, scaleX, scaleY);
         var consumed = new HashSet<RectI>();
         var tables = knownGridTables
             .Concat(FindTableGroups(retained))
@@ -1204,6 +1231,302 @@ public static class VisualSurfaceScanner
         return estimated;
     }
 
+    private static IReadOnlyList<CellStyleGalleryCard> FindExcelCellStyleHeadingCards(
+        WindowTarget target,
+        OpaqueSurfaceScanner.PixelFrame frame,
+        IReadOnlyList<VisualTextObservation> words)
+    {
+        if (!target.ClassName.Contains("Net UI Tool Window", StringComparison.OrdinalIgnoreCase) ||
+            frame.Width < 360 || frame.Height < 120 || words.Count < 6)
+            return [];
+
+        var segments = TextLineSegments(words)
+            .Where(segment => segment.Bounds.IsValid && segment.Text.Count(char.IsLetterOrDigit) >= 2)
+            .OrderBy(segment => segment.Bounds.Y)
+            .ThenBy(segment => segment.Bounds.X)
+            .ToArray();
+        var section = segments.FirstOrDefault(segment =>
+            NormalizeIdentityText(segment.Text).Equals("titlesandheadings", StringComparison.Ordinal));
+        if (section is null)
+            return [];
+
+        var nextSectionTop = segments
+            .Where(segment => segment.Bounds.Y > section.Bounds.Y &&
+                              NormalizeIdentityText(segment.Text)
+                                  .Equals("themedcellstyles", StringComparison.Ordinal))
+            .Select(segment => segment.Bounds.Y)
+            .DefaultIfEmpty(Math.Min(frame.Height, section.Bounds.Y + 110))
+            .Min();
+        var contentTop = section.Bounds.Y + section.Bounds.Height + 2;
+        if (nextSectionTop - contentTop is < 16 or > 120)
+            return [];
+
+        var candidates = segments
+            .Where(segment => segment.Bounds.Y >= contentTop &&
+                              segment.Bounds.Y < nextSectionTop &&
+                              segment.Bounds.Height is >= 7 and <= 40)
+            .ToArray();
+        if (candidates.Length < 4)
+            return [];
+
+        var rowTolerance = Math.Clamp(candidates.Max(segment => segment.Bounds.Height) / 2, 5, 12);
+        var clusteredRows = new List<List<TextSegment>>();
+        foreach (var candidate in candidates.OrderBy(segment => segment.Bounds.Y + segment.Bounds.Height / 2))
+        {
+            var center = candidate.Bounds.Y + candidate.Bounds.Height / 2;
+            var row = clusteredRows.LastOrDefault(group =>
+                Math.Abs(group.Average(item => item.Bounds.Y + item.Bounds.Height / 2d) - center) <= rowTolerance);
+            if (row is null)
+                clusteredRows.Add([candidate]);
+            else
+                row.Add(candidate);
+        }
+        var rows = clusteredRows
+            .Select(row => row.OrderBy(segment => segment.Bounds.X).ToArray())
+            .Where(row => row.Length is >= 4 and <= 8)
+            .OrderBy(row => row.Min(segment => segment.Bounds.Y))
+            .ToArray();
+        var labels = rows.FirstOrDefault(row =>
+        {
+            var normalized = row.Select(item => NormalizeIdentityText(item.Text)).ToArray();
+            var recognized = normalized.Count(IsHeadingStyleName);
+            return recognized >= 4 &&
+                   normalized.Any(value => value.StartsWith("heading", StringComparison.Ordinal)) &&
+                   normalized.Any(value => value is "title" or "total");
+        });
+        if (labels is null)
+            return [];
+
+        var centers = labels.Select(label => label.Bounds.X + label.Bounds.Width / 2).ToArray();
+        if (centers.Zip(centers.Skip(1), (left, right) => right - left).Any(gap => gap < 36))
+            return [];
+        var medianHeight = labels.Select(label => label.Bounds.Height).OrderBy(value => value)
+            .ElementAt(labels.Length / 2);
+        var top = Math.Max(contentTop, labels.Min(label => label.Bounds.Y) - Math.Max(4, medianHeight / 3));
+        var bottom = Math.Min(nextSectionTop - 4,
+            labels.Max(label => label.Bounds.Y + label.Bounds.Height) + Math.Max(8, medianHeight / 2));
+        if (bottom - top < 18)
+            return [];
+
+        var left = Math.Max(0, Math.Min(section.Bounds.X, labels[0].Bounds.X) - Math.Max(5, medianHeight / 2));
+        var right = labels[^1].Bounds.X + labels[^1].Bounds.Width + Math.Max(12, medianHeight);
+        if (centers[^1] >= frame.Width * .68 && left <= frame.Width * .08)
+            right = frame.Width - Math.Max(4, left);
+        right = Math.Clamp(right, left + labels.Length * 30, frame.Width);
+
+        var cards = new List<CellStyleGalleryCard>(labels.Length);
+        for (var index = 0; index < labels.Length; index++)
+        {
+            var itemLeft = index == 0 ? left : (centers[index - 1] + centers[index]) / 2;
+            var itemRight = index == labels.Length - 1 ? right : (centers[index] + centers[index + 1]) / 2;
+            if (itemRight - itemLeft < 30)
+                return [];
+            cards.Add(new(new RectI(itemLeft, top, itemRight - itemLeft, bottom - top),
+                NormalizePopupItemText(labels[index].Text), index));
+        }
+        return cards;
+    }
+
+    private static bool IsHeadingStyleName(string value) =>
+        value is "title" or "total" ||
+        value.StartsWith("heading", StringComparison.Ordinal) &&
+        value.Length > "heading".Length && value["heading".Length..].All(char.IsDigit);
+
+    private static void AppendExcelCellStyleHeadingObservations(
+        List<AutomationObservation> result,
+        WindowTarget target,
+        OpaqueSurfaceScanner.PixelFrame frame,
+        IReadOnlyList<CellStyleGalleryCard> cards,
+        double scaleX,
+        double scaleY)
+    {
+        if (cards.Count == 0) return;
+        var groupIdentity = StableVisualIdentity(
+            "Group", "Titles and Headings", "excel-cell-style-heading-gallery", "");
+        var groupId = "visual:v3:" + groupIdentity;
+        foreach (var card in cards)
+        {
+            var identity = StableVisualIdentity("Button", card.Name,
+                $"{groupIdentity}|item:{card.Ordinal}", CoarseFingerprint(frame, card.Bounds));
+            var id = "visual:v3:" + identity;
+            result.Add(CreateObservation(target, card.Bounds, scaleX, scaleY, id, "", card.Name,
+                "Button", "cell-style-button", groupId, null, card.Ordinal, ["Invoke"], card.Name));
+        }
+    }
+
+    private static IReadOnlyList<TableStyleGalleryCard> FindExcelTableStyleGalleryCards(
+        WindowTarget target,
+        OpaqueSurfaceScanner.PixelFrame frame,
+        IReadOnlyList<VisualTextObservation> words)
+    {
+        var applicationIdentity = $"{target.ProcessName} {target.Title} {target.ClassName}";
+        if (!applicationIdentity.Contains("Excel", StringComparison.OrdinalIgnoreCase) || words.Count == 0)
+            return [];
+
+        string[] sectionNames = ["Light", "Medium", "Dark"];
+        var headers = sectionNames
+            .Select(name => words
+                .Where(word => NormalizeIdentityText(word.Text)
+                    .Equals(NormalizeIdentityText(name), StringComparison.Ordinal))
+                .OrderBy(word => word.Bounds.Y)
+                .FirstOrDefault() is { } word
+                    ? new GallerySectionHeader(name, word.Bounds)
+                    : null)
+            .Where(header => header is not null)
+            .Cast<GallerySectionHeader>()
+            .OrderBy(header => header.Bounds.Y)
+            .ToArray();
+        if (headers.Length != sectionNames.Length ||
+            !headers.Select(header => header.Name).SequenceEqual(sectionNames, StringComparer.Ordinal))
+            return [];
+
+        var firstContentY = headers[0].Bounds.Y + headers[0].Bounds.Height + 2;
+        var actionTop = words
+            .Where(word =>
+            {
+                var normalized = NormalizeIdentityText(word.Text);
+                return normalized.StartsWith("newtablestyle", StringComparison.Ordinal) ||
+                       normalized.StartsWith("newpivottablestyle", StringComparison.Ordinal);
+            })
+            .Select(word => word.Bounds.Y)
+            .DefaultIfEmpty(frame.Height)
+            .Min();
+        var lastContentY = Math.Clamp(actionTop - 2, firstContentY, frame.Height);
+        var activeRows = new List<int>();
+        var minimumRowInk = Math.Max(24, (int)Math.Ceiling(frame.Width * .06));
+        for (var y = firstContentY; y < lastContentY; y++)
+        {
+            var ink = 0;
+            for (var x = 0; x < frame.Width; x++)
+                if (IsGalleryInk(frame, x, y)) ink++;
+            if (ink >= minimumRowInk) activeRows.Add(y);
+        }
+
+        var maximumInternalGap = Math.Clamp(frame.Height / 80, 4, 24);
+        var minimumCardHeight = Math.Clamp(frame.Height / 32, 18, 64);
+        var rowBands = MergeAxisBands(activeRows, maximumInternalGap, minimumCardHeight)
+            .Where(band => band.Length <= Math.Max(96, frame.Height / 6))
+            .ToArray();
+        if (rowBands.Length < 3 || rowBands.Length > 20)
+            return [];
+
+        var activeColumns = new List<int>();
+        var sampledHeight = rowBands.Sum(band => band.Length);
+        var minimumColumnInk = Math.Max(8, (int)Math.Ceiling(sampledHeight * .025));
+        for (var x = 0; x < frame.Width; x++)
+        {
+            var ink = 0;
+            foreach (var row in rowBands)
+            for (var y = row.Start; y <= row.End; y++)
+                if (IsGalleryInk(frame, x, y)) ink++;
+            if (ink >= minimumColumnInk) activeColumns.Add(x);
+        }
+
+        var minimumCardWidth = Math.Max(20, frame.Width / 40);
+        var columnBands = MergeAxisBands(activeColumns, Math.Clamp(frame.Width / 300, 1, 3), minimumCardWidth)
+            .Where(band => band.Length <= frame.Width / 3)
+            .ToArray();
+        if (columnBands.Length is < 3 or > 12)
+            return [];
+        var medianWidth = columnBands.OrderBy(band => band.Length).ElementAt(columnBands.Length / 2).Length;
+        if (columnBands.Any(band => band.Length < medianWidth * .65 || band.Length > medianWidth * 1.35))
+            return [];
+
+        var sectionOrdinals = sectionNames.ToDictionary(name => name, _ => 0, StringComparer.Ordinal);
+        var cards = new List<TableStyleGalleryCard>();
+        foreach (var row in rowBands)
+        {
+            var section = headers.LastOrDefault(header => header.Bounds.Y < row.Start);
+            if (section is null) continue;
+            var rowCards = new List<RectI>();
+            foreach (var column in columnBands)
+            {
+                var bounds = new RectI(column.Start, row.Start, column.Length, row.Length);
+                if (GalleryInkRatio(frame, bounds) >= .06)
+                    rowCards.Add(bounds);
+            }
+            if (rowCards.Count < Math.Max(3, columnBands.Length / 2)) continue;
+            foreach (var bounds in rowCards)
+            {
+                sectionOrdinals[section.Name]++;
+                cards.Add(new(bounds, section.Name, sectionOrdinals[section.Name]));
+            }
+        }
+
+        return cards.Count >= 6 &&
+               sectionNames.All(name => cards.Any(card => card.Section.Equals(name, StringComparison.Ordinal)))
+            ? cards
+            : [];
+    }
+
+    private static void AppendExcelTableStyleGalleryObservations(
+        List<AutomationObservation> result,
+        WindowTarget target,
+        OpaqueSurfaceScanner.PixelFrame frame,
+        IReadOnlyList<TableStyleGalleryCard> cards,
+        double scaleX,
+        double scaleY)
+    {
+        if (cards.Count == 0) return;
+        var groupIdentity = StableVisualIdentity("Group", "Table styles", "excel-table-style-gallery", "");
+        var groupId = "visual:v3:" + groupIdentity;
+        foreach (var card in cards)
+        {
+            var name = $"{card.Section} table style {card.Ordinal}";
+            var identity = StableVisualIdentity("Button", name,
+                $"{groupIdentity}|{card.Section}|item:{card.Ordinal}", CoarseFingerprint(frame, card.Bounds));
+            var id = "visual:v3:" + identity;
+            result.Add(CreateObservation(target, card.Bounds, scaleX, scaleY, id, "", name,
+                "Button", "button", groupId, null, card.Ordinal - 1, ["Invoke"]));
+        }
+    }
+
+    private static IReadOnlyList<AxisBand> MergeAxisBands(
+        IReadOnlyList<int> activeAxes,
+        int maximumInternalGap,
+        int minimumLength)
+    {
+        if (activeAxes.Count == 0) return [];
+        var result = new List<AxisBand>();
+        var start = activeAxes[0];
+        var previous = start;
+        for (var index = 1; index < activeAxes.Count; index++)
+        {
+            var current = activeAxes[index];
+            if (current - previous > maximumInternalGap)
+            {
+                if (previous - start + 1 >= minimumLength)
+                    result.Add(new(start, previous));
+                start = current;
+            }
+            previous = current;
+        }
+        if (previous - start + 1 >= minimumLength)
+            result.Add(new(start, previous));
+        return result;
+    }
+
+    private static double GalleryInkRatio(OpaqueSurfaceScanner.PixelFrame frame, RectI bounds)
+    {
+        var ink = 0;
+        for (var y = bounds.Y; y < bounds.Y + bounds.Height; y++)
+        for (var x = bounds.X; x < bounds.X + bounds.Width; x++)
+            if (IsGalleryInk(frame, x, y)) ink++;
+        return ink / (double)Math.Max(1L, (long)bounds.Width * bounds.Height);
+    }
+
+    private static bool IsGalleryInk(OpaqueSurfaceScanner.PixelFrame frame, int x, int y)
+    {
+        var offset = (y * frame.Width + x) * 4;
+        var blue = frame.Pixels[offset];
+        var green = frame.Pixels[offset + 1];
+        var red = frame.Pixels[offset + 2];
+        var maximum = Math.Max(red, Math.Max(green, blue));
+        var minimum = Math.Min(red, Math.Min(green, blue));
+        var luminance = (red * 77 + green * 150 + blue * 29) >> 8;
+        return maximum - minimum >= 18 || luminance < 205;
+    }
+
     private static void AppendTableObservations(
         List<AutomationObservation> result,
         WindowTarget target,
@@ -1221,7 +1544,9 @@ public static class VisualSurfaceScanner
             .ToDictionary(group => group.Key, group => group.First().Text);
         var hasHeaderRow = table.HasHeaderRow ||
                            headerTextByColumn.Count >= Math.Max(2, table.ColumnCount / 3);
-        var tableText = hasHeaderRow
+        var tableText = table.IsSpreadsheet
+            ? "Worksheet grid"
+            : hasHeaderRow
             ? string.Join(' ', headerTextByColumn.OrderBy(item => item.Key).Select(item => item.Value))
             : string.Empty;
         var tableIdentity = StableVisualIdentity("Table", "",
@@ -1236,9 +1561,13 @@ public static class VisualSurfaceScanner
             // Header labels describe the table structure and are safe to keep.
             // Body values can contain customer data, so preserve only their
             // clickable geometry and row/column coordinates.
-            var cellText = isHeader ? headerTextByColumn.GetValueOrDefault(cell.Column, "") : "";
+            var cellText = table.IsSpreadsheet
+                ? SpreadsheetCellName(cell.Row, cell.Column)
+                : isHeader ? headerTextByColumn.GetValueOrDefault(cell.Column, "") : "";
             var cellType = isHeader ? "HeaderItem" : "DataItem";
-            var cellRole = isHeader ? "column-header" : "table-cell";
+            var cellRole = table.IsSpreadsheet
+                ? isHeader ? "spreadsheet-column-header" : "spreadsheet-cell"
+                : isHeader ? "column-header" : "table-cell";
             var cellIdentity = StableVisualIdentity(cellType, isHeader ? cellText : "",
                 $"{tableIdentity}|row:{cell.Row}|column:{cell.Column}", "");
             var cellId = "visual:v3:" + cellIdentity;
@@ -1246,6 +1575,24 @@ public static class VisualSurfaceScanner
                 cellType, cellRole, tableId, cell.Row, cell.Column,
                 isHeader ? ["Invoke"] : ["GridItem", "SelectionItem"]));
         }
+    }
+
+    private static string SpreadsheetCellName(int row, int column)
+    {
+        if (row == 0 && column == 0) return "Select all cells";
+        if (column == 0) return row.ToString(CultureInfo.InvariantCulture);
+
+        var value = column;
+        Span<char> buffer = stackalloc char[8];
+        var position = buffer.Length;
+        while (value > 0)
+        {
+            value--;
+            buffer[--position] = (char)('A' + value % 26);
+            value /= 26;
+        }
+        var columnName = new string(buffer[position..]);
+        return row == 0 ? columnName : columnName + row.ToString(CultureInfo.InvariantCulture);
     }
 
     private static void AppendWideComboObservation(
@@ -1727,24 +2074,112 @@ public static class VisualSurfaceScanner
         IReadOnlyList<RectI> excludedPixelRegions)
     {
         var candidates = knownControls
-            .Where(control => control.ClassName.Contains("DBGrid", StringComparison.OrdinalIgnoreCase) &&
-                              !control.FrameworkId.StartsWith("UiAtlas.Cached", StringComparison.OrdinalIgnoreCase) &&
-                              control.Bounds.Width >= 240 && control.Bounds.Height >= 80)
-            .Select(control => ToPixelRect(
-                Intersect(control.Bounds, target.Bounds), target.Bounds,
-                scaleX, scaleY, frame.Width, frame.Height))
-            .Where(bounds => bounds.Width >= 240 && bounds.Height >= 80 &&
-                             !excludedPixelRegions.Any(excluded => IntersectionOverUnion(excluded, bounds) >= .72))
-            .OrderByDescending(bounds => (long)bounds.Width * bounds.Height)
+            .Where(control =>
+                control.ClassName.Contains("DBGrid", StringComparison.OrdinalIgnoreCase) &&
+                !control.FrameworkId.StartsWith("UiAtlas.Cached", StringComparison.OrdinalIgnoreCase) ||
+                control.ClassName.Equals("XLSpreadsheetGrid", StringComparison.OrdinalIgnoreCase) &&
+                control.FrameworkId.StartsWith("UiAtlas.Cached", StringComparison.OrdinalIgnoreCase))
+            .Where(control => control.Bounds.Width >= 240 && control.Bounds.Height >= 80)
+            .Select(control => new
+            {
+                Bounds = ToPixelRect(
+                    Intersect(control.Bounds, target.Bounds), target.Bounds,
+                    scaleX, scaleY, frame.Width, frame.Height),
+                IsCachedExcelGrid = control.ClassName.Equals(
+                    "XLSpreadsheetGrid", StringComparison.OrdinalIgnoreCase)
+            })
+            .Where(candidate => candidate.Bounds.Width >= 240 && candidate.Bounds.Height >= 80 &&
+                                !excludedPixelRegions.Any(excluded =>
+                                    IntersectionOverUnion(excluded, candidate.Bounds) >= .72))
+            .OrderByDescending(candidate => (long)candidate.Bounds.Width * candidate.Bounds.Height)
             .ToArray();
         var result = new List<TableGroup>();
         foreach (var candidate in candidates)
         {
-            if (result.Any(table => OverlapRatio(table.Bounds, candidate) >= .72)) continue;
-            var table = TryFindBorderedGrid(frame, candidate);
+            if (result.Any(table => OverlapRatio(table.Bounds, candidate.Bounds) >= .72)) continue;
+            var table = candidate.IsCachedExcelGrid
+                ? TryFindExcelWorksheetGrid(frame, candidate.Bounds)
+                : TryFindBorderedGrid(frame, candidate.Bounds);
             if (table is not null) result.Add(table);
         }
         return result;
+    }
+
+    private static TableGroup? TryFindExcelWorksheetGrid(
+        OpaqueSurfaceScanner.PixelFrame frame,
+        RectI candidate)
+    {
+        var horizontal = FindStrongAxisLines(frame, candidate, horizontal: true, leadingEdge: true);
+        var regularRows = LongestRegularSequence(horizontal, 16, 40).ToList();
+        if (regularRows.Count < 4)
+            return null;
+
+        var rowPitch = regularRows.Zip(regularRows.Skip(1), (top, bottom) => bottom - top)
+            .OrderBy(value => value)
+            .ElementAt((regularRows.Count - 1) / 2);
+        if (regularRows[0] - candidate.Y is >= 12 and <= 48)
+            regularRows.Insert(0, candidate.Y);
+        var candidateBottom = Math.Min(frame.Height, candidate.Y + candidate.Height);
+        if (candidateBottom - regularRows[^1] is >= 12 &&
+            candidateBottom - regularRows[^1] <= Math.Max(48, rowPitch * 3 / 2))
+            regularRows.Add(candidateBottom);
+
+        var rowSpan = new RectI(candidate.X, regularRows[0], candidate.Width,
+            regularRows[^1] - regularRows[0]);
+        var columnEdges = FindStrongAxisLines(frame, rowSpan, horizontal: false, leadingEdge: true).ToList();
+        if (columnEdges.Count < 4)
+            return null;
+        if (columnEdges[0] - candidate.X is >= 0 and <= 12)
+            columnEdges[0] = candidate.X;
+        else if (columnEdges[0] - candidate.X is > 12 and <= 48)
+            columnEdges.Insert(0, candidate.X);
+        var candidateRight = Math.Min(frame.Width, candidate.X + candidate.Width);
+        if (candidateRight - columnEdges[^1] is >= 12 and <= 120)
+            columnEdges.Add(candidateRight);
+
+        var columnSpans = Enumerable.Range(0, columnEdges.Count - 1)
+            .Select(index => new
+            {
+                Left = columnEdges[index],
+                Right = columnEdges[index + 1],
+                Width = columnEdges[index + 1] - columnEdges[index]
+            })
+            .Where(span => span.Width >= 12)
+            .ToArray();
+        if (columnSpans.Length < 4)
+            return null;
+
+        var ordinaryWidths = columnSpans.Select(span => span.Width)
+            .Where(width => width >= 32)
+            .OrderBy(width => width)
+            .ToArray();
+        if (ordinaryWidths.Length < 3)
+            return null;
+        var columnPitch = ordinaryWidths[ordinaryWidths.Length / 2];
+        if (ordinaryWidths.Count(width =>
+                width >= columnPitch * .72 && width <= columnPitch * 1.28) <
+            Math.Max(3, ordinaryWidths.Length - 2))
+            return null;
+
+        var cells = new List<TableCell>((regularRows.Count - 1) * columnSpans.Length);
+        for (var row = 0; row < regularRows.Count - 1; row++)
+        for (var column = 0; column < columnSpans.Length; column++)
+        {
+            var span = columnSpans[column];
+            var height = regularRows[row + 1] - regularRows[row];
+            if (height < 12) continue;
+            cells.Add(new(new RectI(span.Left, regularRows[row], span.Width, height), row, column));
+        }
+        if (cells.Count < 20)
+            return null;
+        return new(
+            new RectI(columnSpans[0].Left, regularRows[0],
+                columnSpans[^1].Right - columnSpans[0].Left,
+                regularRows[^1] - regularRows[0]),
+            cells,
+            columnSpans.Length,
+            HasHeaderRow: true,
+            IsSpreadsheet: true);
     }
 
     private static IReadOnlyList<ClassicTreeGroup> FindClassicTrees(
@@ -2119,7 +2554,8 @@ public static class VisualSurfaceScanner
     private static IReadOnlyList<int> FindStrongAxisLines(
         OpaqueSurfaceScanner.PixelFrame frame,
         RectI bounds,
-        bool horizontal)
+        bool horizontal,
+        bool leadingEdge = false)
     {
         var active = new List<int>();
         var start = horizontal ? Math.Max(1, bounds.Y) : Math.Max(1, bounds.X);
@@ -2154,7 +2590,7 @@ public static class VisualSurfaceScanner
         {
             var endIndex = index + 1;
             while (endIndex < active.Count && active[endIndex] <= active[endIndex - 1] + 3) endIndex++;
-            lines.Add(active[index + (endIndex - index) / 2]);
+            lines.Add(leadingEdge ? active[index] : active[index + (endIndex - index) / 2]);
             index = endIndex;
         }
         return lines;
@@ -2820,7 +3256,8 @@ public static class VisualSurfaceScanner
         RectI Bounds,
         IReadOnlyList<TableCell> Cells,
         int ColumnCount,
-        bool HasHeaderRow);
+        bool HasHeaderRow,
+        bool IsSpreadsheet = false);
     private sealed record TableCell(RectI Bounds, int Row, int Column);
     private sealed record TreeAccentBand(int Top, int Bottom, int PixelCount);
     private sealed record ClassicTreeGroup(RectI Bounds, IReadOnlyList<ClassicTreeRow> Rows);
@@ -2828,6 +3265,13 @@ public static class VisualSurfaceScanner
     private sealed record ClassicTabStrip(RectI Bounds, IReadOnlyList<ClassicTabItem> Items);
     private sealed record ClassicTabItem(RectI Bounds, string Name);
     private sealed record ClassicRadioButton(RectI Bounds, string Name);
+    private sealed record GallerySectionHeader(string Name, RectI Bounds);
+    private sealed record CellStyleGalleryCard(RectI Bounds, string Name, int Ordinal);
+    private sealed record TableStyleGalleryCard(RectI Bounds, string Section, int Ordinal);
+    private readonly record struct AxisBand(int Start, int End)
+    {
+        public int Length => End - Start + 1;
+    }
     private sealed record TextSegment(string Text, RectI Bounds);
     private sealed record FieldLabelProbe(int ControlIndex, RectI Bounds, int Priority);
     private sealed record ListGroup(RectI Bounds, IReadOnlyList<RectI> Items);
