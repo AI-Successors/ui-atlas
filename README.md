@@ -1,6 +1,6 @@
-# UiAtlas Core
+# UiAtlas
 
-UiAtlas Core is an offline-first Windows toolkit for manually recording one selected desktop application and its owned popups, preserving Raw Data Streams, deterministically building Raw World and Semantic World UI Knowledge Graph layers, inspecting and diffing them, and consuming a lossless JSON export from an independent library.
+UiAtlas is an offline-first Windows toolkit for manually recording one selected desktop application and its owned popups, preserving Raw Data Streams, deterministically building Raw World and Semantic World UI Knowledge Graph layers, inspecting and diffing them, and consuming a lossless JSON export from an independent library.
 
 The supported v1 scope is deliberately narrow: attended manual capture, Windows 10 version 2004 or later and Windows 11, Win32 window metadata, bounded UI Automation, scoped window screenshots, immutable recording bundles, observed mapping entities and transitions, SQLite, JSON, a command-line tool, and a read-only WPF explorer. It does not perform actions in applications or provide authoring, execution, remote-control, or background-monitoring features.
 
