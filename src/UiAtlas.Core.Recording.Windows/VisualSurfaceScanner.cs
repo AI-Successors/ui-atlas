@@ -2363,14 +2363,18 @@ public static class VisualSurfaceScanner
         RectI candidate)
     {
         var horizontal = FindStrongAxisLines(frame, candidate, horizontal: true, leadingEdge: true);
-        var regularRows = LongestRegularSequence(horizontal, 16, 40).ToList();
+        // Excel scales row height with worksheet zoom. At 375-400% a normal
+        // worksheet row is roughly 90-100 physical pixels high, so limiting the
+        // pitch to 40 rejects the real painted grid and leaves stale cached cells.
+        var regularRows = LongestRegularSequence(horizontal, 16, 160).ToList();
         if (regularRows.Count < 4)
             return null;
 
         var rowPitch = regularRows.Zip(regularRows.Skip(1), (top, bottom) => bottom - top)
             .OrderBy(value => value)
             .ElementAt((regularRows.Count - 1) / 2);
-        if (regularRows[0] - candidate.Y is >= 12 and <= 48)
+        if (regularRows[0] - candidate.Y >= 12 &&
+            regularRows[0] - candidate.Y <= Math.Max(48, rowPitch * 3 / 2))
             regularRows.Insert(0, candidate.Y);
         var candidateBottom = Math.Min(frame.Height, candidate.Y + candidate.Height);
         if (candidateBottom - regularRows[^1] is >= 12 &&

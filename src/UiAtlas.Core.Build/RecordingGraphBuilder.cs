@@ -64,7 +64,7 @@ public sealed class RecordingGraphBuilder
             var rawSurfaceByNativeWindow = new Dictionary<long, RawSurfaceInfo>();
             var curatedObservations = SuppressRecordedVisualDuplicates(
                 CarryForwardStableNativeChrome(
-                    CarryForwardExcelWorksheetSurface(
+                    CarryForwardExcelBottomChrome(
                         SuppressDuplicateNativeCaptionButtons(input.Observations),
                         manifest.Target)));
             app.AddProperty("processName", manifest.Target.ProcessName, sensitive: true);
@@ -771,14 +771,14 @@ public sealed class RecordingGraphBuilder
         return result;
     }
 
-    private static IReadOnlyList<FrameObservation> CarryForwardExcelWorksheetSurface(
+    private static IReadOnlyList<FrameObservation> CarryForwardExcelBottomChrome(
         IReadOnlyList<FrameObservation> observations,
         TargetScope target)
     {
         if (observations.Count < 2 || !IsExcelRecording(target)) return observations;
 
         var result = new List<FrameObservation>(observations.Count);
-        var knownByRoot = new Dictionary<long, ExcelWorksheetSnapshot>();
+        var knownByRoot = new Dictionary<long, ExcelBottomChromeSnapshot>();
         foreach (var frame in observations.OrderBy(item => item.Sequence))
         {
             var rootHwnd = EffectiveRootWindowHwnd(frame);
@@ -788,19 +788,13 @@ public sealed class RecordingGraphBuilder
 
             if (IsExcelRibbonSurfaceFrame(frame) &&
                 knownByRoot.TryGetValue(rootHwnd, out var known) &&
-                known.RootBounds == rootBounds)
+                known.RootBounds == rootBounds &&
+                !HasVisibleExcelBottomChrome(controls, rootBounds))
             {
-                var needsWorksheet = !HasVisibleExcelWorksheet(controls);
-                var needsBottomChrome = !HasVisibleExcelBottomChrome(controls, rootBounds);
-                if (needsWorksheet || needsBottomChrome)
+                foreach (var control in known.Controls)
                 {
-                    foreach (var control in known.Controls.Where(control =>
-                                 needsWorksheet && IsExcelWorksheetControl(control) ||
-                                 needsBottomChrome && IsExcelBottomChromeControl(control, rootBounds)))
-                    {
-                        if (controls.Any(current => SameNativeControlIdentity(current, control))) continue;
-                        controls.Add(control);
-                    }
+                    if (controls.Any(current => SameNativeControlIdentity(current, control))) continue;
+                    controls.Add(control);
                 }
             }
 
@@ -809,13 +803,12 @@ public sealed class RecordingGraphBuilder
                 : frame with { Automation = controls.ToArray() };
             result.Add(enriched);
 
-            if (!HasVisibleExcelWorksheet(enriched.Automation)) continue;
             var stableSurface = enriched.Automation
                 .Where(control => control.Bounds.IsValid && !control.IsOffscreen &&
-                    (IsExcelWorksheetControl(control) || IsExcelBottomChromeControl(control, rootBounds)))
+                                  IsExcelBottomChromeControl(control, rootBounds))
                 .ToArray();
             if (stableSurface.Length > 0)
-                knownByRoot[rootHwnd] = new ExcelWorksheetSnapshot(rootBounds, stableSurface);
+                knownByRoot[rootHwnd] = new ExcelBottomChromeSnapshot(rootBounds, stableSurface);
         }
         return result;
     }
@@ -830,24 +823,12 @@ public sealed class RecordingGraphBuilder
         frame.Trigger.StartsWith("auto-tabs:tab:", StringComparison.Ordinal) ||
         frame.Trigger.StartsWith("adaptive-tab:", StringComparison.Ordinal);
 
-    private static bool HasVisibleExcelWorksheet(IReadOnlyList<AutomationObservation> controls) =>
-        controls.Any(control => !control.IsOffscreen && control.Bounds.IsValid &&
-            control.ClassName.Equals("XLSpreadsheetGrid", StringComparison.OrdinalIgnoreCase)) ||
-        controls.Count(control => !control.IsOffscreen && control.Bounds.IsValid &&
-            control.ClassName.Equals("XLSpreadsheetCell", StringComparison.OrdinalIgnoreCase)) >= 4;
-
     private static bool HasVisibleExcelBottomChrome(
         IReadOnlyList<AutomationObservation> controls,
         RectI rootBounds) => controls.Any(control =>
             !control.IsOffscreen && IsExcelBottomChromeControl(control, rootBounds) &&
             (control.AutomationId.Equals("SheetTab", StringComparison.OrdinalIgnoreCase) ||
              NormalizeControlType(control) is "StatusBar" or "Slider"));
-
-    private static bool IsExcelWorksheetControl(AutomationObservation control) =>
-        control.ClassName.Equals("XLSpreadsheetGrid", StringComparison.OrdinalIgnoreCase) ||
-        control.ClassName.Equals("XLSpreadsheetCell", StringComparison.OrdinalIgnoreCase) ||
-        control.ClassName.Equals("XLGridColumnHeader", StringComparison.OrdinalIgnoreCase) ||
-        control.ClassName.Equals("XLGridRowHeader", StringComparison.OrdinalIgnoreCase);
 
     private static bool IsExcelBottomChromeControl(AutomationObservation control, RectI rootBounds)
     {
@@ -863,7 +844,7 @@ public sealed class RecordingGraphBuilder
             "ToolBar" or "StatusBar" or "Text" or "Slider";
     }
 
-    private sealed record ExcelWorksheetSnapshot(
+    private sealed record ExcelBottomChromeSnapshot(
         RectI RootBounds,
         IReadOnlyList<AutomationObservation> Controls);
 
@@ -943,7 +924,8 @@ public sealed class RecordingGraphBuilder
                 Control = control
             }))
             .Where(item => IsTrustedNativeVisualSuppressor(item.Control) ||
-                           IsVisualStructure(item.Control))
+                           IsVisualStructure(item.Control) ||
+                           VisualHypothesisPriority(item.Control) > 100)
             .ToArray();
         if (suppressors.Length == 0) return observations;
 
@@ -953,7 +935,8 @@ public sealed class RecordingGraphBuilder
                 !IsVisualHypothesis(control) ||
                 !suppressors.Any(suppressor =>
                     (suppressor.FrameSequence == frame.Sequence ||
-                     IsStableCrossFrameNativeSuppressor(suppressor.Control)) &&
+                     IsStableCrossFrameNativeSuppressor(suppressor.Control) &&
+                     MatchesCrossFrameVisualIdentity(suppressor.Control, control)) &&
                     suppressor.WindowHwnd == EffectiveControlWindowHwnd(frame, control) &&
                     !string.Equals(suppressor.Control.RuntimeId, control.RuntimeId, StringComparison.Ordinal) &&
                     SuppressesVisualHypothesis(suppressor.Control, control))).ToArray();
@@ -986,6 +969,21 @@ public sealed class RecordingGraphBuilder
         !IsVisualHypothesis(control) &&
         control.ClassName.EndsWith("Button", StringComparison.OrdinalIgnoreCase);
 
+    private static bool MatchesCrossFrameVisualIdentity(
+        AutomationObservation nativeControl,
+        AutomationObservation visualControl)
+    {
+        var nativeName = StableIdentity.Normalize(nativeControl.Name);
+        var visualName = StableIdentity.Normalize(string.IsNullOrWhiteSpace(visualControl.OcrText)
+            ? visualControl.Name
+            : visualControl.OcrText);
+        if (nativeName.Length == 0 || visualName.Length == 0) return false;
+        if (nativeName.Equals(visualName, StringComparison.Ordinal)) return true;
+        if (Math.Min(nativeName.Length, visualName.Length) < 3) return false;
+        return nativeName.Contains(visualName, StringComparison.Ordinal) ||
+               visualName.Contains(nativeName, StringComparison.Ordinal);
+    }
+
     private static bool IsVisualStructure(AutomationObservation control) =>
         IsVisualHypothesis(control) &&
         (NormalizeControlType(control) is "Table" or "DataGrid" or "Tree" or "Tab" ||
@@ -996,6 +994,12 @@ public sealed class RecordingGraphBuilder
         AutomationObservation visualControl)
     {
         if (ContainedOverlap(nativeControl.Bounds, visualControl.Bounds) < .78) return false;
+        if (IsVisualHypothesis(nativeControl) && IsVisualHypothesis(visualControl))
+        {
+            if (IsVisualStructure(visualControl)) return false;
+            if (VisualHypothesisPriority(nativeControl) < VisualHypothesisPriority(visualControl))
+                return false;
+        }
         if (IsOpaqueGalleryContainer(nativeControl) &&
             visualControl.ParentRuntimeId.Equals(nativeControl.RuntimeId, StringComparison.Ordinal))
             return false;
@@ -1004,6 +1008,15 @@ public sealed class RecordingGraphBuilder
             return NormalizeControlType(visualControl) is "Button" or "Edit" or "List";
         return true;
     }
+
+    private static int VisualHypothesisPriority(AutomationObservation control) =>
+        control.VisualRole switch
+        {
+            "spreadsheet-cell" or "spreadsheet-column-header" => 400,
+            "table-cell" or "column-header" => 300,
+            "cell-style-button" or "tree-item" => 200,
+            _ => 100
+        };
 
     private static bool IsOpaqueGalleryContainer(AutomationObservation control)
     {

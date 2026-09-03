@@ -211,6 +211,47 @@ public sealed class GraphPipelineTests
     }
 
     [Fact]
+    public void SpecializedSpreadsheetCellWinsOverOverlappingGenericVisualControl()
+    {
+        var now = new DateTimeOffset(2026, 9, 3, 0, 0, 0, TimeSpan.Zero);
+        var target = new TargetScope(2, 2, 7, "EXCEL", now.AddHours(-1));
+        var manifest = new RecordingManifest(FormatVersions.RecordingBundle, FormatVersions.Tool,
+            "excel-visual-grid-priority", now, now.AddSeconds(2), RecordingOutcome.Complete,
+            target, new(), new(), true, 0, 2);
+        var window = new WindowObservation(2, 2, 7, "XLMAIN", "Book1 - Excel",
+            new(0, 0, 1_200, 800), true, true, false, false, 96);
+        var bounds = new RectI(120, 320, 300, 90);
+        var generic = new AutomationObservation(
+            "visual:v3:111111111111111111111111", "", "visual:v3:111111111111111111111111", "A",
+            "ControlType.Button", "UiAtlas.VisualControlRegion", bounds,
+            false, true, "UiAtlas.Visual.Ocr", 2, ["Invoke"], VisualRole: "button", OcrText: "A");
+        var spreadsheetCell = new AutomationObservation(
+            "visual:v3:222222222222222222222222", "", "visual:v3:222222222222222222222222", "A1",
+            "ControlType.DataItem", "UiAtlas.VisualControlRegion", bounds,
+            false, true, "UiAtlas.Visual.Geometry", 2, ["GridItem", "SelectionItem"],
+            VisualRole: "spreadsheet-cell", TableRow: 1, TableColumn: 1);
+        var unrelatedNative = new AutomationObservation(
+            "native:settings", "", "ManageSettings", "Manage Settings",
+            "ControlType.Button", "NetUIRibbonButton", bounds,
+            true, false, "Win32", 2, ["Invoke"]);
+        var nativeFrame = new FrameObservation(1, now, "", window, [unrelatedNative],
+            false, "ok", "quick-map:auto-tabs-initial-surface", [window]);
+        var frame = new FrameObservation(2, now.AddSeconds(1), "", window, [generic, spreadsheetCell],
+            false, "partial", "auto-tabs:tab:home:first-visit", [window]);
+
+        var graph = new RecordingGraphBuilder().Build(new RecordingGraphInput(manifest, [nativeFrame, frame], []));
+
+        Assert.Contains(graph.Nodes, node =>
+            node.Kind == GraphNodeKind.Control && node.Label == "A1" &&
+            node.Properties.Any(property => property is { Name: "layer", Value: "raw-world" }) &&
+            node.Properties.Any(property => property is { Name: "visualRole", Value: "spreadsheet-cell" }));
+        Assert.DoesNotContain(graph.Nodes, node =>
+            node.Kind == GraphNodeKind.Control && node.Label == "A" &&
+            node.Properties.Any(property => property is { Name: "layer", Value: "raw-world" }) &&
+            node.Properties.Any(property => property is { Name: "visualRole", Value: "button" }));
+    }
+
+    [Fact]
     public void VisualOnlyFrameKeepsStableNativeToolbarAndMenuFromTheSameWindow()
     {
         var now = new DateTimeOffset(2026, 8, 29, 0, 0, 0, TimeSpan.Zero);
@@ -1116,7 +1157,7 @@ public sealed class GraphPipelineTests
     }
 
     [Fact]
-    public void ExcelRibbonFramesKeepTheVisibleWorksheetAndBottomChrome()
+    public void ExcelRibbonFramesKeepBottomChromeWithoutInventingWorksheetEvidence()
     {
         var now = new DateTimeOffset(2026, 9, 3, 0, 0, 0, TimeSpan.Zero);
         var target = new TargetScope(1, 1, 7, "EXCEL", now.AddHours(-1),
@@ -1166,7 +1207,7 @@ public sealed class GraphPipelineTests
         var graph = new RecordingGraphBuilder().Build(
             new RecordingGraphInput(manifest, [initial, tab, file], []));
 
-        foreach (var label in new[] { "A1", "Sheet1", "Add Sheet", "Normal", "Zoom" })
+        foreach (var label in new[] { "Sheet1", "Add Sheet", "Normal", "Zoom" })
         {
             var control = Assert.Single(graph.Nodes, node =>
                 node.Kind == GraphNodeKind.Control && node.Label == label &&
@@ -1174,6 +1215,11 @@ public sealed class GraphPipelineTests
             Assert.Contains(control.Evidence, evidence => evidence.FrameSequence == 2);
             Assert.DoesNotContain(control.Evidence, evidence => evidence.FrameSequence == 3);
         }
+        var worksheetCell = Assert.Single(graph.Nodes, node =>
+            node.Kind == GraphNodeKind.Control && node.Label == "A1" &&
+            node.Properties.Any(property => property is { Name: "layer", Value: "raw-world" }));
+        Assert.Contains(worksheetCell.Evidence, evidence => evidence.FrameSequence == 1);
+        Assert.DoesNotContain(worksheetCell.Evidence, evidence => evidence.FrameSequence == 2);
         Assert.True(GraphValidator.Validate(graph).IsValid);
     }
 

@@ -224,6 +224,41 @@ public sealed class AutoTabDiscoveryTests
         Assert.False(AutoTabDiscovery.IsBackstageSectionSelected(controls, "Info"));
     }
 
+    [Fact]
+    public void BackstageActionDiscoveryReturnsOnlyReversibleInfoActionsInSafeOrder()
+    {
+        var window = new WindowObservation(100, 100, 7, "XLMAIN", "Workbook",
+            new RectI(0, 0, 1_920, 1_030), true, true, false, false, 96);
+        AutomationObservation Action(string id, string name, int y, bool visual = true) =>
+            new(id, "backstage", id, name, "ControlType.Button",
+                visual ? "UiAtlas.VisualControlRegion" : "NetUIButton",
+                new RectI(244, y, 131, 107), !visual, visual,
+                visual ? "UiAtlas.Visual.Ocr" : "Win32", 100, ["Invoke"], VisualRole: "button");
+        var frame = new FrameObservation(2, DateTimeOffset.UnixEpoch, "", window,
+            [
+                new AutomationObservation("backstage", "", "", "Backstage view", "ControlType.Pane",
+                    "FullpageUIHost", window.Bounds, true, false, "Win32", 100),
+                Action("protect-visual", "Protect Workbook", 172),
+                Action("protect-native", "Protect Workbook", 172, visual: false),
+                Action("check", "Check for Issues", 320),
+                Action("version", "Version History", 470),
+                Action("manage", "Manage Workbook", 616),
+                Action("reset", "Reset Changes Pane", 766),
+                Action("browser", "Browser View Options", 914),
+                Action("delete", "Delete Workbook", 700)
+            ], false, "ok", "auto-backstage:navigation:opened:info");
+
+        var discovered = AutoBackstageActionDiscovery.Discover(frame);
+
+        Assert.Equal(
+            ["Protect Workbook", "Check for Issues", "Manage Workbook", "Browser View Options", "Version History"],
+            discovered.Select(candidate => candidate.DisplayName));
+        Assert.Equal(AutoBackstageActionKind.Popup, discovered[0].Kind);
+        Assert.Equal(AutoBackstageActionKind.Dialog, discovered[3].Kind);
+        Assert.Equal(AutoBackstageActionKind.Inline, discovered[4].Kind);
+        Assert.Equal("protect-native", discovered[0].Observation.RuntimeId);
+    }
+
     private static AutomationObservation Backstage(
         string id,
         string name,

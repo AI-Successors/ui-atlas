@@ -277,6 +277,15 @@ public sealed class VisualNativeVerificationTests
             control => Assert.Equal("ControlType.Button", control.ControlType));
         Assert.DoesNotContain(controls, control => control.ControlType == "ControlType.Table");
 
+        var actionableFrame = new FrameObservation(
+            1, DateTimeOffset.UnixEpoch, "", new WindowObservation(
+                target.Hwnd, target.RootOwnerHwnd, target.ProcessId, target.ClassName, target.Title,
+                target.Bounds, true, true, false, false, 96),
+            [backstage, .. controls], false, "visual-only", "auto-backstage:navigation:opened:info");
+        Assert.Equal(
+            ["Protect Workbook", "Check for Issues", "Manage Workbook", "Browser View Options", "Version History"],
+            AutoBackstageActionDiscovery.Discover(actionableFrame).Select(candidate => candidate.DisplayName));
+
         var action = controls.Single(control => control.Name == "Protect Workbook");
         var fragment = action with
         {

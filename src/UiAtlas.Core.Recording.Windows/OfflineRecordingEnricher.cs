@@ -18,7 +18,8 @@ public static class OfflineRecordingEnricher
         ArgumentNullException.ThrowIfNull(observations);
         var bySequence = observations.ToDictionary(frame => frame.Sequence);
         var result = new List<FrameObservation>(observations.Count);
-        var ordered = observations.OrderBy(frame => frame.Sequence).ToArray();
+        var ordered = AddCachedExcelWorksheetHints(
+            observations.OrderBy(frame => frame.Sequence).ToArray());
         foreach (var recordedFrame in ordered)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -129,6 +130,13 @@ public static class OfflineRecordingEnricher
                             NormalizeType(control.ControlType) == "Table")
                         .ToArray()
                     : [];
+                if (cachedExcelGridRecovery)
+                {
+                    // Cached worksheet controls are only a search-region hint for the
+                    // screenshot scanner. They must never become current-frame evidence.
+                    stableNative = stableNative.Where(control =>
+                        !IsCachedExcelWorksheetControl(control)).ToArray();
+                }
                 if (repairedExcelTables.Length > 0)
                 {
                     stableNative = stableNative.Where(control => !IsExcelWorksheetControl(control)).ToArray();
@@ -177,6 +185,73 @@ public static class OfflineRecordingEnricher
         }
         return result;
     }
+
+    internal static IReadOnlyList<FrameObservation> AddCachedExcelWorksheetHints(
+        IReadOnlyList<FrameObservation> observations)
+    {
+        ArgumentNullException.ThrowIfNull(observations);
+        var result = new List<FrameObservation>(observations.Count);
+        var knownByRoot = new Dictionary<long, ExcelWorksheetSnapshot>();
+        foreach (var recordedFrame in observations.OrderBy(frame => frame.Sequence))
+        {
+            var frame = recordedFrame;
+            var rootHwnd = frame.Window.RootOwnerHwnd;
+            var rootBounds = (frame.ScopedWindows is { Count: > 0 }
+                    ? frame.ScopedWindows
+                    : [frame.Window])
+                .FirstOrDefault(window => window.Hwnd == rootHwnd)?.Bounds ?? frame.Window.Bounds;
+            var hasReliableWorksheet = VisualSurfaceScanner.HasReliableVisibleExcelWorksheet(
+                frame.Automation, rootBounds);
+
+            if (!hasReliableWorksheet &&
+                IsExcelRibbonSurfaceFrame(frame) &&
+                knownByRoot.TryGetValue(rootHwnd, out var known) &&
+                known.RootBounds == rootBounds)
+            {
+                var controls = frame.Automation.ToList();
+                foreach (var control in known.Controls)
+                {
+                    if (controls.Any(current => SameAutomationIdentity(current, control))) continue;
+                    controls.Add(control with
+                    {
+                        IsEnabled = false,
+                        IsOffscreen = true,
+                        FrameworkId = "UiAtlas.Cached.ExcelWorksheet"
+                    });
+                }
+                frame = frame with { Automation = controls.ToArray() };
+            }
+
+            result.Add(frame);
+            if (!hasReliableWorksheet) continue;
+            var worksheet = frame.Automation.Where(control =>
+                    IsExcelWorksheetControl(control) &&
+                    !control.IsOffscreen &&
+                    !control.FrameworkId.StartsWith("UiAtlas.Cached", StringComparison.OrdinalIgnoreCase) &&
+                    control.Bounds.IsValid)
+                .ToArray();
+            if (worksheet.Length > 0)
+                knownByRoot[rootHwnd] = new ExcelWorksheetSnapshot(rootBounds, worksheet);
+        }
+        return result;
+    }
+
+    private static bool IsExcelRibbonSurfaceFrame(FrameObservation frame) =>
+        frame.Window.ClassName.Equals("XLMAIN", StringComparison.OrdinalIgnoreCase) &&
+        (frame.Trigger.StartsWith("auto-tabs:tab:", StringComparison.Ordinal) ||
+         frame.Trigger.StartsWith("adaptive-tab:", StringComparison.Ordinal));
+
+    private static bool SameAutomationIdentity(
+        AutomationObservation first,
+        AutomationObservation second) =>
+        first.WindowHwnd == second.WindowHwnd &&
+        (!string.IsNullOrWhiteSpace(first.RuntimeId) && first.RuntimeId == second.RuntimeId ||
+         !string.IsNullOrWhiteSpace(first.AutomationId) && first.AutomationId == second.AutomationId &&
+         first.ClassName == second.ClassName);
+
+    private sealed record ExcelWorksheetSnapshot(
+        RectI RootBounds,
+        IReadOnlyList<AutomationObservation> Controls);
 
     internal static FrameObservation? FindLaggedBackstageAutomation(
         FrameObservation frame,

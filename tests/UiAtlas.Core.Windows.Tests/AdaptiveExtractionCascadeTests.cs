@@ -602,6 +602,82 @@ public sealed class AdaptiveExtractionCascadeTests
     }
 
     [Fact]
+    public void MissingExcelWorksheetIsCarriedOnlyAsAnOffscreenVisualRepairHint()
+    {
+        var now = new DateTimeOffset(2026, 9, 3, 0, 0, 0, TimeSpan.Zero);
+        var window = new WindowObservation(22, 22, 7, "XLMAIN", "Book1 - Excel",
+            new RectI(0, 0, 500, 300), true, true, false, false, 96);
+        var worksheet = new List<AutomationObservation>
+        {
+            new("grid", "", "Grid", "Grid", "ControlType.DataGrid", "XLSpreadsheetGrid",
+                new RectI(0, 40, 480, 220), true, false, "Win32", window.Hwnd)
+        };
+        for (var row = 0; row < 5; row++)
+        for (var column = 0; column < 5; column++)
+            worksheet.Add(new AutomationObservation(
+                $"cell-{row}-{column}", "grid", $"{column}:{row}", $"Cell {column},{row}",
+                "ControlType.DataItem", "XLSpreadsheetCell",
+                new RectI(32 + column * 80, 64 + row * 24, 80, 24),
+                true, false, "Win32", window.Hwnd));
+        var initial = new FrameObservation(1, now, "raw/frames/frame-000001.png", window,
+            worksheet, false, "ok", "quick-map:auto-tabs-initial-surface", [window]);
+        var ribbon = new FrameObservation(2, now.AddSeconds(1), "raw/frames/frame-000002.png", window,
+            [new AutomationObservation("bold", "", "Bold", "Bold", "ControlType.Button",
+                "NetUIRibbonButton", new RectI(100, 10, 30, 30), true, false, "Win32", window.Hwnd)],
+            false, "ok", "auto-tabs:tab:home:first-visit", [window]);
+
+        var hinted = OfflineRecordingEnricher.AddCachedExcelWorksheetHints([initial, ribbon]);
+
+        Assert.Equal(26, hinted[0].Automation.Count);
+        Assert.Equal(27, hinted[1].Automation.Count);
+        Assert.True(OfflineRecordingEnricher.RequiresCachedExcelGridRecovery(hinted[1].Automation));
+        Assert.All(hinted[1].Automation.Where(control =>
+            control.ClassName is "XLSpreadsheetGrid" or "XLSpreadsheetCell"), control =>
+        {
+            Assert.True(control.IsOffscreen);
+            Assert.False(control.IsEnabled);
+            Assert.StartsWith("UiAtlas.Cached", control.FrameworkId, StringComparison.OrdinalIgnoreCase);
+        });
+    }
+
+    [Fact]
+    public void VisualFallbackFindsWorksheetCellsAtHighExcelZoom()
+    {
+        const int width = 1_500;
+        const int height = 600;
+        var pixels = Enumerable.Repeat((byte)255, width * height * 4).ToArray();
+        for (var index = 3; index < pixels.Length; index += 4) pixels[index] = 255;
+        int[] verticalEdges = [0, 40, 340, 640, 940, 1_240, 1_450];
+        int[] horizontalEdges = [100, 190, 280, 370, 460, 550];
+        foreach (var x in verticalEdges.Where(x => x > 0 && x < width))
+            FillRect(pixels, width, new RectI(x, 100, 2, 450), 205, 205, 205);
+        // The top worksheet edge can blend into Excel's formula-bar background;
+        // the first strong painted line is then the bottom of the enlarged header.
+        foreach (var y in horizontalEdges.Where(y => y > 100 && y < height))
+            FillRect(pixels, width, new RectI(0, y, 1_450, 2), 205, 205, 205);
+
+        var target = new WindowTarget(
+            44, 22, 7, "EXCEL", DateTimeOffset.UnixEpoch, "Book1 - Excel", "XLMAIN",
+            new RectI(0, 0, width, height));
+        AutomationObservation[] cached =
+        [
+            new("cache:grid", "", "", "Grid", "ControlType.DataGrid", "XLSpreadsheetGrid",
+                new RectI(0, 100, 1_450, 450), false, true, "UiAtlas.Cached", target.Hwnd),
+            new("cache:cell", "cache:grid", "", "A1", "ControlType.DataItem", "XLSpreadsheetCell",
+                new RectI(40, 124, 80, 24), false, true, "UiAtlas.Cached", target.Hwnd)
+        ];
+
+        var controls = VisualSurfaceScanner.DiscoverLegacySurfaceControls(
+            target,
+            new OpaqueSurfaceScanner.PixelFrame(width, height, pixels),
+            cached);
+
+        var cellA1 = Assert.Single(controls, control =>
+            control.VisualRole == "spreadsheet-cell" && control.Name == "A1");
+        Assert.Equal(new RectI(40, 190, 300, 90), cellA1.Bounds);
+    }
+
+    [Fact]
     public void HealthyVisibleExcelWorksheetDoesNotNeedPixelGridRepair()
     {
         var visibleBounds = new RectI(0, 0, 1000, 700);

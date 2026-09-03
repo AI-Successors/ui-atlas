@@ -3315,8 +3315,7 @@ public sealed class ExplorerWindow : Window
                     Effect = isSelected
                         ? new DropShadowEffect { Color = highlightColor, BlurRadius = 14, ShadowDepth = 0, Opacity = 0.8 }
                         : null,
-                    Cursor = Cursors.Hand,
-                    ToolTip = $"{control.DisplayName} ({control.CanonicalKind})" };
+                    Cursor = Cursors.Hand };
                 rectangle.MouseLeftButtonDown += (_, args) => { SelectControlById(control.Id); args.Handled = true; };
                 Canvas.SetLeft(rectangle, local.X); Canvas.SetTop(rectangle, local.Y); _appMapOverlay.Children.Add(rectangle);
                 if (projection.ShowsControlLabels || projection.ShowsControlCrops && controlCrop is null)
@@ -3349,8 +3348,7 @@ public sealed class ExplorerWindow : Window
                         StrokeThickness = repaired.ControlType == "ControlType.Table" ? 1.8 : 1.2,
                         Fill = repaired.ControlType == "ControlType.Table"
                             ? Brushes.Transparent
-                            : Brush("#1000A779"),
-                        ToolTip = $"{repaired.Name} ({repaired.ControlType})"
+                            : Brush("#1000A779")
                     };
                     Canvas.SetLeft(rectangle, local.X);
                     Canvas.SetTop(rectangle, local.Y);

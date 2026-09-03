@@ -1070,8 +1070,10 @@ internal static class Program
                     beforeStart?.Invoke();
                     panel.SetStatus("Merging this recording into the current map. Large maps can take a minute; keep UiAtlas open.");
                     Console.WriteLine("Merging the new recording bundle into the current map...");
+                    var enrichedInputs = await Task.WhenAll(mergedRecordingPaths.Select(path =>
+                        LoadEnrichedRecordingGraphInputAsync(path, CancellationToken.None))).ConfigureAwait(false);
                     var graph = SpeculativeGraphProjector.Apply(
-                        new RecordingGraphBuilder().Build(mergedRecordingPaths, workspace.LogicalMapId),
+                        new RecordingGraphBuilder().Build(enrichedInputs, workspace.LogicalMapId),
                         workspace.SpeculativePlanning);
                     if (launchOptions.CaptureCustomerData)
                     {
@@ -3716,7 +3718,9 @@ internal static class Program
         // ExpandCollapse is the safe operation for SplitButton/ComboBox hosts.
         // Clicking their center first can execute the primary command and open a
         // modal dialog (for example Insert Pictures) instead of the popup chevron.
-        async Task<bool> ActivateAsync() => ProgrammaticControlInvoker.PrefersDirectMouseClick(control)
+        async Task<bool> ActivateAsync() =>
+            control.ClassName.Equals("UiAtlas.VisualControlRegion", StringComparison.OrdinalIgnoreCase) ||
+            ProgrammaticControlInvoker.PrefersDirectMouseClick(control)
             ? await session.TryClickControlAsync(control, 1, cancellationToken).ConfigureAwait(false) ||
               await session.TryInvokeControlAsync(control, cancellationToken).ConfigureAwait(false)
             : await session.TryInvokeControlAsync(control, cancellationToken).ConfigureAwait(false) ||
@@ -3900,7 +3904,15 @@ internal static class Program
         FrameObservation backstageFrame,
         CancellationToken cancellationToken)
     {
-        var candidates = AutoTabDiscovery.DiscoverBackstageNavigation(backstageFrame)
+        var navigation = AutoTabDiscovery.DiscoverBackstageNavigation(backstageFrame);
+        var selected = navigation.FirstOrDefault(candidate => candidate.IsSelected);
+        if (selected?.DisplayName.Equals("Info", StringComparison.OrdinalIgnoreCase) == true)
+        {
+            await CaptureSafeBackstageActionsAsync(
+                session, adaptive, panel, overlay, backstageFrame, cancellationToken).ConfigureAwait(false);
+        }
+
+        var candidates = navigation
             .Where(candidate => !candidate.IsSelected)
             .ToArray();
         if (candidates.Length == 0)
@@ -3971,12 +3983,200 @@ internal static class Program
                 session.AddMarker("auto-backstage:navigation:mapped:" + candidate.StableKey);
                 adaptive.RegisterFullFrame(result);
                 sourceFrame = result;
-            }
+                if (candidate.DisplayName.Equals("Info", StringComparison.OrdinalIgnoreCase))
+                {
+                    await CaptureSafeBackstageActionsAsync(
+                        session, adaptive, panel, overlay, result, cancellationToken).ConfigureAwait(false);
+                }
+                }
             catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception)
             {
                 session.CompleteInteraction(interaction, InteractionOutcome.Failed, diagnosticCode: "capture-failed");
                 session.AddCaptureHealth("auto-backstage", "section-capture-failed", ex.Message);
             }
+        }
+    }
+
+    private static async Task CaptureSafeBackstageActionsAsync(
+        ManualRecordingSession session,
+        AdaptiveCaptureCoordinator adaptive,
+        RecordingControlPanel panel,
+        RecordingHighlightOverlay overlay,
+        FrameObservation sourceFrame,
+        CancellationToken cancellationToken)
+    {
+        AutoBackstageActionCandidate[] actions;
+        try
+        {
+            var target = WindowCatalog.Resolve(session.TargetRootOwnerHwnd);
+            var capture = await overlay.RunCaptureHiddenAsync(
+                () => session.CaptureScreenshotAsync(
+                    token => WindowSnapshotCapture.CapturePngAsync(target, token),
+                    cancellationToken),
+                cancellationToken).ConfigureAwait(false);
+            var pixels = OpaqueSurfaceScanner.PixelFrame.Decode(capture.Png);
+            var visual = await VisualSurfaceScanner.DiscoverLegacySurfaceControlsAsync(
+                target, pixels, sourceFrame.Automation, cancellationToken).ConfigureAwait(false);
+            var actionFrame = sourceFrame with
+            {
+                Automation = sourceFrame.Automation
+                    .Concat(visual)
+                    .GroupBy(control => string.IsNullOrWhiteSpace(control.RuntimeId)
+                        ? $"bounds:{control.Bounds.X},{control.Bounds.Y},{control.Bounds.Width},{control.Bounds.Height}:{control.Name}"
+                        : control.RuntimeId, StringComparer.Ordinal)
+                    .Select(group => group.Last())
+                    .ToArray()
+            };
+            actions = AutoBackstageActionDiscovery.Discover(actionFrame).ToArray();
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or
+                                   System.ComponentModel.Win32Exception or IOException or NotSupportedException)
+        {
+            session.AddCaptureHealth("auto-backstage", "action-discovery-failed",
+                $"Info actions could not be discovered: {ex.GetType().Name}.");
+            return;
+        }
+
+        if (actions.Length == 0)
+        {
+            session.AddMarker("auto-backstage:actions:none");
+            return;
+        }
+
+        for (var index = 0; index < actions.Length; index++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!AutoPassBudgetPolicy.CanCaptureNextAutoStep(session)) break;
+
+            var action = actions[index];
+            var actionStartFrameSequence = session.LatestFrameSequence;
+            panel.SetStatus($"Opening File → Info: {action.DisplayName} ({index + 1}/{actions.Length})...");
+            overlay.ShowClickPulse(sourceFrame.Window.Bounds, action.Observation.Bounds);
+            await Task.Delay(120, cancellationToken).ConfigureAwait(false);
+            var interaction = session.CreateInteractionContext(
+                "auto-backstage:action:" + action.StableKey,
+                1,
+                InteractionActor.AutoExplorer,
+                InteractionGestureKind.Click,
+                action.Kind == AutoBackstageActionKind.Popup
+                    ? InteractionActionKind.Expand
+                    : InteractionActionKind.Invoke,
+                sourceFrame.Sequence,
+                action.Observation);
+
+            if (action.Kind == AutoBackstageActionKind.Dialog)
+            {
+                var dialogCheckpoint = adaptive.CreateDialogCheckpoint();
+                var invoked = await TryOpenAutoDialogLauncherAsync(
+                    session, action.Observation, "auto-backstage:action:" + action.StableKey,
+                    cancellationToken, overlay).ConfigureAwait(false);
+                if (!invoked)
+                {
+                    session.CompleteInteraction(interaction, InteractionOutcome.Failed,
+                        diagnosticCode: "activation-failed");
+                    continue;
+                }
+
+                var dialog = await adaptive.WaitForDialogCaptureAsync(
+                    dialogCheckpoint, TimeSpan.FromSeconds(2), cancellationToken).ConfigureAwait(false);
+                session.CompleteInteraction(interaction,
+                    dialog.Outcome == AdaptiveDialogCaptureOutcome.Captured
+                        ? InteractionOutcome.Succeeded
+                        : InteractionOutcome.Failed,
+                    dialog.Frame is null ? [] : [dialog.Frame.Sequence],
+                    dialog.Outcome == AdaptiveDialogCaptureOutcome.Captured
+                        ? "backstage-dialog-captured"
+                        : "backstage-dialog-not-captured");
+                if (dialog.Hwnd != 0)
+                    _ = await session.DismissOwnedDialogAsync(dialog.Hwnd, cancellationToken).ConfigureAwait(false);
+                await Task.Delay(100, cancellationToken).ConfigureAwait(false);
+                continue;
+            }
+
+            if (action.Kind == AutoBackstageActionKind.Inline)
+            {
+                var invoked = await overlay.RunHiddenAsync(
+                    () => session.TryClickControlAsync(action.Observation, 1, cancellationToken),
+                    cancellationToken).ConfigureAwait(false);
+                if (!invoked)
+                {
+                    session.CompleteInteraction(interaction, InteractionOutcome.Failed,
+                        diagnosticCode: "activation-failed");
+                    continue;
+                }
+
+                await Task.Delay(220, cancellationToken).ConfigureAwait(false);
+                var result = await session.CaptureAsync(
+                    "auto-backstage:action:" + action.StableKey + ":opened",
+                    cancellationToken,
+                    new FrameCaptureOptions(
+                        CapturePhase: "materialized",
+                        ObservationScope: "full-root",
+                        BaseFrameSequence: sourceFrame.Sequence,
+                        InteractionSource: action.Observation,
+                        InteractionId: interaction.InteractionId,
+                        AutomationBeforeScreenshot: true,
+                        WaitForDeferredVisualContent: true)).ConfigureAwait(false);
+                adaptive.RegisterFullFrame(result);
+                session.CompleteInteraction(interaction, InteractionOutcome.Succeeded,
+                    [result.Sequence], "backstage-inline-captured");
+                session.AddMarker("auto-backstage:action:mapped-inline:" + action.StableKey);
+                continue;
+            }
+
+            var popupCheckpoint = adaptive.CreateClickCheckpoint(interaction.InteractionId);
+            adaptive.ArmPopupSource(action.Observation, interaction.InteractionId);
+            var opened = await TryOpenAutoPopupCommandAsync(
+                session, action.Observation, "auto-backstage:action:" + action.StableKey,
+                cancellationToken, overlay).ConfigureAwait(false);
+            if (!opened)
+            {
+                session.CompleteInteraction(interaction, InteractionOutcome.Failed,
+                    diagnosticCode: "activation-failed");
+                continue;
+            }
+
+            var popupOutcome = await adaptive.WaitForPopupCapturesAsync(
+                popupCheckpoint, TimeSpan.FromMilliseconds(1_800), cancellationToken).ConfigureAwait(false);
+            var resultFrames = session.LatestFrameSequence > actionStartFrameSequence
+                ? new[] { session.LatestFrameSequence }
+                : Array.Empty<long>();
+            var popupCaptured = IsAutoPopupCaptureConfirmed(popupOutcome) && resultFrames.Length > 0;
+            if (!popupCaptured)
+            {
+                try
+                {
+                    var inline = await session.CaptureAsync(
+                        "auto-backstage:action:" + action.StableKey + ":opened-inline",
+                        cancellationToken,
+                        new FrameCaptureOptions(
+                            CapturePhase: "materialized",
+                            ObservationScope: "full-root",
+                            BaseFrameSequence: sourceFrame.Sequence,
+                            InteractionSource: action.Observation,
+                            InteractionId: interaction.InteractionId,
+                            AutomationBeforeScreenshot: true,
+                            WaitForDeferredVisualContent: true)).ConfigureAwait(false);
+                    adaptive.RegisterFullFrame(inline);
+                    resultFrames = [inline.Sequence];
+                }
+                catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception)
+                {
+                    session.AddCaptureHealth("auto-backstage", "action-capture-failed",
+                        $"{action.DisplayName} opened, but its surface could not be saved: {ex.GetType().Name}.");
+                }
+            }
+            session.CompleteInteraction(interaction,
+                popupCaptured
+                    ? InteractionOutcome.Succeeded
+                    : resultFrames.Length > 0 ? InteractionOutcome.Unobserved : InteractionOutcome.Failed,
+                resultFrames,
+                popupCaptured ? "backstage-popup-captured" : "backstage-popup-unconfirmed");
+            session.AddMarker((popupCaptured
+                ? "auto-backstage:action:mapped-popup:"
+                : "auto-backstage:action:popup-unconfirmed:") + action.StableKey);
+            await session.DismissTransientPopupAsync(cancellationToken).ConfigureAwait(false);
+            await Task.Delay(100, cancellationToken).ConfigureAwait(false);
         }
     }
 
