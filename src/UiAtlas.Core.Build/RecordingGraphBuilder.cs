@@ -63,7 +63,10 @@ public sealed class RecordingGraphBuilder
             var manifest = input.Manifest;
             var rawSurfaceByNativeWindow = new Dictionary<long, RawSurfaceInfo>();
             var curatedObservations = SuppressRecordedVisualDuplicates(
-                CarryForwardStableNativeChrome(SuppressDuplicateNativeCaptionButtons(input.Observations)));
+                CarryForwardStableNativeChrome(
+                    CarryForwardExcelWorksheetSurface(
+                        SuppressDuplicateNativeCaptionButtons(input.Observations),
+                        manifest.Target)));
             app.AddProperty("processName", manifest.Target.ProcessName, sensitive: true);
             app.AddProperty("productVersion", manifest.Target.ProductVersion);
             app.AddProperty("originalFilename", manifest.Target.OriginalFilename, sensitive: true);
@@ -767,6 +770,102 @@ public sealed class RecordingGraphBuilder
         }
         return result;
     }
+
+    private static IReadOnlyList<FrameObservation> CarryForwardExcelWorksheetSurface(
+        IReadOnlyList<FrameObservation> observations,
+        TargetScope target)
+    {
+        if (observations.Count < 2 || !IsExcelRecording(target)) return observations;
+
+        var result = new List<FrameObservation>(observations.Count);
+        var knownByRoot = new Dictionary<long, ExcelWorksheetSnapshot>();
+        foreach (var frame in observations.OrderBy(item => item.Sequence))
+        {
+            var rootHwnd = EffectiveRootWindowHwnd(frame);
+            var rootBounds = (frame.ScopedWindows is { Count: > 0 } ? frame.ScopedWindows : [frame.Window])
+                .FirstOrDefault(window => window.Hwnd == rootHwnd)?.Bounds ?? frame.Window.Bounds;
+            var controls = frame.Automation.ToList();
+
+            if (IsExcelRibbonSurfaceFrame(frame) &&
+                knownByRoot.TryGetValue(rootHwnd, out var known) &&
+                known.RootBounds == rootBounds)
+            {
+                var needsWorksheet = !HasVisibleExcelWorksheet(controls);
+                var needsBottomChrome = !HasVisibleExcelBottomChrome(controls, rootBounds);
+                if (needsWorksheet || needsBottomChrome)
+                {
+                    foreach (var control in known.Controls.Where(control =>
+                                 needsWorksheet && IsExcelWorksheetControl(control) ||
+                                 needsBottomChrome && IsExcelBottomChromeControl(control, rootBounds)))
+                    {
+                        if (controls.Any(current => SameNativeControlIdentity(current, control))) continue;
+                        controls.Add(control);
+                    }
+                }
+            }
+
+            var enriched = controls.Count == frame.Automation.Count
+                ? frame
+                : frame with { Automation = controls.ToArray() };
+            result.Add(enriched);
+
+            if (!HasVisibleExcelWorksheet(enriched.Automation)) continue;
+            var stableSurface = enriched.Automation
+                .Where(control => control.Bounds.IsValid && !control.IsOffscreen &&
+                    (IsExcelWorksheetControl(control) || IsExcelBottomChromeControl(control, rootBounds)))
+                .ToArray();
+            if (stableSurface.Length > 0)
+                knownByRoot[rootHwnd] = new ExcelWorksheetSnapshot(rootBounds, stableSurface);
+        }
+        return result;
+    }
+
+    private static bool IsExcelRecording(TargetScope target)
+    {
+        var identity = $"{target.ProcessName} {target.OriginalFilename} {target.ProductName}";
+        return identity.Contains("EXCEL", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsExcelRibbonSurfaceFrame(FrameObservation frame) =>
+        frame.Trigger.StartsWith("auto-tabs:tab:", StringComparison.Ordinal) ||
+        frame.Trigger.StartsWith("adaptive-tab:", StringComparison.Ordinal);
+
+    private static bool HasVisibleExcelWorksheet(IReadOnlyList<AutomationObservation> controls) =>
+        controls.Any(control => !control.IsOffscreen && control.Bounds.IsValid &&
+            control.ClassName.Equals("XLSpreadsheetGrid", StringComparison.OrdinalIgnoreCase)) ||
+        controls.Count(control => !control.IsOffscreen && control.Bounds.IsValid &&
+            control.ClassName.Equals("XLSpreadsheetCell", StringComparison.OrdinalIgnoreCase)) >= 4;
+
+    private static bool HasVisibleExcelBottomChrome(
+        IReadOnlyList<AutomationObservation> controls,
+        RectI rootBounds) => controls.Any(control =>
+            !control.IsOffscreen && IsExcelBottomChromeControl(control, rootBounds) &&
+            (control.AutomationId.Equals("SheetTab", StringComparison.OrdinalIgnoreCase) ||
+             NormalizeControlType(control) is "StatusBar" or "Slider"));
+
+    private static bool IsExcelWorksheetControl(AutomationObservation control) =>
+        control.ClassName.Equals("XLSpreadsheetGrid", StringComparison.OrdinalIgnoreCase) ||
+        control.ClassName.Equals("XLSpreadsheetCell", StringComparison.OrdinalIgnoreCase) ||
+        control.ClassName.Equals("XLGridColumnHeader", StringComparison.OrdinalIgnoreCase) ||
+        control.ClassName.Equals("XLGridRowHeader", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsExcelBottomChromeControl(AutomationObservation control, RectI rootBounds)
+    {
+        if (control.ClassName.Equals("ExcelBookTabControl", StringComparison.OrdinalIgnoreCase) ||
+            control.AutomationId.Equals("SheetTab", StringComparison.OrdinalIgnoreCase))
+            return true;
+        if (!rootBounds.IsValid || !control.Bounds.IsValid) return false;
+        var bottomBandTop = rootBounds.Y + rootBounds.Height -
+                            Math.Max(96, (int)Math.Ceiling(rootBounds.Height * .11));
+        if (control.Bounds.Y < bottomBandTop) return false;
+        return NormalizeControlType(control) is
+            "Tab" or "TabItem" or "Button" or "ScrollBar" or "Thumb" or "Pane" or
+            "ToolBar" or "StatusBar" or "Text" or "Slider";
+    }
+
+    private sealed record ExcelWorksheetSnapshot(
+        RectI RootBounds,
+        IReadOnlyList<AutomationObservation> Controls);
 
     private static IReadOnlyList<AutomationObservation> StableNativeChromeClosure(
         IReadOnlyList<AutomationObservation> controls)

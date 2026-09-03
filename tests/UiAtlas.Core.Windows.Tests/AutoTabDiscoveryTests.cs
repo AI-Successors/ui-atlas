@@ -210,6 +210,20 @@ public sealed class AutoTabDiscoveryTests
         Assert.True(discovered[0].IsSelected);
     }
 
+    [Fact]
+    public void BackstageSectionMatchRequiresTheRequestedNavigationItemToBeSelected()
+    {
+        AutomationObservation[] controls =
+        [
+            Backstage("new", "New", "ControlType.TabItem", 130, isSelected: true),
+            Backstage("open", "Open", "ControlType.TabItem", 170)
+        ];
+
+        Assert.True(AutoTabDiscovery.IsBackstageSectionSelected(controls, "New"));
+        Assert.False(AutoTabDiscovery.IsBackstageSectionSelected(controls, "Open"));
+        Assert.False(AutoTabDiscovery.IsBackstageSectionSelected(controls, "Info"));
+    }
+
     private static AutomationObservation Backstage(
         string id,
         string name,

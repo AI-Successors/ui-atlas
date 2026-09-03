@@ -95,6 +95,19 @@ public static class AutoTabDiscovery
             .ToArray();
     }
 
+    internal static bool IsBackstageSectionSelected(
+        IReadOnlyList<AutomationObservation> controls,
+        string displayName)
+    {
+        ArgumentNullException.ThrowIfNull(controls);
+        if (string.IsNullOrWhiteSpace(displayName)) return false;
+        return controls.Any(control =>
+            !control.IsOffscreen &&
+            (control.IsSelected || control.HasKeyboardFocus) &&
+            DisplayName(control).Equals(displayName.Trim(), StringComparison.OrdinalIgnoreCase) &&
+            IsSafeBackstageNavigationControl(control));
+    }
+
     private static bool IsSafeBackstageNavigationControl(AutomationObservation control)
     {
         var controlType = NormalizeControlType(control.ControlType);

@@ -579,12 +579,17 @@ public sealed class AdaptiveExtractionCascadeTests
             new RectI(0, 0, width, height));
         var staleGrid = new AutomationObservation(
             "cache:grid", "", "", "Grid", "ControlType.DataGrid", "XLSpreadsheetGrid",
-            new RectI(0, 40, 480, 220), false, true, "UiAtlas.Cached", target.Hwnd);
+            new RectI(0, 40, 480, 220), false, true, "", target.Hwnd);
+        var cachedCell = new AutomationObservation(
+            "cache:cell", "", "", "DataItem", "ControlType.DataItem", "XLSpreadsheetCell",
+            new RectI(32, 64, 76, 23), false, true, "UiAtlas.Cached", target.Hwnd);
+
+        Assert.True(OfflineRecordingEnricher.RequiresCachedExcelGridRecovery([staleGrid, cachedCell]));
 
         var controls = VisualSurfaceScanner.DiscoverLegacySurfaceControls(
             target,
             new OpaqueSurfaceScanner.PixelFrame(width, height, pixels),
-            [staleGrid]);
+            [staleGrid, cachedCell]);
 
         var table = Assert.Single(controls, control => control.VisualRole == "table");
         Assert.Equal("Worksheet grid", table.Name);
@@ -594,6 +599,60 @@ public sealed class AdaptiveExtractionCascadeTests
         var cellA1 = Assert.Single(controls, control =>
             control.VisualRole == "spreadsheet-cell" && control.Name == "A1");
         Assert.Equal(new RectI(32, 64, 80, 24), cellA1.Bounds);
+    }
+
+    [Fact]
+    public void HealthyVisibleExcelWorksheetDoesNotNeedPixelGridRepair()
+    {
+        var visibleBounds = new RectI(0, 0, 1000, 700);
+        var controls = new List<AutomationObservation>();
+        for (var row = 0; row < 5; row++)
+        for (var column = 0; column < 5; column++)
+        {
+            controls.Add(new AutomationObservation(
+                $"cell-{row}-{column}", "grid", $"{column}:{row}", $"Cell {column},{row}",
+                "ControlType.DataItem", "XLSpreadsheetCell",
+                new RectI(40 + column * 80, 120 + row * 24, 80, 24),
+                true, false, "Win32", 22));
+        }
+        controls.Add(new AutomationObservation(
+            "cached-hidden", "grid", "Z99", "Z99", "ControlType.DataItem", "XLSpreadsheetCell",
+            new RectI(900, 680, 80, 24), false, true, "UiAtlas.Cached", 22));
+        controls.Add(new AutomationObservation(
+            "grid", "", "Grid", "Grid", "ControlType.DataGrid", "XLSpreadsheetGrid",
+            new RectI(0, 100, 1_000, 580), true, false, "Win32", 22));
+
+        Assert.True(VisualSurfaceScanner.HasReliableVisibleExcelWorksheet(controls, visibleBounds));
+        Assert.False(OfflineRecordingEnricher.RequiresCachedExcelGridRecovery(controls));
+        Assert.False(VisualSurfaceScanner.HasReliableVisibleExcelWorksheet(
+            controls.Where(control => control.IsOffscreen).ToArray(), visibleBounds));
+    }
+
+    [Fact]
+    public void LegacyRecoveryFindsPaintedWorksheetCellsWithoutNativeGridEvidence()
+    {
+        const int width = 420;
+        const int height = 250;
+        var pixels = Enumerable.Repeat((byte)245, width * height * 4).ToArray();
+        for (var index = 3; index < pixels.Length; index += 4) pixels[index] = 255;
+        for (var row = 0; row < 7; row++)
+        for (var column = 0; column < 5; column++)
+            DrawBorder(pixels, width,
+                new RectI(20 + column * 72, 36 + row * 24, 73, 25), 190);
+        var target = new WindowTarget(
+            44, 22, 7, "EXCEL", DateTimeOffset.UnixEpoch, "Book1 - Excel", "XLMAIN",
+            new RectI(0, 0, width, height));
+
+        var controls = VisualSurfaceScanner.DiscoverLegacySurfaceControls(
+            target,
+            new OpaqueSurfaceScanner.PixelFrame(width, height, pixels),
+            []);
+
+        var table = Assert.Single(controls, control => control.ControlType == "ControlType.Table");
+        var cells = controls.Where(control =>
+            control.ParentRuntimeId == table.RuntimeId &&
+            control.ControlType == "ControlType.DataItem").ToArray();
+        Assert.True(cells.Length >= 20);
     }
 
     [Fact]
@@ -1303,6 +1362,31 @@ public sealed class AdaptiveExtractionCascadeTests
     }
 
     [Fact]
+    public void VisualRadioCandidateInsideKnownRibbonCommandIsSuppressed()
+    {
+        const int width = 600;
+        const int height = 180;
+        var pixels = Enumerable.Repeat((byte)235, width * height * 4).ToArray();
+        for (var index = 3; index < pixels.Length; index += 4) pixels[index] = 255;
+        DrawBorder(pixels, width, new RectI(328, 72, 9, 9), 70);
+        VisualTextObservation[] words =
+        [
+            new("Format", new RectI(344, 69, 48, 14), 2)
+        ];
+        var target = new WindowTarget(44, 22, 7, "EXCEL", DateTimeOffset.UnixEpoch,
+            "Book1 - Excel", "XLMAIN", new RectI(0, 0, width, height));
+        var ribbonCommand = new AutomationObservation(
+            "native:format", "FormatCellsMenu", "Format", "MenuItem", "ControlType.MenuItem",
+            "NetUIAnchor", new RectI(310, 54, 100, 54), false, true, "Win32", target.Hwnd);
+
+        var controls = VisualSurfaceScanner.DiscoverCore(target,
+            new OpaqueSurfaceScanner.PixelFrame(width, height, pixels), [target.Bounds], [ribbonCommand], words);
+
+        Assert.DoesNotContain(controls, control =>
+            control.ControlType == "ControlType.RadioButton" && control.Name == "Format");
+    }
+
+    [Fact]
     public void LargeButtonRowsAreNotStarvedByHundredsOfTextSizedRectangles()
     {
         const int width = 1_000;
@@ -1660,6 +1744,55 @@ public sealed class AdaptiveExtractionCascadeTests
         Assert.Equal(2, items.Count(item => item.Name == "List item"));
         Assert.True(items[2].IsSelected);
         Assert.Equal(items.Length, items.Select(item => item.RuntimeId).Distinct(StringComparer.Ordinal).Count());
+    }
+
+    [Fact]
+    public void PopupFontListKeepsDecorativeRowsAcrossSmallPitchDrift()
+    {
+        const int width = 376;
+        const int height = 716;
+        var pixels = new byte[width * height * 4];
+        FillRect(pixels, width, new RectI(0, 0, width, height), 255, 255, 255);
+        var centers = new[]
+        {
+            20, 58, 91, 126, 161, 197, 230, 263, 296, 329, 362, 395, 426, 459, 492, 525, 558
+        };
+        foreach (var center in centers)
+            FillRect(pixels, width, new RectI(25, center - 6, 72, 12), 40, 40, 40);
+        var target = new WindowTarget(10, 10, 20, "EXCEL", DateTimeOffset.UnixEpoch,
+            "", "Net UI Tool Window", new RectI(100, 200, width, height));
+        var missedCenters = new HashSet<int> { 395, 525 };
+        var words = centers
+            .Where(center => !missedCenters.Contains(center))
+            .Select((center, index) => new VisualTextObservation(
+                $"Font {index + 1}", new RectI(25, center - 6, 72, 12), index))
+            .ToArray();
+
+        var controls = VisualSurfaceScanner.DiscoverPopupTextListControls(
+            target,
+            new OpaqueSurfaceScanner.PixelFrame(width, height, pixels),
+            words);
+
+        var items = controls.Where(control => control.ControlType == "ControlType.ListItem").ToArray();
+        Assert.Equal(centers.Length, items.Length);
+        Assert.Equal(2, items.Count(item => item.Name == "List item"));
+        Assert.All(items, item => Assert.InRange(item.Bounds.Height, 29, 39));
+    }
+
+    [Theory]
+    [InlineData("No specific format", "123 General No specific format", "General")]
+    [InlineData("12", "12 Number", "Number")]
+    [InlineData("Currency", "Currency", "Currency")]
+    [InlineData("1/4 Fraction", "1/4 Fraction", "Fraction")]
+    [InlineData("102", "102 Scientific", "Scientific")]
+    [InlineData("More Number", "More Number Formats...", "More Number Formats...")]
+    [InlineData("List item", "Agency FB", "Agency FB")]
+    public void PopupActionLabelsPreferLocalizedRowTextOverIconFragments(
+        string existing,
+        string localized,
+        string expected)
+    {
+        Assert.Equal(expected, VisualSurfaceScanner.SelectPopupActionLabel(existing, localized));
     }
 
     [Fact]

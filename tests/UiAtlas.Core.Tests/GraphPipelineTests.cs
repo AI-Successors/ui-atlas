@@ -328,13 +328,22 @@ public sealed class GraphPipelineTests
             "ControlType.Window", "TfrmMain", window.Bounds, true, false, "Win32", 2);
         var button = new AutomationObservation("button", "root", "new", "New Order",
             "ControlType.Pane", "TAbacreButton", new(200, 90, 100, 56), true, false, "Win32", 2);
+        var bold = new AutomationObservation("bold", "root", "Bold", "Bold",
+            "ControlType.Button", "NetUIRibbonButton", new(159, 152, 30, 30), true, false, "Win32", 2);
+        var font = new AutomationObservation("font", "root", "Font", "Font",
+            "ControlType.ComboBox", "NetUIComboboxAnchor", new(159, 112, 143, 30), true, false, "Win32", 2);
+        var numberFormat = new AutomationObservation("number-format", "root", "NumberFormat", "Number Format",
+            "ControlType.ComboBox", "NetUIComboboxAnchor", new(825, 112, 180, 30), true, false, "Win32", 2);
+        var moreOptions = new AutomationObservation("more-options", "root", "MoreOptions", "More Options",
+            "ControlType.MenuItem", "NetUIRibbonButton", new(855, 152, 19, 30), true, false, "Win32", 2);
         var pointer = new AutomationObservation("ui-atlas:pointer:400:300", "", "", "Observed canvas target",
             "CanvasItem", "UiAtlas.ObservedCanvasTarget", new(391, 291, 18, 18), true, false,
             "UiAtlas.Pointer", 2, ["SelectionItem"]);
         var screenshot = new FrameObservation(1, now, "", window, [], false,
             "not-requested", "quick-map-screen:manual-initial-surface", [window],
             ObservationScope: "full-root");
-        var initialControls = new FrameObservation(2, now.AddSeconds(1), "", window, [root, button], false,
+        var initialControls = new FrameObservation(2, now.AddSeconds(1), "", window,
+            [root, button, bold, font, numberFormat, moreOptions], false,
             "partial", "quick-map:manual-initial-surface", [window],
             ObservationScope: "control-delta", BaseFrameSequence: 1);
         var clickDelta = new FrameObservation(3, now.AddSeconds(2), "", window, [root, pointer], false,
@@ -347,6 +356,13 @@ public sealed class GraphPipelineTests
             surface => surface.SurfaceKind == "SemanticWindow");
 
         Assert.Equal([2L], model.VariantsFor([semanticWindow]).Select(variant => variant.FrameSequence));
+        foreach (var label in new[] { "Bold", "Font", "Number Format", "More Options" })
+        {
+            var control = Assert.Single(graph.Nodes, node =>
+                node.Kind == GraphNodeKind.Control && node.Label == label &&
+                node.Properties.Any(property => property is { Name: "layer", Value: "raw-world" }));
+            Assert.Contains(control.Evidence, evidence => evidence.FrameSequence == 2);
+        }
         Assert.True(GraphValidator.Validate(graph).IsValid);
     }
 
@@ -1097,6 +1113,68 @@ public sealed class GraphPipelineTests
         Assert.Contains(promoted, node => node.Properties.Any(property =>
             property.Name == "className" && property.Value == "XLGridColumnHeader"));
         Assert.Contains(promoted, node => node.Label == "Insert Function");
+    }
+
+    [Fact]
+    public void ExcelRibbonFramesKeepTheVisibleWorksheetAndBottomChrome()
+    {
+        var now = new DateTimeOffset(2026, 9, 3, 0, 0, 0, TimeSpan.Zero);
+        var target = new TargetScope(1, 1, 7, "EXCEL", now.AddHours(-1),
+            OriginalFilename: "EXCEL.EXE", ProductName: "Microsoft Excel");
+        var manifest = new RecordingManifest(FormatVersions.RecordingBundle, FormatVersions.Tool,
+            "excel-ribbon-surface", now, now.AddSeconds(3), RecordingOutcome.Complete,
+            target, new(), new(), true, 0, 3);
+        var window = new WindowObservation(1, 1, 7, "XLMAIN", "Book1 - Excel",
+            new(0, 0, 1_600, 900), true, true, false, false, 96);
+        AutomationObservation[] worksheet =
+        [
+            new("grid", "", "Grid", "Grid", "ControlType.DataGrid", "XLSpreadsheetGrid",
+                new(0, 240, 1_580, 610), true, false, "Win32", 1),
+            new("a1", "grid", "A1", "A1", "ControlType.DataItem", "XLSpreadsheetCell",
+                new(34, 264, 80, 24), true, false, "Win32", 1),
+            new("b1", "grid", "B1", "B1", "ControlType.DataItem", "XLSpreadsheetCell",
+                new(114, 264, 80, 24), true, false, "Win32", 1),
+            new("a2", "grid", "A2", "A2", "ControlType.DataItem", "XLSpreadsheetCell",
+                new(34, 288, 80, 24), true, false, "Win32", 1),
+            new("b2", "grid", "B2", "B2", "ControlType.DataItem", "XLSpreadsheetCell",
+                new(114, 288, 80, 24), true, false, "Win32", 1),
+            new("sheets", "", "Book1", "Book1", "ControlType.Tab", "ExcelBookTabControl",
+                new(0, 824, 780, 38), true, false, "Win32", 1),
+            new("sheet1", "sheets", "SheetTab", "Sheet1", "ControlType.TabItem", "",
+                new(120, 824, 80, 38), true, false, "Win32", 1),
+            new("add-sheet", "sheets", "SheetTab", "Add Sheet", "ControlType.Button", "",
+                new(220, 824, 38, 38), true, false, "Win32", 1),
+            new("status", "", "", "Status Bar", "ControlType.StatusBar", "NetUInetpane",
+                new(0, 870, 1_600, 30), true, false, "Win32", 1),
+            new("normal", "status", "", "Normal", "ControlType.Button", "NetUIStickyButton",
+                new(1_280, 872, 45, 26), true, false, "Win32", 1),
+            new("zoom", "status", "", "Zoom", "ControlType.Slider", "NetUISlider",
+                new(1_420, 872, 120, 26), true, false, "Win32", 1)
+        ];
+        var ribbon = new AutomationObservation("bold", "", "Bold", "Bold",
+            "ControlType.Button", "NetUIRibbonButton", new(100, 120, 30, 30),
+            true, false, "Win32", 1);
+        var backstage = new AutomationObservation("backstage", "", "", "Backstage view",
+            "ControlType.Pane", "FullpageUIHost", window.Bounds, true, false, "Win32", 1);
+        var initial = new FrameObservation(1, now, "", window, worksheet, false, "ok",
+            "quick-map:auto-tabs-initial-surface", [window]);
+        var tab = new FrameObservation(2, now.AddSeconds(1), "", window, [ribbon], false, "ok",
+            "auto-tabs:tab:home:first-visit", [window]);
+        var file = new FrameObservation(3, now.AddSeconds(2), "", window, [backstage], false, "ok",
+            "auto-backstage:opened:file", [window]);
+
+        var graph = new RecordingGraphBuilder().Build(
+            new RecordingGraphInput(manifest, [initial, tab, file], []));
+
+        foreach (var label in new[] { "A1", "Sheet1", "Add Sheet", "Normal", "Zoom" })
+        {
+            var control = Assert.Single(graph.Nodes, node =>
+                node.Kind == GraphNodeKind.Control && node.Label == label &&
+                node.Properties.Any(property => property is { Name: "layer", Value: "raw-world" }));
+            Assert.Contains(control.Evidence, evidence => evidence.FrameSequence == 2);
+            Assert.DoesNotContain(control.Evidence, evidence => evidence.FrameSequence == 3);
+        }
+        Assert.True(GraphValidator.Validate(graph).IsValid);
     }
 
     [Fact]

@@ -24,6 +24,13 @@ internal sealed record LegacyGridEvidenceRepair(
         ArgumentNullException.ThrowIfNull(evidence);
         cancellationToken.ThrowIfCancellationRequested();
         var automation = evidence.Observation.Automation;
+        // A healthy native Excel tree already describes the painted worksheet.
+        // Re-running the pixel repair over it can mistake the sheet-tab/status
+        // bands for more rows and make cached offscreen cells appear after the
+        // initial correct render.
+        if (VisualSurfaceScanner.HasReliableVisibleExcelWorksheet(
+                automation, evidence.ScreenshotBounds))
+            return null;
         var nativeSemanticControls = automation
             .Where(control => !control.ClassName.Equals("UiAtlas.VisualControlRegion", StringComparison.OrdinalIgnoreCase) &&
                               IsSemanticControl(control))

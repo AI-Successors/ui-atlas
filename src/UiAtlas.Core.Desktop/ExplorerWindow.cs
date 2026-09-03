@@ -2888,8 +2888,6 @@ public sealed class ExplorerWindow : Window
         if (control is null) return;
         var surface = _model.LayerFor(control.Level).Surfaces.FirstOrDefault(candidate => candidate.Id == control.OwnerSurfaceId);
         if (surface is null) return;
-        var surfaceChanged = _selectedSurface is null ||
-                             !string.Equals(_selectedSurface.Id, surface.Id, StringComparison.Ordinal);
         _inspectionLevel = surface.Level;
         _selectedSurface = surface;
         _selectedSurfaceScope = [surface];
@@ -2898,7 +2896,11 @@ public sealed class ExplorerWindow : Window
             control,
             _model.VariantsFor(_selectedSurfaceScope, control),
             _selectedVariant);
-        _resetAppMapZoomOnNextRender = surfaceChanged;
+        // Selecting a control can move selection to an owned/child surface that is
+        // rendered over the same evidence frame. That is not navigation and must
+        // not discard the user's zoom. Explicit surface navigation still requests
+        // fit-to-view through SelectSurface.
+        _resetAppMapZoomOnNextRender = false;
         _synchronizing = true;
         if (!_hierarchyItems.ContainsKey(control.Id))
             BuildHierarchy(_search.Text.Trim(), control.Id);
@@ -3256,6 +3258,12 @@ public sealed class ExplorerWindow : Window
                     control, frameSequence, frameBundleId, scopedControls)
             })
             .Where(item => item.Surface is not null)
+            .Where(item => !UiMapPresentation.IsRedundantPopupEditor(
+                item.Control,
+                item.Surface!,
+                frameSequence,
+                frameBundleId,
+                scopedControls))
             .Where(item => UiMapPresentation.ShouldRenderControl(
                 item.Control,
                 item.Surface!,
@@ -3291,16 +3299,17 @@ public sealed class ExplorerWindow : Window
                 var isSelected = control.Id == _selectedControl?.Id;
                 var isUnverified = GraphControlConfirmation.IsUnverified(control.Source);
                 var isButtonCandidate = GraphControlConfirmation.IsConfirmableButtonCandidate(control.Source);
+                var isCompactPopupAction = UiMapPresentation.IsCompactPopupAction(control, ownerSurface);
                 var highlightColor = isUnverified ? Color.FromRgb(0xFF, 0x8B, 0x3D) : Color.FromRgb(0x2D, 0xCE, 0x91);
                 var rectangle = new Rectangle { Width = Math.Max(1, local.Width), Height = Math.Max(1, local.Height),
-                    Stroke = isSelected || isButtonCandidate
+                    Stroke = isSelected || isButtonCandidate || isCompactPopupAction
                         ? new SolidColorBrush(highlightColor)
                         : LevelBrush(_inspectionLevel),
-                    StrokeThickness = isSelected ? 4 : isButtonCandidate ? 2 : 1.2,
-                    StrokeDashArray = !isSelected && isButtonCandidate ? [4, 2] : null,
+                    StrokeThickness = isSelected ? 4 : isButtonCandidate || isCompactPopupAction ? 2 : 1.2,
+                    StrokeDashArray = !isSelected && isButtonCandidate && !isCompactPopupAction ? [4, 2] : null,
                     Fill = isSelected
                         ? new SolidColorBrush(Color.FromArgb(92, highlightColor.R, highlightColor.G, highlightColor.B))
-                        : isButtonCandidate
+                        : isButtonCandidate || isCompactPopupAction
                             ? new SolidColorBrush(Color.FromArgb(28, highlightColor.R, highlightColor.G, highlightColor.B))
                         : (Brush?)controlCrop ?? ResolveBlueprintFill(control, ownerSurface, _inspectionLevel, projection.BlueprintFillOpacity),
                     Effect = isSelected

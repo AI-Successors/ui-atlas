@@ -211,7 +211,7 @@ public sealed class UiMappingReadModelTests
     }
 
     [Fact]
-    public void AppMapDrawsCachedWorksheetCellsAndButtonsAsUnverifiedControls()
+    public void AppMapHidesOffscreenCachedWorksheetCellsButKeepsOtherCachedHints()
     {
         var surfaceNode = new GraphNode("surface", GraphNodeKind.Surface, "app", "surface", "Excel",
             [new GraphProperty("surfaceClass", "RawWindow")], []);
@@ -220,8 +220,8 @@ public sealed class UiMappingReadModelTests
         var cell = CachedControl("cell", "A1", "DataItem", new RectI(240, 300, 80, 22));
         var button = CachedControl("button", "Ready", "Button", new RectI(110, 875, 90, 20));
 
-        Assert.True(UiMapPresentation.ShouldRenderControl(cell, surface, UiMapProjectionMode.Controls));
-        Assert.True(UiMapPresentation.ShouldRenderControl(cell, surface, UiMapProjectionMode.Overlay));
+        Assert.False(UiMapPresentation.ShouldRenderControl(cell, surface, UiMapProjectionMode.Controls));
+        Assert.False(UiMapPresentation.ShouldRenderControl(cell, surface, UiMapProjectionMode.Overlay));
         Assert.True(UiMapPresentation.ShouldRenderControl(button, surface, UiMapProjectionMode.Controls));
         Assert.True(UiMapPresentation.ShouldRenderControl(button, surface, UiMapProjectionMode.Overlay));
     }
@@ -246,6 +246,7 @@ public sealed class UiMappingReadModelTests
             [
                 new GraphProperty("controlType", kind),
                 new GraphProperty("frameworkId", "UiAtlas.Cached"),
+                new GraphProperty("className", kind == "DataItem" ? "XLSpreadsheetCell" : "CachedButton"),
                 new GraphProperty("effectivelyVisible", "False"),
                 new GraphProperty("offscreen", "True"),
                 new GraphProperty("verificationStatus", "Unverified")
@@ -338,6 +339,44 @@ public sealed class UiMappingReadModelTests
     }
 
     [Fact]
+    public void AppMapEmphasizesEveryCompactPopupListRowAsAnAction()
+    {
+        var surfaceNode = new GraphNode("surface", GraphNodeKind.Surface, "app", "surface", "Undo_Dropdown",
+            [new GraphProperty("surfaceClass", "RawPopupWindow")], []);
+        var rowNode = new GraphNode("row", GraphNodeKind.Control, "surface", "row", "Zoom",
+            [new GraphProperty("controlType", "ListItem"), new GraphProperty("effectivelyVisible", "True")], []);
+        var surface = new UiMapSurfaceView("surface", UiUnderstandingLevel.SemanticWorld, "Undo_Dropdown",
+            "RawPopupWindow", "app", new RectI(223, 47, 133, 663), 1, [], [], surfaceNode);
+        var row = new UiMapControlView("row", UiUnderstandingLevel.SemanticWorld,
+            "Zoom", "ListItem", "surface", "list", new RectI(224, 79, 131, 30), [], rowNode);
+
+        Assert.True(UiMapPresentation.IsCompactPopupAction(row, surface));
+        Assert.True(UiMapPresentation.ShouldRenderControl(row, surface, UiMapProjectionMode.Overlay));
+    }
+
+    [Fact]
+    public void AppMapSuppressesEditThatDuplicatesACompactPopupListRow()
+    {
+        var surfaceNode = new GraphNode("surface", GraphNodeKind.Surface, "app", "surface", "Undo_Dropdown",
+            [new GraphProperty("surfaceClass", "RawPopupWindow")], []);
+        var rowNode = new GraphNode("row", GraphNodeKind.Control, "surface", "row", "Cancel",
+            [new GraphProperty("controlType", "ListItem"), new GraphProperty("effectivelyVisible", "True")], []);
+        var editNode = new GraphNode("edit", GraphNodeKind.Control, "surface", "edit", "Zoom",
+            [new GraphProperty("controlType", "Edit"), new GraphProperty("effectivelyVisible", "True")], []);
+        var surface = new UiMapSurfaceView("surface", UiUnderstandingLevel.SemanticWorld, "Undo_Dropdown",
+            "RawPopupWindow", "app", new RectI(223, 47, 133, 663), 2, [], [], surfaceNode);
+        var row = new UiMapControlView("row", UiUnderstandingLevel.SemanticWorld,
+            "Cancel", "ListItem", "surface", "list", new RectI(224, 679, 131, 30),
+            [new EvidenceRef("session", 6, "frame-6.json", new RectI(224, 679, 131, 30))], rowNode);
+        var edit = new UiMapControlView("edit", UiUnderstandingLevel.SemanticWorld,
+            "Zoom", "Edit", "surface", "list", new RectI(225, 679, 129, 31),
+            [new EvidenceRef("session", 6, "frame-6.json", new RectI(225, 679, 129, 31))], editNode);
+
+        Assert.True(UiMapPresentation.IsRedundantPopupEditor(edit, surface, 6, "session", [row, edit]));
+        Assert.False(UiMapPresentation.IsRedundantPopupEditor(row, surface, 6, "session", [row, edit]));
+    }
+
+    [Fact]
     public void SurfaceProjectionClipsAndTranslatesAbsoluteBounds()
     {
         var surface = new RectI(100, 200, 300, 150);
@@ -400,6 +439,54 @@ public sealed class UiMappingReadModelTests
             UiMapPresentation.ResolveControlBounds(close, 2, "session", [titleBar, close, save]));
         Assert.Equal(new RectI(100, 80, 90, 24),
             UiMapPresentation.ResolveControlBounds(save, 2, "session", [titleBar, close, save]));
+    }
+
+    [Fact]
+    public void AppMapAlignsLegacyOfficeSystemMenuToThePaintedApplicationIcon()
+    {
+        var captionNode = new GraphNode("caption", GraphNodeKind.Control, "surface", "caption",
+            "Book1 - Excel",
+            [
+                new GraphProperty("controlType", "TitleBar"),
+                new GraphProperty("className", "NetUIOfficeCaption")
+            ], []);
+        var systemNode = new GraphNode("system", GraphNodeKind.Control, "menu", "system", "System",
+            [
+                new GraphProperty("controlType", "MenuItem"),
+                new GraphProperty("automationId", "Item 1")
+            ], []);
+        var caption = new UiMapControlView("caption", UiUnderstandingLevel.RawWorld,
+            "Book1 - Excel", "TitleBar", "surface", "", new RectI(53, 0, 934, 60),
+            [new EvidenceRef("session", 106, "frame-106.json", new RectI(53, 0, 934, 60))], captionNode);
+        var system = new UiMapControlView("system", UiUnderstandingLevel.RawWorld,
+            "System", "MenuItem", "surface", "menu", new RectI(0, 0, 28, 28),
+            [new EvidenceRef("session", 106, "frame-106.json", new RectI(0, 0, 28, 28))], systemNode);
+
+        Assert.Equal(new RectI(20, 20, 20, 20),
+            UiMapPresentation.ResolveControlBounds(system, 106, "session", [caption, system]));
+    }
+
+    [Fact]
+    public void AppMapPreservesAnAlreadyAlignedOfficeSystemMenu()
+    {
+        var captionNode = new GraphNode("caption", GraphNodeKind.Control, "surface", "caption",
+            "Book1 - Excel",
+            [
+                new GraphProperty("controlType", "TitleBar"),
+                new GraphProperty("className", "NetUIOfficeCaption")
+            ], []);
+        var systemNode = new GraphNode("system", GraphNodeKind.Control, "menu", "system", "System",
+            [
+                new GraphProperty("controlType", "MenuItem"),
+                new GraphProperty("automationId", "Item 1")
+            ], []);
+        var caption = new UiMapControlView("caption", UiUnderstandingLevel.RawWorld,
+            "Book1 - Excel", "TitleBar", "surface", "", new RectI(53, 0, 934, 60), [], captionNode);
+        var system = new UiMapControlView("system", UiUnderstandingLevel.RawWorld,
+            "System", "MenuItem", "surface", "menu", new RectI(20, 20, 20, 20), [], systemNode);
+
+        Assert.Equal(system.Bounds,
+            UiMapPresentation.ResolveControlBounds(system, null, null, [caption, system]));
     }
 
     [Fact]

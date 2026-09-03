@@ -18,7 +18,8 @@ public sealed record LocalMapInfo(
     DateTimeOffset BuiltUtc,
     string Status,
     int NodeCount,
-    int EdgeCount);
+    int EdgeCount,
+    int MappedControlCount);
 
 public sealed record LocalMapDuplicate(
     string Id,
@@ -239,11 +240,12 @@ public sealed class LocalArtifactCatalog
             {
                 var summary = SqliteGraphStore.ReadSummary(path);
                 var status = summary.HasControlNodes ? "valid" : "incomplete";
-                values.Add(new(id, summary.Metadata.BuiltUtc, status, summary.NodeCount, summary.EdgeCount));
+                values.Add(new(id, summary.Metadata.BuiltUtc, status, summary.NodeCount, summary.EdgeCount,
+                    summary.SemanticControlCount));
             }
             catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException or SqliteException or System.Text.Json.JsonException)
             {
-                values.Add(new(id, File.GetCreationTimeUtc(path), "invalid", 0, 0));
+                values.Add(new(id, File.GetCreationTimeUtc(path), "invalid", 0, 0, 0));
             }
         }
         return values.OrderByDescending(value => value.BuiltUtc).ThenBy(value => value.Id, StringComparer.Ordinal).ToArray();

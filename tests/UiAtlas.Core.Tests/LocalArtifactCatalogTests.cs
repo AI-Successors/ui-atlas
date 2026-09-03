@@ -24,6 +24,10 @@ public sealed class LocalArtifactCatalogTests
         Assert.Equal("valid", map.Status);
         Assert.Equal(graph.Nodes.Count, map.NodeCount);
         Assert.Equal(graph.Edges.Count, map.EdgeCount);
+        Assert.Equal(graph.Nodes.Count(node =>
+            node.Kind == UiAtlas.Core.Contracts.GraphNodeKind.Control &&
+            node.Properties.Any(property => property is { Name: "layer", Value: "semantic-world" })),
+            map.MappedControlCount);
 
         var archivedRecording = catalog.ArchiveRecording(id);
         var archivedMap = catalog.ArchiveMap(id);
@@ -131,6 +135,10 @@ public sealed class LocalArtifactCatalogTests
         Assert.Equal(graph.Metadata.BuiltUtc, map.BuiltUtc);
         Assert.Equal(graph.Nodes.Count, map.NodeCount);
         Assert.Equal(graph.Edges.Count, map.EdgeCount);
+        Assert.Equal(graph.Nodes.Count(node =>
+            node.Kind == UiAtlas.Core.Contracts.GraphNodeKind.Control &&
+            node.Properties.Any(property => property is { Name: "layer", Value: "semantic-world" })),
+            map.MappedControlCount);
     }
 
     [Fact]

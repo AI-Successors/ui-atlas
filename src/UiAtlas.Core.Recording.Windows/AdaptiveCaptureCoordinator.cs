@@ -1544,12 +1544,20 @@ public sealed class AdaptiveCaptureCoordinator : IAsyncDisposable
             ribbon = await _session.CollectRibbonAutomationAsync(
                 _target.RootOwnerHwnd, profile.RibbonTimeout, profile.RibbonMaxNodes, cancellationToken).ConfigureAwait(false);
         }
-        var controls = navigation.Items.Concat(ribbon.Items)
-            .GroupBy(control => string.IsNullOrWhiteSpace(control.RuntimeId)
-                ? $"bounds:{control.Bounds.X},{control.Bounds.Y},{control.Bounds.Width},{control.Bounds.Height}:{control.AutomationId}"
-                : control.RuntimeId, StringComparer.Ordinal)
-            .Select(group => group.Last())
-            .ToArray();
+        (IReadOnlyList<AutomationObservation> Items, bool TimedOut, string Status) worksheet =
+            ([], false, "ok");
+        if (IsExcelTarget(_target) && !IsExcelBackstageVisible(_target))
+        {
+            // Excel's worksheet and bottom chrome are not descendants of the
+            // Ribbon provider. Keep them in every full-window tab frame so a tab
+            // switch cannot make visible cells and status controls disappear.
+            worksheet = await _session.CollectWorksheetAutomationAsync(
+                _target.RootOwnerHwnd,
+                TimeSpan.FromMilliseconds(3_000),
+                2_000,
+                cancellationToken).ConfigureAwait(false);
+        }
+        var controls = MergeNativeControls(navigation.Items, ribbon.Items, worksheet.Items);
         if (!RibbonSurfaceCapturePolicy.HasMaterializedRibbonContent(ribbon.Items))
         {
             _session.AddCaptureHealth("adaptive", "tab-empty", "The selected tab returned no Ribbon controls and remains eligible for another capture.");
@@ -1564,8 +1572,10 @@ public sealed class AdaptiveCaptureCoordinator : IAsyncDisposable
                 ObservationScope: "full-root",
                 BaseFrameSequence: _baselineSequence,
                 AutomationOverride: controls,
-                AutomationTimedOutOverride: navigation.TimedOut || ribbon.TimedOut,
-                AutomationStatusOverride: navigation.TimedOut || ribbon.TimedOut ? "partial" : "ok")).ConfigureAwait(false);
+                AutomationTimedOutOverride: navigation.TimedOut || ribbon.TimedOut || worksheet.TimedOut,
+                AutomationStatusOverride: navigation.TimedOut || ribbon.TimedOut || worksheet.TimedOut
+                    ? "partial"
+                    : "ok")).ConfigureAwait(false);
         lock (_tabGate) _recordedTabs.Add(stableKey);
         UpdateTabs(frame, recordSelected: true);
         _status?.Invoke("New tab captured in the background.");

@@ -108,7 +108,7 @@ public static class VisualSurfaceScanner
         if (typicalGap is < 10 or > 64)
             return [];
 
-        aligned = ExpandPopupTextRows(frame, candidates, aligned, typicalGap);
+        aligned = ExpandPopupTextRows(frame, candidates, aligned, typicalGap, anchorX, xTolerance);
         centers = aligned.Select(item => item.Bounds.Y + item.Bounds.Height / 2).ToArray();
 
         var scaleX = frame.Width / (double)target.Bounds.Width;
@@ -168,6 +168,77 @@ public static class VisualSurfaceScanner
         return result;
     }
 
+    internal static async Task<IReadOnlyList<AutomationObservation>> DiscoverPopupActionRowsAsync(
+        WindowTarget target,
+        OpaqueSurfaceScanner.PixelFrame frame,
+        IReadOnlyList<VisualTextObservation> words,
+        CancellationToken cancellationToken)
+    {
+        var controls = DiscoverPopupTextListControls(target, frame, words);
+        var rows = controls
+            .Select((control, index) => (Control: control, Index: index))
+            .Where(item => item.Control.ControlType == "ControlType.ListItem")
+            .ToArray();
+        if (rows.Length == 0) return controls;
+
+        var scaleX = frame.Width / (double)Math.Max(1, target.Bounds.Width);
+        var scaleY = frame.Height / (double)Math.Max(1, target.Bounds.Height);
+        var regions = rows
+            .Select(item => ToPixelRect(
+                Intersect(item.Control.Bounds, target.Bounds), target.Bounds,
+                scaleX, scaleY, frame.Width, frame.Height))
+            .ToArray();
+        var localized = await WindowsOcrTextRecognizer.RecognizeRegionsAsync(
+            frame, regions, cancellationToken).ConfigureAwait(false);
+        if (localized.Count == 0) return controls;
+
+        var result = controls.ToArray();
+        for (var rowIndex = 0; rowIndex < rows.Length; rowIndex++)
+        {
+            if (!localized.TryGetValue(rowIndex, out var localizedText)) continue;
+            var row = rows[rowIndex];
+            var label = SelectPopupActionLabel(row.Control.Name, localizedText);
+            if (label.Length == 0 || string.Equals(label, row.Control.Name, StringComparison.Ordinal)) continue;
+            var identity = StableVisualIdentity(
+                "ListItem", label, $"{row.Control.ParentRuntimeId}|item:{rowIndex}", "");
+            result[row.Index] = row.Control with
+            {
+                RuntimeId = "visual:v3:" + identity,
+                AutomationId = "visual:v3:" + identity,
+                Name = label,
+                OcrText = label
+            };
+        }
+        return result;
+    }
+
+    internal static string SelectPopupActionLabel(string existing, string localized)
+    {
+        var current = NormalizePopupItemText(existing);
+        var candidate = NormalizePopupItemText(localized);
+        if (candidate.Length == 0) return current;
+
+        var tokens = candidate.Split(' ', StringSplitOptions.RemoveEmptyEntries).ToList();
+        while (tokens.Count > 1 &&
+               (tokens[0].All(character => !char.IsLetter(character)) || tokens[0].Length == 1))
+            tokens.RemoveAt(0);
+        candidate = string.Join(' ', tokens);
+        const string generalSubtitle = " No specific format";
+        var removedGeneralSubtitle = candidate.EndsWith(generalSubtitle, StringComparison.OrdinalIgnoreCase);
+        if (removedGeneralSubtitle)
+            candidate = candidate[..^generalSubtitle.Length].Trim();
+        if (candidate.Length == 0) return current;
+
+        var currentLetters = current.Count(char.IsLetter);
+        var candidateLetters = candidate.Count(char.IsLetter);
+        return removedGeneralSubtitle ||
+               current.Equals("List item", StringComparison.OrdinalIgnoreCase) ||
+               candidateLetters > currentLetters ||
+               candidateLetters == currentLetters && candidate.Length < current.Length
+            ? candidate
+            : current;
+    }
+
     private static string NormalizePopupItemText(string value) =>
         string.Join(' ', value.Split((char[]?)null,
             StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)).Trim();
@@ -179,40 +250,45 @@ public static class VisualSurfaceScanner
         OpaqueSurfaceScanner.PixelFrame frame,
         IReadOnlyList<TextSegment> candidates,
         IReadOnlyList<TextSegment> aligned,
-        int typicalGap)
+        int typicalGap,
+        int anchorX,
+        int xTolerance)
     {
         var bands = FindDarkTextBands(frame)
-            .Where(band => band.Bounds.Height <= Math.Min(26, typicalGap - 2))
+            .Where(band => band.Bounds.Height <= Math.Min(26, typicalGap - 2) &&
+                           Math.Abs(band.Bounds.X - anchorX) <= xTolerance)
             .ToArray();
-        if (bands.Length < aligned.Count)
+        if (bands.Length == 0)
             return aligned.ToArray();
 
         var firstCenter = aligned[0].Bounds.Y + aligned[0].Bounds.Height / 2;
         var lastCenter = aligned[^1].Bounds.Y + aligned[^1].Bounds.Height / 2;
-        var phaseTolerance = Math.Max(4, typicalGap / 3);
-        var expanded = bands
-            .Where(band =>
-            {
-                var center = band.Bounds.Y + band.Bounds.Height / 2;
-                if (center < firstCenter - typicalGap * 4 || center > lastCenter + typicalGap * 2)
-                    return false;
-                var remainder = Math.Abs(center - firstCenter) % typicalGap;
-                return Math.Min(remainder, typicalGap - remainder) <= phaseTolerance;
-            })
-            .Select(band =>
-            {
-                var center = band.Bounds.Y + band.Bounds.Height / 2;
-                var label = candidates
-                    .Where(candidate => Math.Abs(
-                        candidate.Bounds.Y + candidate.Bounds.Height / 2 - center) <= phaseTolerance)
-                    .OrderBy(candidate => Math.Abs(candidate.Bounds.X - band.Bounds.X))
-                    .ThenByDescending(candidate => candidate.Bounds.Width)
-                    .FirstOrDefault();
-                return new TextSegment(label?.Text ?? string.Empty, band.Bounds);
-            })
+        var matchTolerance = Math.Max(5, typicalGap * 2 / 5);
+        var expanded = aligned.ToList();
+        foreach (var band in bands)
+        {
+            var center = band.Bounds.Y + band.Bounds.Height / 2;
+            if (center < firstCenter - typicalGap * 4 || center > lastCenter + typicalGap * 2 ||
+                expanded.Any(item => Math.Abs(
+                    item.Bounds.Y + item.Bounds.Height / 2 - center) <= matchTolerance))
+                continue;
+
+            // OCR commonly misses decorative font faces even though their dark
+            // glyph band is unambiguous. Preserve the row with a neutral name;
+            // the screenshot still supplies its painted label and exact target.
+            var label = candidates
+                .Where(candidate => Math.Abs(
+                    candidate.Bounds.Y + candidate.Bounds.Height / 2 - center) <= matchTolerance)
+                .OrderBy(candidate => Math.Abs(candidate.Bounds.X - band.Bounds.X))
+                .ThenByDescending(candidate => candidate.Bounds.Width)
+                .FirstOrDefault();
+            expanded.Add(new TextSegment(label?.Text ?? string.Empty, band.Bounds));
+        }
+
+        return expanded
             .OrderBy(item => item.Bounds.Y + item.Bounds.Height / 2)
+            .ThenBy(item => item.Bounds.X)
             .ToArray();
-        return expanded.Length >= aligned.Count ? expanded : aligned.ToArray();
     }
 
     private static IReadOnlyList<TextSegment> FindDarkTextBands(OpaqueSurfaceScanner.PixelFrame frame)
@@ -346,6 +422,27 @@ public static class VisualSurfaceScanner
         OpaqueSurfaceScanner.PixelFrame frame,
         IReadOnlyList<AutomationObservation> knownControls)
         => DiscoverLegacySurfaceControlsCore(target, frame, knownControls, []);
+
+    internal static bool HasReliableVisibleExcelWorksheet(
+        IReadOnlyList<AutomationObservation> controls,
+        RectI visibleBounds)
+    {
+        ArgumentNullException.ThrowIfNull(controls);
+        if (!visibleBounds.IsValid) return false;
+
+        var cells = controls.Where(control =>
+                control.ClassName.Equals("XLSpreadsheetCell", StringComparison.OrdinalIgnoreCase) &&
+                !control.IsOffscreen &&
+                !control.FrameworkId.StartsWith("UiAtlas.Cached", StringComparison.OrdinalIgnoreCase) &&
+                control.Bounds.IsValid && ContainsCenter(visibleBounds, control.Bounds))
+            .ToArray();
+        if (cells.Length < 20) return false;
+
+        // Require a real two-dimensional body. A handful of stale accessibility
+        // fragments must not suppress repair of an otherwise opaque worksheet.
+        return cells.Select(cell => cell.Bounds.X).Distinct().Take(4).Count() >= 4 &&
+               cells.Select(cell => cell.Bounds.Y).Distinct().Take(4).Count() >= 4;
+    }
 
     public static async Task<IReadOnlyList<AutomationObservation>> DiscoverLegacySurfaceControlsAsync(
         WindowTarget target,
@@ -635,6 +732,97 @@ public static class VisualSurfaceScanner
         return previous[second.Length];
     }
 
+    internal static bool IsOfficeBackstageSurface(IReadOnlyList<AutomationObservation> controls) =>
+        controls.Any(control =>
+            control.ClassName.Equals("FullpageUIHost", StringComparison.OrdinalIgnoreCase) ||
+            control.ClassName.Equals("NetUIFullpageUIWindow", StringComparison.OrdinalIgnoreCase) ||
+            control.Name.Equals("Backstage view", StringComparison.OrdinalIgnoreCase));
+
+    private static IReadOnlyList<AutomationObservation> DiscoverOfficeBackstageActionButtons(
+        WindowTarget target,
+        OpaqueSurfaceScanner.PixelFrame frame,
+        IReadOnlyList<AutomationObservation> knownControls,
+        IReadOnlyList<VisualTextObservation> words,
+        double scaleX,
+        double scaleY)
+    {
+        if (!IsOfficeBackstageSurface(knownControls) || words.Count == 0) return [];
+
+        string[][] labels =
+        [
+            ["Protect", "Workbook"],
+            ["Check", "for", "Issues"],
+            ["Version", "History"],
+            ["Manage", "Workbook"],
+            ["Reset", "Changes", "Pane"],
+            ["Browser", "View", "Options"]
+        ];
+        var normalizedWords = words.Select((word, index) => new
+        {
+            Word = word,
+            Index = index,
+            Token = NormalizeIdentityText(word.Text)
+        }).ToArray();
+        var actionBandLeft = frame.Width * 12 / 100;
+        var actionBandRight = frame.Width * 21 / 100;
+        var titleGroups = new List<(string Name, RectI Bounds)>();
+        foreach (var label in labels)
+        {
+            var anchors = normalizedWords
+                .Where(item => item.Token.Equals(label[0], StringComparison.OrdinalIgnoreCase) &&
+                               item.Word.Bounds.X >= actionBandLeft &&
+                               item.Word.Bounds.X < actionBandRight &&
+                               item.Word.Bounds.Y >= frame.Height / 7)
+                .OrderBy(item => item.Word.Bounds.X)
+                .ThenBy(item => item.Word.Bounds.Y)
+                .ToArray();
+            foreach (var anchor in anchors)
+            {
+                var matched = new List<(VisualTextObservation Word, int Index)>
+                {
+                    (anchor.Word, anchor.Index)
+                };
+                foreach (var token in label.Skip(1))
+                {
+                    var next = normalizedWords
+                        .Where(item => !matched.Any(value => value.Index == item.Index) &&
+                                       item.Token.Equals(token, StringComparison.OrdinalIgnoreCase) &&
+                                       item.Word.Bounds.X >= actionBandLeft &&
+                                       item.Word.Bounds.X < actionBandRight &&
+                                       Math.Abs(item.Word.Bounds.Y - anchor.Word.Bounds.Y) <= 46)
+                        .OrderBy(item => Math.Abs(item.Word.Bounds.Y - anchor.Word.Bounds.Y) * 2 +
+                                         Math.Abs(item.Word.Bounds.X - anchor.Word.Bounds.X))
+                        .FirstOrDefault();
+                    if (next is null) break;
+                    matched.Add((next.Word, next.Index));
+                }
+                if (matched.Count != label.Length) continue;
+                titleGroups.Add((string.Join(' ', label), Union(matched.Select(item => item.Word.Bounds).ToArray())));
+                break;
+            }
+        }
+        if (titleGroups.Count == 0) return [];
+
+        var left = Math.Max(0, titleGroups.Min(item => item.Bounds.X) - 26);
+        var right = Math.Min(frame.Width, Math.Max(left + 112,
+            titleGroups.Max(item => item.Bounds.X + item.Bounds.Width) + 8));
+        right = Math.Min(right, left + 150);
+        var result = new List<AutomationObservation>(titleGroups.Count);
+        foreach (var action in titleGroups.OrderBy(item => item.Bounds.Y))
+        {
+            var top = Math.Max(0, action.Bounds.Y - 68);
+            var bottom = Math.Min(frame.Height, Math.Max(top + 106,
+                action.Bounds.Y + action.Bounds.Height + 8));
+            var bounds = new RectI(left, top, right - left, bottom - top);
+            var identity = StableVisualIdentity("Button", action.Name,
+                $"backstage-action:{NormalizeIdentityText(action.Name)}", CoarseFingerprint(frame, bounds));
+            var id = "visual:v3:" + identity;
+            result.Add(CreateObservation(target, bounds, scaleX, scaleY, id, "", action.Name,
+                "Button", "button", "", null, null, ["Invoke"], action.Name));
+        }
+        return result;
+    }
+
     private static IReadOnlyList<AutomationObservation> DiscoverLegacySurfaceControlsCore(
         WindowTarget target,
         OpaqueSurfaceScanner.PixelFrame frame,
@@ -653,24 +841,37 @@ public static class VisualSurfaceScanner
         var cellStyleBounds = cellStyleCards.Select(card => card.Bounds).ToArray();
         var tableStyleCards = FindExcelTableStyleGalleryCards(target, frame, words);
         var tableStyleBounds = tableStyleCards.Select(card => card.Bounds).ToArray();
+        var backstageActions = DiscoverOfficeBackstageActionButtons(
+            target, frame, knownControls, words, scaleX, scaleY);
+        var backstageActionBounds = backstageActions
+            .Select(control => ToPixelRect(control.Bounds, target.Bounds, scaleX, scaleY, frame.Width, frame.Height))
+            .ToArray();
+        var isOfficeBackstage = IsOfficeBackstageSurface(knownControls);
         var structuralRectangles = ExpandGridRows(
                 frame,
                 FindRectangles(frame, new RectI(0, 0, frame.Width, frame.Height), allowWideField: true))
             .Where(bounds => !cellStyleBounds.Any(card => ContainsCenter(card, bounds)))
             .Where(bounds => !tableStyleBounds.Any(card => ContainsCenter(card, bounds)))
             .ToArray();
+        IReadOnlyList<TableGroup> inferredTables = isOfficeBackstage
+            ? []
+            : FindTableGroups(structuralRectangles)
+                .Concat(FindSparseTableGroups(structuralRectangles, words))
+                .ToArray();
         var tables = FindKnownGridTables(target, frame, knownControls, scaleX, scaleY, [])
-            .Concat(FindSparseTableGroups(structuralRectangles, words))
+            .Concat(inferredTables)
             .GroupBy(table => table.Bounds)
             .Select(group => group.First())
             .ToArray();
         var combos = FindWideDatabaseGridCombos(target, frame, knownControls, tables, scaleX, scaleY);
         var trees = FindClassicTrees(target, frame, knownControls, words, scaleX, scaleY);
         var tabStrips = FindClassicTabStrips(frame, words);
-        var radioButtons = FindClassicRadioButtons(frame, words);
+        var radioButtons = ExcludeRadioButtonsCoveredByKnownControls(
+            FindClassicRadioButtons(frame, words), target, frame, knownControls, scaleX, scaleY);
         var result = new List<AutomationObservation>();
         AppendExcelCellStyleHeadingObservations(result, target, frame, cellStyleCards, scaleX, scaleY);
         AppendExcelTableStyleGalleryObservations(result, target, frame, tableStyleCards, scaleX, scaleY);
+        result.AddRange(backstageActions);
         foreach (var table in tables)
             AppendTableObservations(result, target, frame, table, words, scaleX, scaleY);
         foreach (var combo in combos)
@@ -686,6 +887,7 @@ public static class VisualSurfaceScanner
             .Concat(trees.Select(tree => tree.Bounds))
             .Concat(tabStrips.Select(tabStrip => tabStrip.Bounds))
             .Concat(radioButtons.Select(item => item.Bounds))
+            .Concat(backstageActionBounds)
             .ToArray();
         var retained = new List<RectI>();
         foreach (var bounds in structuralRectangles
@@ -726,6 +928,7 @@ public static class VisualSurfaceScanner
                     _ => ["Value"]
                 }, containedText));
         }
+        result = SuppressOfficeBackstageActionFragments(result, backstageActions).ToList();
         return DisambiguateVisualIdentities(LabelReportPreviewButton(result, trees.Count > 0));
     }
 
@@ -774,7 +977,8 @@ public static class VisualSurfaceScanner
             target, frame, knownControls, knownGridTables, scaleX, scaleY);
         var classicTrees = FindClassicTrees(target, frame, knownControls, words, scaleX, scaleY);
         var classicTabStrips = FindClassicTabStrips(frame, words);
-        var classicRadioButtons = FindClassicRadioButtons(frame, words);
+        var classicRadioButtons = ExcludeRadioButtonsCoveredByKnownControls(
+            FindClassicRadioButtons(frame, words), target, frame, knownControls, scaleX, scaleY);
         var opaqueGalleryButtons = DiscoverOpaqueGalleryButtons(
             target, frame, knownControls, words, scaleX, scaleY);
         var cellStyleCards = FindExcelCellStyleHeadingCards(target, frame, words);
@@ -784,6 +988,12 @@ public static class VisualSurfaceScanner
                            !excludedPixelRegions.Any(region => ContainsCenter(region, card.Bounds)))
             .ToArray();
         var tableStyleBounds = tableStyleCards.Select(card => card.Bounds).ToArray();
+        var backstageActions = DiscoverOfficeBackstageActionButtons(
+            target, frame, knownControls, words, scaleX, scaleY);
+        var backstageActionBounds = backstageActions
+            .Select(control => ToPixelRect(control.Bounds, target.Bounds, scaleX, scaleY, frame.Width, frame.Height))
+            .ToArray();
+        var isOfficeBackstage = IsOfficeBackstageSurface(knownControls);
         var templateGalleryRegions = knownControls
             .Where(VisualFallbackPolicy.IsTemplateGalleryContainer)
             .Select(gallery => TemplateGallerySearchPixels(
@@ -864,10 +1074,15 @@ public static class VisualSurfaceScanner
         var result = new List<AutomationObservation>();
         AppendExcelCellStyleHeadingObservations(result, target, frame, cellStyleCards, scaleX, scaleY);
         AppendExcelTableStyleGalleryObservations(result, target, frame, tableStyleCards, scaleX, scaleY);
+        result.AddRange(backstageActions);
         var consumed = new HashSet<RectI>();
+        IReadOnlyList<TableGroup> inferredTables = isOfficeBackstage
+            ? []
+            : FindTableGroups(retained)
+                .Concat(FindSparseTableGroups(retained, words))
+                .ToArray();
         var tables = knownGridTables
-            .Concat(FindTableGroups(retained))
-            .Concat(FindSparseTableGroups(retained, words))
+            .Concat(inferredTables)
             .GroupBy(table => table.Bounds)
             .Select(group => group.First())
             .ToArray();
@@ -887,6 +1102,7 @@ public static class VisualSurfaceScanner
         var ungrouped = retained
             .Where(bounds => !consumed.Contains(bounds))
             .Where(bounds => !tables.Any(table => ContainsCenter(table.Bounds, bounds)))
+            .Where(bounds => !backstageActionBounds.Any(action => ContainsCenter(action, bounds)))
             .ToArray();
         var lists = FindListGroups(ungrouped, words);
         foreach (var list in lists)
@@ -962,7 +1178,23 @@ public static class VisualSurfaceScanner
                 result[duplicate] = galleryButton;
             }
         }
+        result = SuppressOfficeBackstageActionFragments(result, backstageActions).ToList();
         return DisambiguateVisualIdentities(LabelReportPreviewButton(result, classicTrees.Count > 0));
+    }
+
+    internal static IReadOnlyList<AutomationObservation> SuppressOfficeBackstageActionFragments(
+        IReadOnlyList<AutomationObservation> controls,
+        IReadOnlyList<AutomationObservation> backstageActions)
+    {
+        if (backstageActions.Count == 0) return controls;
+
+        var actionIds = backstageActions
+            .Select(control => control.RuntimeId)
+            .ToHashSet(StringComparer.Ordinal);
+        return controls
+            .Where(control => actionIds.Contains(control.RuntimeId) ||
+                              !backstageActions.Any(action => ContainsCenter(action.Bounds, control.Bounds)))
+            .ToArray();
     }
 
     internal static IReadOnlyList<AutomationObservation> DiscoverOpaqueGalleryButtons(
@@ -1696,6 +1928,21 @@ public static class VisualSurfaceScanner
         return orderedResult;
     }
 
+    private static IReadOnlyList<ClassicRadioButton> ExcludeRadioButtonsCoveredByKnownControls(
+        IReadOnlyList<ClassicRadioButton> radioButtons,
+        WindowTarget target,
+        OpaqueSurfaceScanner.PixelFrame frame,
+        IReadOnlyList<AutomationObservation> knownControls,
+        double scaleX,
+        double scaleY) => radioButtons
+        .Where(radio =>
+        {
+            var screenBounds = ToScreenRect(radio.Bounds, target.Bounds, scaleX, scaleY);
+            return !knownControls.Any(control =>
+                control.Bounds.IsValid && IsCoveredBySemanticControl(control, screenBounds));
+        })
+        .ToArray();
+
     private static RectI? FindRadioIndicator(OpaqueSurfaceScanner.PixelFrame frame, RectI textBounds)
     {
         var left = Math.Max(1, textBounds.X - 24);
@@ -2073,12 +2320,18 @@ public static class VisualSurfaceScanner
         double scaleY,
         IReadOnlyList<RectI> excludedPixelRegions)
     {
+        var hasCachedExcelWorksheetPart = knownControls.Any(control =>
+            control.FrameworkId.StartsWith("UiAtlas.Cached", StringComparison.OrdinalIgnoreCase) &&
+            (control.ClassName.Equals("XLSpreadsheetGrid", StringComparison.OrdinalIgnoreCase) ||
+             control.ClassName.Equals("XLGridColumnHeader", StringComparison.OrdinalIgnoreCase) ||
+             control.ClassName.Equals("XLGridRowHeader", StringComparison.OrdinalIgnoreCase) ||
+             control.ClassName.Equals("XLSpreadsheetCell", StringComparison.OrdinalIgnoreCase)));
         var candidates = knownControls
             .Where(control =>
-                control.ClassName.Contains("DBGrid", StringComparison.OrdinalIgnoreCase) &&
-                !control.FrameworkId.StartsWith("UiAtlas.Cached", StringComparison.OrdinalIgnoreCase) ||
-                control.ClassName.Equals("XLSpreadsheetGrid", StringComparison.OrdinalIgnoreCase) &&
-                control.FrameworkId.StartsWith("UiAtlas.Cached", StringComparison.OrdinalIgnoreCase))
+                (control.ClassName.Contains("DBGrid", StringComparison.OrdinalIgnoreCase) &&
+                 !control.FrameworkId.StartsWith("UiAtlas.Cached", StringComparison.OrdinalIgnoreCase)) ||
+                (control.ClassName.Equals("XLSpreadsheetGrid", StringComparison.OrdinalIgnoreCase) &&
+                 hasCachedExcelWorksheetPart))
             .Where(control => control.Bounds.Width >= 240 && control.Bounds.Height >= 80)
             .Select(control => new
             {
@@ -3224,6 +3477,7 @@ public static class VisualSurfaceScanner
     {
         var semantic = control.ControlType.EndsWith(".MenuItem", StringComparison.OrdinalIgnoreCase) ||
                        control.ControlType.EndsWith(".Button", StringComparison.OrdinalIgnoreCase) ||
+                       control.ControlType.EndsWith(".SplitButton", StringComparison.OrdinalIgnoreCase) ||
                        control.ControlType.EndsWith(".TitleBar", StringComparison.OrdinalIgnoreCase) ||
                        control.ControlType.EndsWith(".Hyperlink", StringComparison.OrdinalIgnoreCase) ||
                        control.ControlType.EndsWith(".CheckBox", StringComparison.OrdinalIgnoreCase) ||

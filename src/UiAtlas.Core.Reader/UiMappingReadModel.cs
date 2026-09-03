@@ -82,11 +82,55 @@ public static class UiMapPresentation
         string? bundleId,
         IReadOnlyList<UiMapControlView>? siblingControls = null)
     {
-        if (frameSequence is null) return control.Bounds;
-        return control.Evidence.FirstOrDefault(evidence =>
-                   evidence.FrameSequence == frameSequence.Value &&
-                   (bundleId is null || string.Equals(evidence.BundleId, bundleId, StringComparison.Ordinal)))
-               ?.Bounds ?? control.Bounds;
+        var observed = frameSequence is null
+            ? control.Bounds
+            : control.Evidence.FirstOrDefault(evidence =>
+                  evidence.FrameSequence == frameSequence.Value &&
+                  (bundleId is null || string.Equals(evidence.BundleId, bundleId, StringComparison.Ordinal)))
+              ?.Bounds ?? control.Bounds;
+        return ResolveOfficeSystemIconBounds(control, observed, frameSequence, bundleId, siblingControls);
+    }
+
+    private static RectI ResolveOfficeSystemIconBounds(
+        UiMapControlView control,
+        RectI observed,
+        long? frameSequence,
+        string? bundleId,
+        IReadOnlyList<UiMapControlView>? siblingControls)
+    {
+        if (siblingControls is null ||
+            !control.CanonicalKind.Equals("MenuItem", StringComparison.OrdinalIgnoreCase) ||
+            !control.DisplayName.Equals("System", StringComparison.OrdinalIgnoreCase) ||
+            !SourceProperty(control.Source, "automationId").Equals("Item 1", StringComparison.OrdinalIgnoreCase) ||
+            !observed.IsValid)
+            return observed;
+
+        var caption = siblingControls
+            .Where(candidate => candidate.OwnerSurfaceId == control.OwnerSurfaceId &&
+                                candidate.CanonicalKind.Equals("TitleBar", StringComparison.OrdinalIgnoreCase) &&
+                                SourceProperty(candidate.Source, "className")
+                                    .Equals("NetUIOfficeCaption", StringComparison.OrdinalIgnoreCase) &&
+                                HasEvidenceForFrame(candidate, frameSequence, bundleId))
+            .Select(candidate => ResolveControlBounds(candidate, frameSequence, bundleId))
+            .Where(bounds => bounds.IsValid && bounds.Height is >= 36 and <= 96)
+            .OrderBy(bounds => Math.Abs(bounds.Y - observed.Y))
+            .FirstOrDefault();
+        if (caption is null || !caption.IsValid) return observed;
+
+        var iconSize = Math.Clamp((int)Math.Round(caption.Height / 3d), 16, 32);
+        // Win32 exposes Office's system-menu hit target at the title-bar origin,
+        // while the painted application icon is inset by one icon width. Keep
+        // already precise providers untouched and repair only that legacy box.
+        if (Math.Abs(observed.Y - caption.Y) > 2 ||
+            observed.Width < iconSize + 4 || observed.Height < iconSize + 4 ||
+            observed.X + iconSize * 2 > caption.X)
+            return observed;
+
+        return new RectI(
+            observed.X + iconSize,
+            caption.Y + (caption.Height - iconSize) / 2,
+            iconSize,
+            iconSize);
     }
 
     public static bool IsRedundantCaptionButton(
@@ -116,6 +160,30 @@ public static class UiMapPresentation
             .ThenBy(candidate => candidate.Control.Id, StringComparer.Ordinal)
             .FirstOrDefault();
         return preferred is not null && !string.Equals(preferred.Control.Id, control.Id, StringComparison.Ordinal);
+    }
+
+    public static bool IsRedundantPopupEditor(
+        UiMapControlView control,
+        UiMapSurfaceView surface,
+        long? frameSequence,
+        string? bundleId,
+        IReadOnlyList<UiMapControlView> siblingControls)
+    {
+        ArgumentNullException.ThrowIfNull(control);
+        ArgumentNullException.ThrowIfNull(surface);
+        ArgumentNullException.ThrowIfNull(siblingControls);
+        if (!surface.SurfaceKind.Contains("Popup", StringComparison.OrdinalIgnoreCase) ||
+            !control.CanonicalKind.Equals("Edit", StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        var bounds = ResolveControlBounds(control, frameSequence, bundleId);
+        return siblingControls.Any(candidate =>
+            !string.Equals(candidate.Id, control.Id, StringComparison.Ordinal) &&
+            candidate.OwnerSurfaceId == control.OwnerSurfaceId &&
+            IsCompactPopupAction(candidate, surface) &&
+            HasEvidenceForFrame(candidate, frameSequence, bundleId) &&
+            BoundsIntersectionOverUnion(bounds,
+                ResolveControlBounds(candidate, frameSequence, bundleId)) >= .8);
     }
 
     private static bool HasEvidenceForFrame(UiMapControlView control, long? frameSequence, string? bundleId) =>
@@ -181,6 +249,17 @@ public static class UiMapPresentation
            !IsLargeStructuralControl(control, surface) &&
            LooksInteractive(control, surface);
 
+    public static bool IsCompactPopupAction(UiMapControlView control, UiMapSurfaceView surface)
+    {
+        if (!HasReliableBounds(control, surface) ||
+            !surface.SurfaceKind.Contains("Popup", StringComparison.OrdinalIgnoreCase) ||
+            control.CanonicalKind is not ("ListItem" or "MenuItem"))
+            return false;
+
+        return control.Bounds.Width >= Math.Max(24d, surface.Bounds.Width * .55) &&
+               control.Bounds.Height <= Math.Max(48d, surface.Bounds.Height * .20);
+    }
+
     public static int ControlRenderPriority(UiMapControlView control, UiMapSurfaceView surface)
     {
         if (IsLargeStructuralControl(control, surface)) return 0;
@@ -194,6 +273,13 @@ public static class UiMapPresentation
         bool isSelected = false)
     {
         if (!HasReliableBounds(control, surface) || HasEstimatedGeometry(control)) return false;
+        // Cached Excel worksheet entries are recovery hints, not evidence that
+        // the cell is painted in this screenshot. Visible cells come from native
+        // or pixel evidence instead.
+        if (IsCachedControl(control.Source) &&
+            IsTrue(SourceProperty(control.Source, "offscreen")) &&
+            IsExcelWorksheetControl(control.Source))
+            return false;
         // Raw Data Streams intentionally retain provider evidence for hidden pages,
         // but drawing it over the screenshot makes every dialog tab appear at once.
         // Keep the evidence inspectable while rendering only the effective visible
@@ -276,6 +362,10 @@ public static class UiMapPresentation
     internal static bool IsCachedControl(GraphNode node) =>
         SourceProperty(node, "frameworkId").Equals("UiAtlas.Cached", StringComparison.OrdinalIgnoreCase);
 
+    private static bool IsExcelWorksheetControl(GraphNode node) =>
+        SourceProperty(node, "className") is "XLSpreadsheetGrid" or "XLGridColumnHeader" or
+            "XLGridRowHeader" or "XLSpreadsheetCell";
+
     private static string SourceProperty(GraphNode node, string name) => node.Properties
         .FirstOrDefault(property => string.Equals(property.Name, name, StringComparison.OrdinalIgnoreCase))?.Value ?? string.Empty;
 
@@ -284,6 +374,19 @@ public static class UiMapPresentation
 
     private static bool ContainsAny(string value, params string[] candidates)
         => candidates.Any(candidate => value.Contains(candidate, StringComparison.OrdinalIgnoreCase));
+
+    private static double BoundsIntersectionOverUnion(RectI first, RectI second)
+    {
+        if (!first.IsValid || !second.IsValid) return 0;
+        var left = Math.Max(first.X, second.X);
+        var top = Math.Max(first.Y, second.Y);
+        var right = Math.Min((long)first.X + first.Width, (long)second.X + second.Width);
+        var bottom = Math.Min((long)first.Y + first.Height, (long)second.Y + second.Height);
+        if (right <= left || bottom <= top) return 0;
+        var intersection = (right - left) * (bottom - top);
+        var union = (long)first.Width * first.Height + (long)second.Width * second.Height - intersection;
+        return union <= 0 ? 0 : intersection / (double)union;
+    }
 
     public static RectI? ProjectToSurface(RectI absoluteBounds, RectI surfaceBounds)
     {

@@ -195,6 +195,106 @@ public sealed class VisualNativeVerificationTests
     }
 
     [Fact]
+    public void LaggedBackstageAutomationIsBorrowedFromTheFollowingMatchingFrame()
+    {
+        var window = new WindowObservation(1, 1, 7, "XLMAIN", "Book1 - Excel",
+            new RectI(0, 0, 1_000, 700), true, true, false, false, 96);
+        var openSource = BackstageNavigation("open-source", "Open", isSelected: false);
+        var frame104 = new FrameObservation(104, DateTimeOffset.UnixEpoch, "frame-104.png", window,
+            [BackstageNavigation("new", "New", isSelected: true)], false, "ok",
+            "auto-backstage:navigation:opened:open", [window], InteractionSource: openSource);
+        var frame105 = new FrameObservation(105, DateTimeOffset.UnixEpoch.AddSeconds(1), "frame-105.png", window,
+            [BackstageNavigation("open", "Open", isSelected: true)], false, "ok",
+            "auto-backstage:navigation:opened:info", [window]);
+
+        var lagged = OfflineRecordingEnricher.FindLaggedBackstageAutomation(frame104, [frame104, frame105]);
+
+        Assert.Same(frame105, lagged);
+        Assert.True(OfflineRecordingEnricher.IsBackstageNavigationMismatch(frame104));
+        Assert.False(OfflineRecordingEnricher.IsBackstageNavigationMismatch(
+            frame104 with { Automation = frame105.Automation }));
+    }
+
+    [Fact]
+    public void UnmatchedBackstageFrameIsMarkedForPixelRepair()
+    {
+        var window = new WindowObservation(1, 1, 7, "XLMAIN", "Book1 - Excel",
+            new RectI(0, 0, 1_000, 700), true, true, false, false, 96);
+        var infoSource = BackstageNavigation("info-source", "Info", isSelected: false);
+        var frame = new FrameObservation(105, DateTimeOffset.UnixEpoch, "frame-105.png", window,
+            [BackstageNavigation("open", "Open", isSelected: true)], false, "ok",
+            "auto-backstage:navigation:opened:info", [window], InteractionSource: infoSource);
+
+        Assert.True(OfflineRecordingEnricher.IsBackstageNavigationMismatch(frame));
+        Assert.Null(OfflineRecordingEnricher.FindLaggedBackstageAutomation(frame, [frame]));
+    }
+
+    [Fact]
+    public void BackstageNavigationSurvivesWindowShadowOffsetDuringRepair()
+    {
+        var navigation = BackstageNavigation("home", "Home", isSelected: false) with
+        {
+            Bounds = new RectI(0, 116, 200, 50)
+        };
+
+        Assert.True(OfflineRecordingEnricher.IsStableChrome(
+            navigation, new RectI(-9, -9, 1_938, 1_048)));
+    }
+
+    [Fact]
+    public void BackstageInfoActionsAreButtonsWithoutNestedVisualFragments()
+    {
+        const int width = 1_000;
+        const int height = 700;
+        var pixels = Enumerable.Repeat((byte)245, width * height * 4).ToArray();
+        for (var index = 3; index < pixels.Length; index += 4) pixels[index] = 255;
+        var target = new WindowTarget(1, 1, 7, "EXCEL", DateTimeOffset.UnixEpoch,
+            "Book1 - Excel", "XLMAIN", new RectI(0, 0, width, height));
+        var backstage = new AutomationObservation(
+            "backstage", "", "", "Backstage view", "ControlType.Pane", "FullpageUIHost",
+            target.Bounds, true, false, "Win32", target.Hwnd);
+        VisualTextObservation[] words =
+        [
+            Word("Protect", 132, 150), Word("Workbook", 170, 150),
+            Word("Check", 132, 240), Word("for", 166, 240), Word("Issues", 184, 240),
+            Word("Version", 132, 330), Word("History", 176, 330),
+            Word("Manage", 132, 420), Word("Workbook", 176, 420),
+            Word("Reset", 132, 510), Word("Changes", 166, 510), Word("Pane", 190, 510),
+            Word("Browser", 132, 600), Word("View", 174, 600), Word("Options", 198, 600)
+        ];
+
+        var controls = VisualSurfaceScanner.DiscoverCore(target,
+            new OpaqueSurfaceScanner.PixelFrame(width, height, pixels), [target.Bounds], [backstage], words);
+
+        string[] expected =
+        [
+            "Protect Workbook", "Check for Issues", "Version History", "Manage Workbook",
+            "Reset Changes Pane", "Browser View Options"
+        ];
+        Assert.Equal(expected, controls.Where(control => expected.Contains(control.Name))
+            .Select(control => control.Name));
+        Assert.All(controls.Where(control => expected.Contains(control.Name)),
+            control => Assert.Equal("ControlType.Button", control.ControlType));
+        Assert.DoesNotContain(controls, control => control.ControlType == "ControlType.Table");
+
+        var action = controls.Single(control => control.Name == "Protect Workbook");
+        var fragment = action with
+        {
+            RuntimeId = "fragment", Name = "", ControlType = "ControlType.Edit",
+            Bounds = new RectI(action.Bounds.X + 8, action.Bounds.Y + 8, 30, 20)
+        };
+        var outside = fragment with
+        {
+            RuntimeId = "outside", Bounds = new RectI(600, 100, 80, 24)
+        };
+        var filtered = VisualSurfaceScanner.SuppressOfficeBackstageActionFragments(
+            [action, fragment, outside], [action]);
+
+        Assert.DoesNotContain(filtered, control => control.RuntimeId == fragment.RuntimeId);
+        Assert.Contains(filtered, control => control.RuntimeId == outside.RuntimeId);
+    }
+
+    [Fact]
     public void OfflineRepairDetectsControlsWhoseTextBelongsToAnotherScreen()
     {
         var window = new RectI(0, 0, 1_000, 700);
@@ -332,6 +432,14 @@ public sealed class VisualNativeVerificationTests
 
         Assert.Equal([table, cell], retained);
     }
+
+    private static VisualTextObservation Word(string text, int x, int y) =>
+        new(text, new RectI(x, y, Math.Max(12, text.Length * 6), 14), 0);
+
+    private static AutomationObservation BackstageNavigation(string id, string name, bool isSelected) =>
+        new(id, "backstage", id, name, "ControlType.TabItem", "NetUIBackstageTab",
+            new RectI(20, 100, 160, 32), true, false, "Win32", 1,
+            ["SelectionItem"], IsSelected: isSelected);
 
     private static AutomationObservation Visual(string id, string type, RectI bounds) =>
         new($"visual:{id}", "", $"visual:{id}", id, type, "UiAtlas.VisualControlRegion",

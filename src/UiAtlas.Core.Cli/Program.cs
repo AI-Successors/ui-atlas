@@ -336,9 +336,9 @@ internal static class Program
         var catalog = Catalog();
         CatalogMapRecovery.RecoverCompletedMaps(catalog);
         var maps = catalog.ListMaps();
-        Console.WriteLine("ID\tBUILT UTC\tSTATUS\tNODES\tEDGES");
+        Console.WriteLine("ID\tBUILT UTC\tSTATUS\tCONTROLS\tNODES\tEDGES");
         foreach (var item in maps)
-            Console.WriteLine($"{item.Id}\t{item.BuiltUtc:O}\t{item.Status}\t{item.NodeCount}\t{item.EdgeCount}");
+            Console.WriteLine($"{item.Id}\t{item.BuiltUtc:O}\t{item.Status}\t{item.MappedControlCount}\t{item.NodeCount}\t{item.EdgeCount}");
         if (maps.Count == 0) Console.WriteLine("(none)");
         return 0;
     }
@@ -3940,6 +3940,18 @@ internal static class Program
             await Task.Delay(220, cancellationToken).ConfigureAwait(false);
             try
             {
+                var settled = await WaitForBackstageSectionAutomationAsync(
+                    session, candidate.DisplayName, cancellationToken).ConfigureAwait(false);
+                if (settled is null)
+                {
+                    session.CompleteInteraction(interaction, InteractionOutcome.TimedOut,
+                        diagnosticCode: "backstage-section-not-materialized");
+                    session.AddMarker("auto-backstage:navigation:not-materialized:" + candidate.StableKey);
+                    session.AddCaptureHealth("auto-backstage", "section-not-materialized",
+                        $"{candidate.DisplayName} was clicked, but Excel did not expose that selected page before the bounded deadline.");
+                    continue;
+                }
+
                 var result = await session.CaptureAsync(
                     "auto-backstage:navigation:opened:" + candidate.StableKey,
                     cancellationToken,
@@ -3949,8 +3961,11 @@ internal static class Program
                         BaseFrameSequence: sourceFrame.Sequence,
                         InteractionSource: currentCandidate.Observation,
                         InteractionId: interaction.InteractionId,
-                        AutomationBeforeScreenshot: true,
-                        WaitForDeferredVisualContent: true)).ConfigureAwait(false);
+                        AutomationOverride: settled.Value.Items,
+                        AutomationTimedOutOverride: settled.Value.TimedOut,
+                        AutomationStatusOverride: settled.Value.Status,
+                        WaitForDeferredVisualContent: true,
+                        RequireRenderedAutomationContent: true)).ConfigureAwait(false);
                 session.CompleteInteraction(interaction, InteractionOutcome.Succeeded,
                     [result.Sequence], "backstage-section-captured");
                 session.AddMarker("auto-backstage:navigation:mapped:" + candidate.StableKey);
@@ -3963,6 +3978,28 @@ internal static class Program
                 session.AddCaptureHealth("auto-backstage", "section-capture-failed", ex.Message);
             }
         }
+    }
+
+    private static async Task<(IReadOnlyList<AutomationObservation> Items, bool TimedOut, string Status)?>
+        WaitForBackstageSectionAutomationAsync(
+            ManualRecordingSession session,
+            string displayName,
+            CancellationToken cancellationToken)
+    {
+        for (var attempt = 0; attempt < 6; attempt++)
+        {
+            var observation = await session.CollectWindowAutomationAsync(
+                session.TargetRootOwnerHwnd,
+                TimeSpan.FromSeconds(4),
+                8_000,
+                cancellationToken).ConfigureAwait(false);
+            if (observation.Items.Count > 0 &&
+                AutoTabDiscovery.IsBackstageSectionSelected(observation.Items, displayName))
+                return observation;
+            if (attempt < 5)
+                await Task.Delay(140, cancellationToken).ConfigureAwait(false);
+        }
+        return null;
     }
 
     private static async Task<AutoPassRefreshOutcome> CaptureFirstVisitToTabAsync(
@@ -4286,8 +4323,9 @@ internal static class Program
                 800,
                 cancellationToken).ConfigureAwait(false);
         }
+        var needsExcelWorksheet = QuickSurfaceScanner.IsExcelTarget(target);
         var needsOutlookBody = RibbonSurfaceCapturePolicy.NeedsVisibleApplicationBody(target);
-        if (includeWorksheet || needsOutlookBody)
+        if (includeWorksheet || needsExcelWorksheet || needsOutlookBody)
         {
             if (needsOutlookBody)
             {
@@ -4309,13 +4347,17 @@ internal static class Program
             }
             else
             {
+                // A Ribbon-tab frame is a full-window screenshot. Excel exposes
+                // its sheet, sheet tabs, scrollbars and status bar through a
+                // separate provider subtree, so attach that subtree to every
+                // Ribbon state instead of leaving only the top command strip.
                 var worksheet = await session.CollectWorksheetAutomationAsync(
                     session.TargetRootOwnerHwnd,
                     TimeSpan.FromSeconds(3),
                     2_000,
                     cancellationToken).ConfigureAwait(false);
                 bodyTimedOut = worksheet.TimedOut;
-                if (!worksheet.TimedOut && worksheet.Status is "ok" or "node-limit")
+                if (worksheet.Items.Count > 0 && worksheet.Status is "ok" or "node-limit" or "partial" or "timeout")
                     bodyItems = worksheet.Items;
                 else
                     session.AddCaptureHealth("worksheet", worksheet.Status,
@@ -8887,7 +8929,7 @@ internal sealed class RecordingControlPanel : IDisposable
         {
             Text = map.Status == "incomplete"
                 ? $"Incomplete - 0 controls - Built {FormatRelativeTime(map.BuiltUtc)}"
-                : $"{map.NodeCount} nodes - Built {FormatRelativeTime(map.BuiltUtc)}",
+                : $"{map.MappedControlCount} controls - Built {FormatRelativeTime(map.BuiltUtc)}",
             FontSize = ListItemSubtitleFontSize,
             Foreground = PanelMuted,
             Margin = new System.Windows.Thickness(0, 2, 0, 0),
@@ -12893,7 +12935,8 @@ internal sealed class RecordingControlPanel : IDisposable
         card.Children.Add(header);
         card.Children.Add(new System.Windows.Controls.TextBlock
         {
-            Text = $"Built {map.BuiltUtc.ToLocalTime():yyyy-MM-dd HH:mm} - {map.NodeCount} nodes - {map.EdgeCount} edges",
+            Text = $"Built {map.BuiltUtc.ToLocalTime():yyyy-MM-dd HH:mm} - {map.MappedControlCount} controls - " +
+                   $"{map.NodeCount} evidence nodes - {map.EdgeCount} edges",
             FontSize = 12,
             Foreground = Ink,
             TextWrapping = System.Windows.TextWrapping.Wrap

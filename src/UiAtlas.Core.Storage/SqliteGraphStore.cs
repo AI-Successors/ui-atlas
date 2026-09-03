@@ -8,7 +8,12 @@ namespace UiAtlas.Core.Storage;
 
 public static class SqliteGraphStore
 {
-    public sealed record GraphSummary(GraphMetadata Metadata, int NodeCount, int EdgeCount, bool HasControlNodes);
+    public sealed record GraphSummary(
+        GraphMetadata Metadata,
+        int NodeCount,
+        int EdgeCount,
+        bool HasControlNodes,
+        int SemanticControlCount);
 
     public static void Save(UiKnowledgeGraph graph, string path)
     {
@@ -94,7 +99,8 @@ public static class SqliteGraphStore
             metadata,
             CountRows(connection, "nodes"),
             CountRows(connection, "edges"),
-            ContainsNodeKind(connection, GraphNodeKind.Control));
+            ContainsNodeKind(connection, GraphNodeKind.Control),
+            CountControlsForLayer(connection, "semantic-world"));
     }
 
     private static void WriteDatabase(UiKnowledgeGraph graph, string path)
@@ -204,6 +210,25 @@ public static class SqliteGraphStore
         command.CommandText = "SELECT EXISTS(SELECT 1 FROM nodes WHERE kind=$kind LIMIT 1)";
         command.Parameters.AddWithValue("$kind", kind.ToString());
         return Convert.ToInt32(command.ExecuteScalar(), System.Globalization.CultureInfo.InvariantCulture) != 0;
+    }
+
+    private static int CountControlsForLayer(SqliteConnection connection, string layer)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT COUNT(*)
+            FROM nodes AS node
+            WHERE node.kind = $kind
+              AND EXISTS (
+                  SELECT 1
+                  FROM json_each(node.json, '$.properties') AS property
+                  WHERE json_extract(property.value, '$.name') = 'layer'
+                    AND json_extract(property.value, '$.value') = $layer
+              )
+            """;
+        command.Parameters.AddWithValue("$kind", GraphNodeKind.Control.ToString());
+        command.Parameters.AddWithValue("$layer", layer);
+        return Convert.ToInt32(command.ExecuteScalar(), System.Globalization.CultureInfo.InvariantCulture);
     }
 
     private static void HardenAndValidate(SqliteConnection connection, bool queryOnly = true)
