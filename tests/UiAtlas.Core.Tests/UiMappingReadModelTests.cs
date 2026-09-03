@@ -377,6 +377,67 @@ public sealed class UiMappingReadModelTests
     }
 
     [Fact]
+    public void AppMapDoesNotDrawAggregateRangeBoundaryOverItsThreeControls()
+    {
+        static EvidenceRef Evidence(RectI bounds) => new("session", 2, "frame-2.json", bounds);
+        static GraphNode Node(string id, string kind, string className) => new(
+            id, GraphNodeKind.Control, "surface", id, id,
+            [
+                new GraphProperty("controlType", kind),
+                new GraphProperty("className", className),
+                new GraphProperty("effectivelyVisible", "True")
+            ], []);
+
+        var pane = new UiMapControlView("pane", UiUnderstandingLevel.SemanticWorld, "Pane", "Pane",
+            "surface", "", new RectI(100, 700, 600, 22), [Evidence(new(100, 700, 600, 22))], Node("pane", "Pane", "NetUIHWNDElement"));
+        var scrollBar = new UiMapControlView("scroll", UiUnderstandingLevel.SemanticWorld, "Horizontal", "ScrollBar",
+            "surface", "pane", new RectI(100, 700, 600, 22), [Evidence(new(100, 700, 600, 22))], Node("scroll", "ScrollBar", "NetUIScrollBar"));
+        var left = new UiMapControlView("left", UiUnderstandingLevel.SemanticWorld, "Column left", "Button",
+            "surface", "scroll", new RectI(100, 700, 22, 22), [Evidence(new(100, 700, 22, 22))], Node("left", "Button", "NetUIRepeatButton"));
+        var thumb = new UiMapControlView("thumb", UiUnderstandingLevel.SemanticWorld, "Thumb", "Thumb",
+            "surface", "scroll", new RectI(122, 700, 530, 22), [Evidence(new(122, 700, 530, 22))], Node("thumb", "Thumb", "NetUIThumb"));
+        var pageRight = new UiMapControlView("page", UiUnderstandingLevel.SemanticWorld, "Page right", "Button",
+            "surface", "scroll", new RectI(652, 700, 25, 22), [Evidence(new(652, 700, 25, 22))], Node("page", "Button", "NetUIRepeatButton"));
+        var right = new UiMapControlView("right", UiUnderstandingLevel.SemanticWorld, "Column right", "Button",
+            "surface", "scroll", new RectI(677, 700, 23, 22), [Evidence(new(677, 700, 23, 22))], Node("right", "Button", "NetUIRepeatButton"));
+        UiMapControlView[] controls = [pane, scrollBar, left, thumb, pageRight, right];
+
+        Assert.True(UiMapPresentation.IsRedundantCompositeBoundary(pane, 2, "session", controls));
+        Assert.True(UiMapPresentation.IsRedundantCompositeBoundary(scrollBar, 2, "session", controls));
+        Assert.All(new[] { left, thumb, pageRight, right }, control =>
+            Assert.False(UiMapPresentation.IsRedundantCompositeBoundary(control, 2, "session", controls)));
+    }
+
+    [Fact]
+    public void AppMapDrawsPageSetupTabsIndividuallyWithoutTheWideTabStripBoundary()
+    {
+        static EvidenceRef Evidence(RectI bounds) => new("session", 63, "frame-63.json", bounds);
+        static GraphNode Node(string id, string kind) => new(
+            id, GraphNodeKind.Control, "surface", id, id,
+            [
+                new GraphProperty("controlType", kind),
+                new GraphProperty("className", kind == "Tab" ? "MSAA.Role60" : "MSAA.Role37"),
+                new GraphProperty("effectivelyVisible", "True")
+            ], []);
+
+        var strip = new UiMapControlView("tabs", UiUnderstandingLevel.SemanticWorld, "Tab", "Tab",
+            "surface", "", new RectI(593, 375, 621, 28), [Evidence(new(593, 375, 621, 28))], Node("tabs", "Tab"));
+        var page = new UiMapControlView("page", UiUnderstandingLevel.SemanticWorld, "Page", "TabItem",
+            "surface", "tabs", new RectI(593, 377, 81, 25), [Evidence(new(593, 377, 81, 25))], Node("page", "TabItem"));
+        var margins = new UiMapControlView("margins", UiUnderstandingLevel.SemanticWorld, "Margins", "TabItem",
+            "surface", "tabs", new RectI(674, 377, 81, 25), [Evidence(new(674, 377, 81, 25))], Node("margins", "TabItem"));
+        var header = new UiMapControlView("header", UiUnderstandingLevel.SemanticWorld, "Header/Footer", "TabItem",
+            "surface", "tabs", new RectI(755, 377, 113, 25), [Evidence(new(755, 377, 113, 25))], Node("header", "TabItem"));
+        var sheet = new UiMapControlView("sheet", UiUnderstandingLevel.SemanticWorld, "Sheet", "TabItem",
+            "surface", "tabs", new RectI(868, 377, 81, 25), [Evidence(new(868, 377, 81, 25))], Node("sheet", "TabItem"));
+        UiMapControlView[] controls = [strip, page, margins, header, sheet];
+
+        Assert.True(UiMapPresentation.IsRedundantCompositeBoundary(strip, 63, "session", controls));
+        Assert.All(new[] { page, margins, header, sheet }, control =>
+            Assert.False(UiMapPresentation.IsRedundantCompositeBoundary(control, 63, "session", controls)));
+    }
+
+    [Fact]
     public void SurfaceProjectionClipsAndTranslatesAbsoluteBounds()
     {
         var surface = new RectI(100, 200, 300, 150);

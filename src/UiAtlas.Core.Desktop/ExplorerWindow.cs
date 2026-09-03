@@ -3250,6 +3250,8 @@ public sealed class ExplorerWindow : Window
                 (frameBundleId is null || string.Equals(item.BundleId, frameBundleId, StringComparison.Ordinal))))
             .Where(control => !UiMapPresentation.IsRedundantCaptionButton(
                 control, frameSequence, frameBundleId, scopedControls))
+            .Where(control => !UiMapPresentation.IsRedundantCompositeBoundary(
+                control, frameSequence, frameBundleId, scopedControls))
             .Select(control => new
             {
                 Control = control,

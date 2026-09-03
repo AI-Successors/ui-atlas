@@ -186,6 +186,72 @@ public static class UiMapPresentation
                 ResolveControlBounds(candidate, frameSequence, bundleId)) >= .8);
     }
 
+    public static bool IsRedundantCompositeBoundary(
+        UiMapControlView control,
+        long? frameSequence,
+        string? bundleId,
+        IReadOnlyList<UiMapControlView> siblingControls)
+    {
+        ArgumentNullException.ThrowIfNull(control);
+        ArgumentNullException.ThrowIfNull(siblingControls);
+
+        var kind = control.CanonicalKind;
+        if (kind is not ("Pane" or "ScrollBar" or "Slider" or "Tab")) return false;
+
+        var bounds = ResolveControlBounds(control, frameSequence, bundleId);
+        var peers = siblingControls
+            .Where(candidate => !string.Equals(candidate.Id, control.Id, StringComparison.Ordinal) &&
+                                candidate.OwnerSurfaceId == control.OwnerSurfaceId &&
+                                HasEvidenceForFrame(candidate, frameSequence, bundleId))
+            .Select(candidate => new
+            {
+                Control = candidate,
+                Bounds = ResolveControlBounds(candidate, frameSequence, bundleId)
+            })
+            .Where(candidate => candidate.Bounds.IsValid)
+            .ToArray();
+
+        // Office exposes its scroll bars twice: first as a host Pane and then as
+        // the actual ScrollBar/Slider occupying the same pixels. Drawing both
+        // produces a meaningless extra outline over all of the child actions.
+        if (kind == "Pane")
+            return peers.Any(candidate =>
+                candidate.Control.CanonicalKind is "ScrollBar" or "Slider" &&
+                BoundsIntersectionOverUnion(bounds, candidate.Bounds) >= .90);
+
+        // MSAA exposes classic Win32 tab strips as one wide Tab rectangle plus
+        // individual TabItem controls. The strip often extends far beyond the
+        // visible labels, so its outline incorrectly looks like one large button.
+        if (kind == "Tab")
+            return peers
+                .Where(candidate => candidate.Control.CanonicalKind == "TabItem")
+                .Where(candidate => ContainsBounds(bounds, candidate.Bounds, 2))
+                .Select(candidate => string.Join('|',
+                    candidate.Bounds.X,
+                    candidate.Bounds.Y,
+                    candidate.Bounds.Width,
+                    candidate.Bounds.Height))
+                .Distinct(StringComparer.Ordinal)
+                .Take(2)
+                .Count() == 2;
+
+        // A decomposed range control has separately actionable page/line regions
+        // and a thumb. Once those pieces are present, the aggregate provider box
+        // is structural evidence rather than another visible button boundary.
+        var componentCount = peers
+            .Where(candidate => candidate.Control.CanonicalKind is "Button" or "Thumb")
+            .Where(candidate => ContainsBounds(bounds, candidate.Bounds, 2))
+            .Select(candidate => string.Join('|',
+                candidate.Control.CanonicalKind,
+                candidate.Bounds.X,
+                candidate.Bounds.Y,
+                candidate.Bounds.Width,
+                candidate.Bounds.Height))
+            .Distinct(StringComparer.Ordinal)
+            .Count();
+        return componentCount >= 3;
+    }
+
     private static bool HasEvidenceForFrame(UiMapControlView control, long? frameSequence, string? bundleId) =>
         frameSequence is null || control.Evidence.Any(evidence =>
             evidence.FrameSequence == frameSequence.Value &&
@@ -387,6 +453,13 @@ public static class UiMapPresentation
         var union = (long)first.Width * first.Height + (long)second.Width * second.Height - intersection;
         return union <= 0 ? 0 : intersection / (double)union;
     }
+
+    private static bool ContainsBounds(RectI outer, RectI inner, int tolerance) =>
+        inner.X >= outer.X - tolerance &&
+        inner.Y >= outer.Y - tolerance &&
+        (long)inner.X + inner.Width <= (long)outer.X + outer.Width + tolerance &&
+        (long)inner.Y + inner.Height <= (long)outer.Y + outer.Height + tolerance &&
+        (inner.Width < outer.Width || inner.Height < outer.Height);
 
     public static RectI? ProjectToSurface(RectI absoluteBounds, RectI surfaceBounds)
     {
