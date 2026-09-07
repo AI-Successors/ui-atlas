@@ -12,6 +12,16 @@ UiAtlas is an offline-first Windows toolkit for manually recording one selected 
 
 The supported v1 scope is deliberately narrow: attended manual capture, Windows 10 version 2004 or later and Windows 11, Win32 window metadata, bounded UI Automation, scoped window screenshots, immutable recording bundles, observed mapping entities and transitions, SQLite, JSON, a command-line tool, and a read-only WPF explorer. It does not perform actions in applications or provide authoring, execution, remote-control, or background-monitoring features.
 
+## Product demo
+
+<p align="center">
+  <a href="https://gcore.jsdelivr.net/gh/AI-Successors/ui-atlas@4d1a316/docs/media/ui-atlas-demo.mp4">
+    <img src="docs/media/ui-atlas-demo-preview.jpg" alt="Watch the UiAtlas product demo with English subtitles" width="960">
+  </a>
+</p>
+
+<p align="center"><a href="https://gcore.jsdelivr.net/gh/AI-Successors/ui-atlas@4d1a316/docs/media/ui-atlas-demo.mp4"><strong>▶ Watch the UiAtlas product demo with English subtitles</strong></a></p>
+
 ## Prerequisites
 
 - Windows 10 2004+ or Windows 11
