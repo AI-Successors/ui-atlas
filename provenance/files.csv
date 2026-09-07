@@ -80,6 +80,8 @@ tests/UiAtlas.Core.Windows.Tests/ManualTargetInputWaiterTests.cs,original,,,repo
 schemas/recording-bundle-v1.schema.json,original,,,repository copyright holder,MIT,original schema
 schemas/uikg-v1.schema.json,original,623f581c15e9d415a46d4d4949b09f6570d10ffe,SemanticTraceUiGraph.schema.json,repository copyright holder,MIT,original schema,independent similarity review 2026-08-09; exact match limited to conventional JSON Schema rectangle definition
 README.md,original,,,repository copyright holder,MIT,original documentation
+docs/media/ui-atlas.mp4,original,,,repository copyright holder,MIT,user-provided product introduction video
+docs/media/ui-atlas-preview.jpg,original,,,repository copyright holder,MIT,preview frame derived from the user-provided product introduction video
 docs/architecture.md,original,,,repository copyright holder,MIT,original documentation
 docs/recording-bundle-v1.md,original,,,repository copyright holder,MIT,original documentation
 docs/uikg-v1.md,original,,,repository copyright holder,MIT,original documentation

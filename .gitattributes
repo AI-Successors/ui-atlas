@@ -7,4 +7,5 @@
 *.jpg binary
 *.png binary
 *.webp binary
+*.mp4 binary
 *.zip binary
