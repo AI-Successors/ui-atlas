@@ -82,6 +82,8 @@ schemas/uikg-v1.schema.json,original,623f581c15e9d415a46d4d4949b09f6570d10ffe,Se
 README.md,original,,,repository copyright holder,MIT,original documentation
 docs/media/ui-atlas.mp4,original,,,repository copyright holder,MIT,user-provided product introduction video
 docs/media/ui-atlas-preview.jpg,original,,,repository copyright holder,MIT,preview frame derived from the user-provided product introduction video
+docs/media/ui-atlas-demo.mp4,original,,,repository copyright holder,MIT,user-provided product demonstration video with English subtitles
+docs/media/ui-atlas-demo-preview.jpg,original,,,repository copyright holder,MIT,preview frame derived from the user-provided product demonstration video
 docs/architecture.md,original,,,repository copyright holder,MIT,original documentation
 docs/recording-bundle-v1.md,original,,,repository copyright holder,MIT,original documentation
 docs/uikg-v1.md,original,,,repository copyright holder,MIT,original documentation
