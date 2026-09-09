@@ -1,5 +1,9 @@
 # UiAtlas
 
+<p align="center"><a href="https://gcore.jsdelivr.net/gh/AI-Successors/ui-atlas@4d1a316/docs/media/ui-atlas-demo.mp4"><strong>▶ Watch the UiAtlas product demo with English subtitles</strong></a></p>
+
+<a href="https://www.producthunt.com/products/ui-atlas?embed=true&amp;utm_source=badge-featured&amp;utm_medium=badge&amp;utm_campaign=badge-ui-atlas" target="_blank" rel="noopener noreferrer"><img alt="UI-Atlas - Map desktop interfaces for computer-use agents | Product Hunt" width="250" height="54" src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1245359&amp;theme=light&amp;t=1788941722658"></a>
+
 UiAtlas is an offline-first Windows toolkit for manually recording one selected desktop application and its owned popups, preserving Raw Data Streams, deterministically building Raw World and Semantic World UI Knowledge Graph layers, inspecting and diffing them, and consuming a lossless JSON export from an independent library.
 
 <p align="center">
@@ -20,7 +24,9 @@ The supported v1 scope is deliberately narrow: attended manual capture, Windows 
   </a>
 </p>
 
-<p align="center"><a href="https://gcore.jsdelivr.net/gh/AI-Successors/ui-atlas@4d1a316/docs/media/ui-atlas-demo.mp4"><strong>▶ Watch the UiAtlas product demo with English subtitles</strong></a></p>
+## Introduction to the problem
+AI agents get lost in unfamiliar software, just like people get lost in a new city. We’ve just open-sourced UI Atlas, a tool that maps Windows apps—their screens, buttons, and what happens when you click. 
+Learn more [here](https://x.com/danielko/status/2097594696193413448)
 
 ## Prerequisites
 
