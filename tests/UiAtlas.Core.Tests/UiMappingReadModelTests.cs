@@ -227,6 +227,30 @@ public sealed class UiMappingReadModelTests
     }
 
     [Fact]
+    public void AppMapRejectsStaleCachedPaneControlsWhenFrameHasLiveExcelWorksheet()
+    {
+        var cachedButton = CachedControl(
+            "cached-comment", "New comment", "Button", new RectI(1535, 345, 84, 30));
+        var gridNode = new GraphNode("grid", GraphNodeKind.Control, "surface", "grid", "Grid",
+            [
+                new GraphProperty("controlType", "DataGrid"),
+                new GraphProperty("frameworkId", "Win32"),
+                new GraphProperty("className", "XLSpreadsheetGrid"),
+                new GraphProperty("offscreen", "False")
+            ], []);
+        var grid = new UiMapControlView(
+            "grid", UiUnderstandingLevel.RawWorld, "Grid", "DataGrid", "surface", "",
+            new RectI(0, 294, 1894, 669),
+            [new EvidenceRef("session", 2, "frame-2.json", new RectI(0, 294, 1894, 669))],
+            gridNode);
+
+        Assert.True(UiMapPresentation.IsStaleCachedControlForFrame(
+            cachedButton, 2, "session", [cachedButton, grid]));
+        Assert.False(UiMapPresentation.IsStaleCachedControlForFrame(
+            cachedButton, 3, "session", [cachedButton, grid]));
+    }
+
+    [Fact]
     public void AppMapStillHidesCachedControlsWithoutUsableSurfaceGeometry()
     {
         var surfaceNode = new GraphNode("surface", GraphNodeKind.Surface, "app", "surface", "Excel",

@@ -51,7 +51,7 @@ public static class SqliteGraphStore
 
     public static UiKnowledgeGraph Load(string path)
     {
-        try { return LoadCore(path); }
+        try { return MapCurationStore.ReapplySavedCuration(path, LoadCore(path)); }
         catch (SqliteException ex) { throw new InvalidDataException("Graph database is malformed or unsupported.", ex); }
         catch (JsonException ex) { throw new InvalidDataException("Graph database contains malformed JSON.", ex); }
     }
@@ -59,6 +59,15 @@ public static class SqliteGraphStore
     public static GraphSummary ReadSummary(string path)
     {
         try { return ReadSummaryCore(path); }
+        catch (SqliteException ex) { throw new InvalidDataException("Graph database is malformed or unsupported.", ex); }
+        catch (JsonException ex) { throw new InvalidDataException("Graph database contains malformed JSON.", ex); }
+    }
+
+    public static IReadOnlyList<GraphNode> ReadLayerNodes(string path, string layer)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        ArgumentException.ThrowIfNullOrWhiteSpace(layer);
+        try { return ReadLayerNodesCore(path, layer); }
         catch (SqliteException ex) { throw new InvalidDataException("Graph database is malformed or unsupported.", ex); }
         catch (JsonException ex) { throw new InvalidDataException("Graph database contains malformed JSON.", ex); }
     }
@@ -101,6 +110,54 @@ public static class SqliteGraphStore
             CountRows(connection, "edges"),
             ContainsNodeKind(connection, GraphNodeKind.Control),
             CountControlsForLayer(connection, "semantic-world"));
+    }
+
+    private static IReadOnlyList<GraphNode> ReadLayerNodesCore(string path, string layer)
+    {
+        var fullPath = Path.GetFullPath(path);
+        using var lockedInput = new FileStream(fullPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+        if (lockedInput.Length > 512L * 1024 * 1024)
+            throw new InvalidDataException("Graph database is missing or exceeds size limit.");
+        if (File.Exists(fullPath + "-wal") || File.Exists(fullPath + "-shm"))
+            throw new InvalidDataException("Graph database sidecars are not accepted.");
+
+        var builder = new SqliteConnectionStringBuilder
+        {
+            DataSource = fullPath,
+            Mode = SqliteOpenMode.ReadOnly,
+            Pooling = false
+        };
+        using var connection = new SqliteConnection(builder.ToString());
+        connection.Open();
+        HardenAndValidateCatalogSummary(connection);
+
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT node.json
+            FROM nodes AS node
+            WHERE EXISTS (
+                SELECT 1
+                FROM json_each(node.json, '$.properties') AS property
+                WHERE json_extract(property.value, '$.name') = 'layer'
+                  AND json_extract(property.value, '$.value') = $layer
+            )
+            ORDER BY node.id
+            """;
+        command.Parameters.AddWithValue("$layer", layer);
+        using var reader = command.ExecuteReader();
+        var nodes = new List<GraphNode>();
+        while (reader.Read())
+        {
+            if (nodes.Count >= 100_000)
+                throw new InvalidDataException("Graph row count exceeds limit.");
+            var json = reader.GetString(0);
+            if (json.Length > 4 * 1024 * 1024)
+                throw new InvalidDataException("Graph row exceeds size limit.");
+            StrictJsonValidator.Validate(System.Text.Encoding.UTF8.GetBytes(json));
+            nodes.Add(JsonSerializer.Deserialize<GraphNode>(json, JsonDefaults.Options) ??
+                      throw new InvalidDataException("Invalid row JSON."));
+        }
+        return nodes;
     }
 
     private static void WriteDatabase(UiKnowledgeGraph graph, string path)

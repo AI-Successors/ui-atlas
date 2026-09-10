@@ -1243,16 +1243,34 @@ public sealed class AdaptiveCaptureCoordinator : IAsyncDisposable
         var deadline = DateTimeOffset.UtcNow.Add(PopupContentRetryWindow);
         var lastStatus = "content-incomplete";
         var failedPreparations = 0;
+        var accessibilityCalls = 0;
+        var accessibilityTimedOutCalls = 0;
+        var accessibilityElapsedMilliseconds = 0L;
+        var accessibilityLongestCallMilliseconds = 0L;
+        var lastRawAccessibilityNodes = 0;
         while (DateTimeOffset.UtcNow < deadline && NativeMethods.IsWindowVisible((nint)hwnd))
         {
             var preparation = await _session.TryPreparePopupDeltaAsync(
                 hwnd,
                 _baselineSequence,
                 TimeSpan.FromMilliseconds(700),
-                async (popupHwnd, token) => _popupAutomationOverride is not null
-                    ? await _popupAutomationOverride(popupHwnd, token).ConfigureAwait(false)
-                    : await _session.CollectPopupAutomationAsync(
-                        popupHwnd, PopupAutomationTimeout, PopupMaxNodes, token).ConfigureAwait(false),
+                async (popupHwnd, token) =>
+                {
+                    var timer = System.Diagnostics.Stopwatch.StartNew();
+                    var result = _popupAutomationOverride is not null
+                        ? await _popupAutomationOverride(popupHwnd, token).ConfigureAwait(false)
+                        : await _session.CollectPopupAutomationAsync(
+                            popupHwnd, PopupAutomationTimeout, PopupMaxNodes, token).ConfigureAwait(false);
+                    timer.Stop();
+                    accessibilityCalls++;
+                    if (result.TimedOut) accessibilityTimedOutCalls++;
+                    var elapsedMilliseconds = timer.ElapsedMilliseconds;
+                    accessibilityElapsedMilliseconds += elapsedMilliseconds;
+                    accessibilityLongestCallMilliseconds = Math.Max(
+                        accessibilityLongestCallMilliseconds, elapsedMilliseconds);
+                    lastRawAccessibilityNodes = result.Items.Count;
+                    return result;
+                },
                 NormalizePopupAutomation,
                 PopupSnapshotsMatch,
                 cancellationToken,
@@ -1326,7 +1344,9 @@ public sealed class AdaptiveCaptureCoordinator : IAsyncDisposable
             _capturedPopupsForCurrentClick.TryAdd(hwnd, 0);
             Interlocked.Increment(ref _popupCaptures);
             _session.AddCaptureHealth("adaptive", "popup-visual-fallback",
-                $"The popup accessibility tree was incomplete ({lastStatus}); its visible screen and visual controls were retained instead.");
+                $"The popup accessibility tree was incomplete ({lastStatus}); its visible screen and visual controls were retained instead. " +
+                DescribePopupAccessibility(lastStatus, accessibilityCalls, accessibilityTimedOutCalls,
+                    accessibilityElapsedMilliseconds, accessibilityLongestCallMilliseconds, lastRawAccessibilityNodes));
             _status?.Invoke(isNew
                 ? "Popup screen saved; detailed controls will be completed while the map is built."
                 : "Popup screen already captured.");
@@ -1335,8 +1355,21 @@ public sealed class AdaptiveCaptureCoordinator : IAsyncDisposable
 
         Interlocked.Increment(ref _popupFailures);
         _session.AddCaptureHealth("adaptive", "popup-controls-missed",
-            $"A coherent popup snapshot was not available before the window closed ({lastStatus}); no popup frame was retained.");
+            $"A coherent popup snapshot was not available before the window closed ({lastStatus}); no popup frame was retained. " +
+            DescribePopupAccessibility(lastStatus, accessibilityCalls, accessibilityTimedOutCalls,
+                accessibilityElapsedMilliseconds, accessibilityLongestCallMilliseconds, lastRawAccessibilityNodes));
     }
+
+    internal static string DescribePopupAccessibility(
+        string status,
+        int calls,
+        int timedOutCalls,
+        long elapsedMilliseconds,
+        long longestCallMilliseconds,
+        int lastRawNodes) =>
+        $"Accessibility diagnostics: status={status}; calls={calls}; timedOutCalls={timedOutCalls}; " +
+        $"elapsedMs={elapsedMilliseconds}; longestCallMs={longestCallMilliseconds}; " +
+        $"lastRawNodes={lastRawNodes}; perCallTimeoutMs={(long)PopupAutomationTimeout.TotalMilliseconds}.";
 
     internal static bool HasPopupContent(IReadOnlyList<AutomationObservation> automation)
     {

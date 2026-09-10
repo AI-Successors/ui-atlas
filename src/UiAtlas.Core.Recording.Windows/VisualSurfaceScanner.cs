@@ -803,24 +803,99 @@ public static class VisualSurfaceScanner
         }
         if (titleGroups.Count == 0) return [];
 
-        var left = Math.Max(0, titleGroups.Min(item => item.Bounds.X) - 26);
-        var right = Math.Min(frame.Width, Math.Max(left + 112,
-            titleGroups.Max(item => item.Bounds.X + item.Bounds.Width) + 8));
-        right = Math.Min(right, left + 150);
+        var tileSearchLeft = Math.Max(0, actionBandLeft - Math.Max(20, frame.Width / 80));
+        var tileSearchRight = Math.Min(frame.Width, actionBandRight + Math.Max(40, frame.Width / 40));
+        var tileSearchTop = Math.Max(0, titleGroups.Min(item => item.Bounds.Y) - 100);
+        var borderedTiles = FindRectangles(frame,
+                new RectI(tileSearchLeft, tileSearchTop,
+                    Math.Max(1, tileSearchRight - tileSearchLeft), frame.Height - tileSearchTop))
+            .Where(bounds => bounds.Width is >= 60 and <= 220 && bounds.Height is >= 56 and <= 160)
+            .Where(bounds => bounds.Width / (double)Math.Max(1, bounds.Height) is >= .65 and <= 2.0)
+            .ToArray();
+        var detectedTiles = new Dictionary<string, RectI>(StringComparer.Ordinal);
+        foreach (var action in titleGroups)
+        {
+            var centerX = action.Bounds.X + action.Bounds.Width / 2;
+            var centerY = action.Bounds.Y + action.Bounds.Height / 2;
+            var matches = borderedTiles
+                .Where(bounds => ContainsPoint(bounds, centerX, centerY))
+                .OrderByDescending(bounds => (long)bounds.Width * bounds.Height)
+                .ToArray();
+            if (matches.Length == 0) continue;
+
+            var seed = matches[0];
+            var cluster = matches
+                .Where(bounds => IntersectionOverUnion(seed, bounds) >= .82)
+                .ToArray();
+            var detected = Union(cluster);
+            // The edge scanner reports the transition just inside a one-pixel
+            // Office border. Include that painted border, but do not add the old
+            // arbitrary padding around the OCR label.
+            detected = new RectI(
+                Math.Max(0, detected.X - 1),
+                detected.Y,
+                Math.Min(frame.Width, detected.X + detected.Width + 1) - Math.Max(0, detected.X - 1),
+                detected.Height);
+            detectedTiles[action.Name] = detected;
+        }
+
+        // Disabled Backstage actions use an extremely faint border which can be
+        // invisible to edge detection. Once a repeated column of real tile
+        // borders has been found, infer only the missing member from that column
+        // and the label-to-tile offset learned from its neighbours.
+        var hasReliableTileColumn = detectedTiles.Count >= Math.Min(3, titleGroups.Count);
+        var tileLeft = hasReliableTileColumn ? Median(detectedTiles.Values.Select(bounds => bounds.X)) : 0;
+        var tileWidth = hasReliableTileColumn ? Median(detectedTiles.Values.Select(bounds => bounds.Width)) : 0;
+        var tileHeight = hasReliableTileColumn ? Median(detectedTiles.Values.Select(bounds => bounds.Height)) : 0;
+        var titleTopOffset = hasReliableTileColumn
+            ? Median(titleGroups
+                .Where(action => detectedTiles.ContainsKey(action.Name))
+                .Select(action => action.Bounds.Y - detectedTiles[action.Name].Y))
+            : 0;
+
+        var fallbackWidth = Math.Clamp((int)Math.Round(frame.Width * .065), 92, 150);
+        var fallbackHeight = Math.Clamp((int)Math.Round(frame.Height * .102), 84, 118);
+        var fallbackLeft = Math.Max(0, titleGroups.Min(item => item.Bounds.X) - Math.Max(5, frame.Width / 384));
         var result = new List<AutomationObservation>(titleGroups.Count);
         foreach (var action in titleGroups.OrderBy(item => item.Bounds.Y))
         {
-            var top = Math.Max(0, action.Bounds.Y - 68);
-            var bottom = Math.Min(frame.Height, Math.Max(top + 106,
-                action.Bounds.Y + action.Bounds.Height + 8));
-            var bounds = new RectI(left, top, right - left, bottom - top);
+            RectI bounds;
+            bool geometryObserved;
+            if (detectedTiles.TryGetValue(action.Name, out var detectedBounds))
+            {
+                bounds = detectedBounds;
+                geometryObserved = true;
+            }
+            else if (hasReliableTileColumn)
+            {
+                var top = Math.Clamp(action.Bounds.Y - titleTopOffset, 0, Math.Max(0, frame.Height - tileHeight));
+                bounds = new RectI(tileLeft, top, tileWidth, tileHeight);
+                geometryObserved = true;
+            }
+            else
+            {
+                var top = Math.Clamp(action.Bounds.Y - fallbackHeight / 2, 0,
+                    Math.Max(0, frame.Height - fallbackHeight));
+                bounds = new RectI(fallbackLeft, top,
+                    Math.Min(fallbackWidth, frame.Width - fallbackLeft), fallbackHeight);
+                geometryObserved = false;
+            }
             var identity = StableVisualIdentity("Button", action.Name,
                 $"backstage-action:{NormalizeIdentityText(action.Name)}", CoarseFingerprint(frame, bounds));
             var id = "visual:v3:" + identity;
-            result.Add(CreateObservation(target, bounds, scaleX, scaleY, id, "", action.Name,
-                "Button", "button", "", null, null, ["Invoke"], action.Name));
+            var observation = CreateObservation(target, bounds, scaleX, scaleY, id, "", action.Name,
+                "Button", "office-backstage-button", "", null, null, ["Invoke"], action.Name);
+            result.Add(geometryObserved
+                ? observation with { IsEnabled = true, IsOffscreen = false }
+                : observation);
         }
         return result;
+    }
+
+    private static int Median(IEnumerable<int> values)
+    {
+        var ordered = values.OrderBy(value => value).ToArray();
+        return ordered.Length == 0 ? 0 : ordered[ordered.Length / 2];
     }
 
     private static IReadOnlyList<AutomationObservation> DiscoverLegacySurfaceControlsCore(
@@ -841,6 +916,12 @@ public static class VisualSurfaceScanner
         var cellStyleBounds = cellStyleCards.Select(card => card.Bounds).ToArray();
         var tableStyleCards = FindExcelTableStyleGalleryCards(target, frame, words);
         var tableStyleBounds = tableStyleCards.Select(card => card.Bounds).ToArray();
+        var shapeGallery = FindOfficeShapeGallery(target, frame, words);
+        var shapeGalleryBounds = shapeGallery is null ? [] : new[] { shapeGallery.Bounds };
+        var windowGallery = FindOfficeAvailableWindowsGallery(target, frame, words);
+        var windowGalleryBounds = windowGallery is null ? [] : new[] { windowGallery.Bounds };
+        var chartGallery = FindOfficeChartGallery(target, frame, words);
+        var chartGalleryBounds = chartGallery is null ? [] : new[] { chartGallery.Bounds };
         var backstageActions = DiscoverOfficeBackstageActionButtons(
             target, frame, knownControls, words, scaleX, scaleY);
         var backstageActionBounds = backstageActions
@@ -852,25 +933,48 @@ public static class VisualSurfaceScanner
                 FindRectangles(frame, new RectI(0, 0, frame.Width, frame.Height), allowWideField: true))
             .Where(bounds => !cellStyleBounds.Any(card => ContainsCenter(card, bounds)))
             .Where(bounds => !tableStyleBounds.Any(card => ContainsCenter(card, bounds)))
+            .Where(bounds => !shapeGalleryBounds.Any(gallery => ContainsCenter(gallery, bounds)))
+            .Where(bounds => !windowGalleryBounds.Any(gallery => ContainsCenter(gallery, bounds)))
+            .Where(bounds => !chartGalleryBounds.Any(gallery => ContainsCenter(gallery, bounds)))
             .ToArray();
         IReadOnlyList<TableGroup> inferredTables = isOfficeBackstage
             ? []
             : FindTableGroups(structuralRectangles)
                 .Concat(FindSparseTableGroups(structuralRectangles, words))
                 .ToArray();
-        var tables = FindKnownGridTables(target, frame, knownControls, scaleX, scaleY, [])
-            .Concat(inferredTables)
-            .GroupBy(table => table.Bounds)
-            .Select(group => group.First())
-            .ToArray();
+        var knownGridTables = FindKnownGridTables(target, frame, knownControls, scaleX, scaleY, []);
+        var tables = ConsolidateGridTables(knownGridTables, inferredTables);
         var combos = FindWideDatabaseGridCombos(target, frame, knownControls, tables, scaleX, scaleY);
         var trees = FindClassicTrees(target, frame, knownControls, words, scaleX, scaleY);
         var tabStrips = FindClassicTabStrips(frame, words);
         var radioButtons = ExcludeRadioButtonsCoveredByKnownControls(
             FindClassicRadioButtons(frame, words), target, frame, knownControls, scaleX, scaleY);
+        if (shapeGallery is not null)
+            radioButtons = radioButtons
+                .Where(item => !ContainsCenter(shapeGallery.Bounds, item.Bounds))
+                .ToArray();
+        if (windowGallery is not null)
+        {
+            trees = trees.Where(tree => !ContainsCenter(windowGallery.Bounds, tree.Bounds)).ToArray();
+            tabStrips = tabStrips.Where(strip => !ContainsCenter(windowGallery.Bounds, strip.Bounds)).ToArray();
+            radioButtons = radioButtons
+                .Where(item => !ContainsCenter(windowGallery.Bounds, item.Bounds))
+                .ToArray();
+        }
+        if (chartGallery is not null)
+        {
+            trees = trees.Where(tree => !ContainsCenter(chartGallery.Bounds, tree.Bounds)).ToArray();
+            tabStrips = tabStrips.Where(strip => !ContainsCenter(chartGallery.Bounds, strip.Bounds)).ToArray();
+            radioButtons = radioButtons
+                .Where(item => !ContainsCenter(chartGallery.Bounds, item.Bounds))
+                .ToArray();
+        }
         var result = new List<AutomationObservation>();
         AppendExcelCellStyleHeadingObservations(result, target, frame, cellStyleCards, scaleX, scaleY);
         AppendExcelTableStyleGalleryObservations(result, target, frame, tableStyleCards, scaleX, scaleY);
+        AppendOfficeShapeGalleryObservations(result, target, frame, shapeGallery, scaleX, scaleY);
+        AppendOfficeAvailableWindowsGalleryObservations(result, target, frame, windowGallery, scaleX, scaleY);
+        AppendOfficeChartGalleryObservations(result, target, frame, chartGallery, scaleX, scaleY);
         result.AddRange(backstageActions);
         foreach (var table in tables)
             AppendTableObservations(result, target, frame, table, words, scaleX, scaleY);
@@ -888,6 +992,9 @@ public static class VisualSurfaceScanner
             .Concat(tabStrips.Select(tabStrip => tabStrip.Bounds))
             .Concat(radioButtons.Select(item => item.Bounds))
             .Concat(backstageActionBounds)
+            .Concat(shapeGalleryBounds)
+            .Concat(windowGalleryBounds)
+            .Concat(chartGalleryBounds)
             .ToArray();
         var retained = new List<RectI>();
         foreach (var bounds in structuralRectangles
@@ -983,6 +1090,40 @@ public static class VisualSurfaceScanner
             target, frame, knownControls, words, scaleX, scaleY);
         var cellStyleCards = FindExcelCellStyleHeadingCards(target, frame, words);
         var cellStyleBounds = cellStyleCards.Select(card => card.Bounds).ToArray();
+        var shapeGallery = FindOfficeShapeGallery(target, frame, words);
+        var shapeGalleryBounds = shapeGallery is null ? [] : new[] { shapeGallery.Bounds };
+        if (shapeGallery is not null)
+            classicRadioButtons = classicRadioButtons
+                .Where(item => !ContainsCenter(shapeGallery.Bounds, item.Bounds))
+                .ToArray();
+        var windowGallery = FindOfficeAvailableWindowsGallery(target, frame, words);
+        var windowGalleryBounds = windowGallery is null ? [] : new[] { windowGallery.Bounds };
+        if (windowGallery is not null)
+        {
+            classicTrees = classicTrees
+                .Where(tree => !ContainsCenter(windowGallery.Bounds, tree.Bounds))
+                .ToArray();
+            classicTabStrips = classicTabStrips
+                .Where(strip => !ContainsCenter(windowGallery.Bounds, strip.Bounds))
+                .ToArray();
+            classicRadioButtons = classicRadioButtons
+                .Where(item => !ContainsCenter(windowGallery.Bounds, item.Bounds))
+                .ToArray();
+        }
+        var chartGallery = FindOfficeChartGallery(target, frame, words);
+        var chartGalleryBounds = chartGallery is null ? [] : new[] { chartGallery.Bounds };
+        if (chartGallery is not null)
+        {
+            classicTrees = classicTrees
+                .Where(tree => !ContainsCenter(chartGallery.Bounds, tree.Bounds))
+                .ToArray();
+            classicTabStrips = classicTabStrips
+                .Where(strip => !ContainsCenter(chartGallery.Bounds, strip.Bounds))
+                .ToArray();
+            classicRadioButtons = classicRadioButtons
+                .Where(item => !ContainsCenter(chartGallery.Bounds, item.Bounds))
+                .ToArray();
+        }
         var tableStyleCards = FindExcelTableStyleGalleryCards(target, frame, words)
             .Where(card => pixelRegions.Any(region => ContainsCenter(region, card.Bounds)) &&
                            !excludedPixelRegions.Any(region => ContainsCenter(region, card.Bounds)))
@@ -1016,6 +1157,18 @@ public static class VisualSurfaceScanner
         if (tableStyleBounds.Length > 0)
             rectangles = rectangles
                 .Where(bounds => !tableStyleBounds.Any(region => ContainsCenter(region, bounds)))
+                .ToList();
+        if (shapeGalleryBounds.Length > 0)
+            rectangles = rectangles
+                .Where(bounds => !shapeGalleryBounds.Any(region => ContainsCenter(region, bounds)))
+                .ToList();
+        if (windowGalleryBounds.Length > 0)
+            rectangles = rectangles
+                .Where(bounds => !windowGalleryBounds.Any(region => ContainsCenter(region, bounds)))
+                .ToList();
+        if (chartGalleryBounds.Length > 0)
+            rectangles = rectangles
+                .Where(bounds => !chartGalleryBounds.Any(region => ContainsCenter(region, bounds)))
                 .ToList();
         if (knownGridTables.Count > 0)
             rectangles = rectangles
@@ -1074,6 +1227,9 @@ public static class VisualSurfaceScanner
         var result = new List<AutomationObservation>();
         AppendExcelCellStyleHeadingObservations(result, target, frame, cellStyleCards, scaleX, scaleY);
         AppendExcelTableStyleGalleryObservations(result, target, frame, tableStyleCards, scaleX, scaleY);
+        AppendOfficeShapeGalleryObservations(result, target, frame, shapeGallery, scaleX, scaleY);
+        AppendOfficeAvailableWindowsGalleryObservations(result, target, frame, windowGallery, scaleX, scaleY);
+        AppendOfficeChartGalleryObservations(result, target, frame, chartGallery, scaleX, scaleY);
         result.AddRange(backstageActions);
         var consumed = new HashSet<RectI>();
         IReadOnlyList<TableGroup> inferredTables = isOfficeBackstage
@@ -1081,11 +1237,7 @@ public static class VisualSurfaceScanner
             : FindTableGroups(retained)
                 .Concat(FindSparseTableGroups(retained, words))
                 .ToArray();
-        var tables = knownGridTables
-            .Concat(inferredTables)
-            .GroupBy(table => table.Bounds)
-            .Select(group => group.First())
-            .ToArray();
+        var tables = ConsolidateGridTables(knownGridTables, inferredTables);
         foreach (var table in tables)
         {
             foreach (var cell in table.Cells) consumed.Add(cell.Bounds);
@@ -1188,11 +1340,11 @@ public static class VisualSurfaceScanner
     {
         if (backstageActions.Count == 0) return controls;
 
-        var actionIds = backstageActions
-            .Select(control => control.RuntimeId)
-            .ToHashSet(StringComparer.Ordinal);
+        var actionBounds = backstageActions
+            .Select(control => (control.RuntimeId, control.Bounds))
+            .ToHashSet();
         return controls
-            .Where(control => actionIds.Contains(control.RuntimeId) ||
+            .Where(control => actionBounds.Contains((control.RuntimeId, control.Bounds)) ||
                               !backstageActions.Any(action => ContainsCenter(action.Bounds, control.Bounds)))
             .ToArray();
     }
@@ -1711,6 +1863,508 @@ public static class VisualSurfaceScanner
             result.Add(CreateObservation(target, card.Bounds, scaleX, scaleY, id, "", name,
                 "Button", "button", groupId, null, card.Ordinal - 1, ["Invoke"]));
         }
+    }
+
+    private static OfficeShapeGallery? FindOfficeShapeGallery(
+        WindowTarget target,
+        OpaqueSurfaceScanner.PixelFrame frame,
+        IReadOnlyList<VisualTextObservation> words)
+    {
+        if (!target.ClassName.Contains("Net UI Tool Window", StringComparison.OrdinalIgnoreCase) ||
+            frame.Width < 240 || frame.Height < 180 || words.Count < 3)
+            return null;
+
+        var headers = TextLineSegments(words)
+            .Select(segment => new
+            {
+                Segment = segment,
+                Name = OfficeShapeSectionName(NormalizeIdentityText(segment.Text))
+            })
+            .Where(item => item.Name.Length > 0)
+            .GroupBy(item => item.Name, StringComparer.Ordinal)
+            .Select(group => group.OrderBy(item => item.Segment.Bounds.Y).First())
+            .OrderBy(item => item.Segment.Bounds.Y)
+            .Select(item => new GallerySectionHeader(item.Name, item.Segment.Bounds))
+            .ToArray();
+        if (headers.Length < 3 ||
+            !headers.Any(header => header.Name == "Basic Shapes") ||
+            !headers.Any(header => header.Name is "Lines" or "Recently Used Shapes"))
+            return null;
+
+        var medianHeaderHeight = headers.Select(header => header.Bounds.Height)
+            .OrderBy(height => height)
+            .ElementAt(headers.Length / 2);
+        var contentRight = FindOfficeShapeGalleryContentRight(frame);
+        if (contentRight < frame.Width * .65) return null;
+
+        const int columnCount = 12;
+        var pitch = contentRight / (double)columnCount;
+        if (pitch is < 20 or > 60) return null;
+
+        var cards = new List<OfficeShapeGalleryCard>();
+        for (var sectionIndex = 0; sectionIndex < headers.Length; sectionIndex++)
+        {
+            var header = headers[sectionIndex];
+            var contentTop = header.Bounds.Y + header.Bounds.Height +
+                             Math.Clamp((int)Math.Round(pitch / 7), 3, 8);
+            var contentBottom = sectionIndex + 1 < headers.Length
+                ? headers[sectionIndex + 1].Bounds.Y - Math.Clamp((int)Math.Round(pitch / 8), 2, 7)
+                : frame.Height;
+            if (contentBottom - contentTop < Math.Max(12, pitch * .45)) continue;
+
+            var activeRows = new List<int>();
+            var minimumRowInk = Math.Max(4, (int)Math.Ceiling(contentRight * .01));
+            for (var y = Math.Max(0, contentTop); y < Math.Min(frame.Height, contentBottom); y++)
+            {
+                var ink = 0;
+                for (var x = 0; x < contentRight; x++)
+                    if (IsGalleryInk(frame, x, y)) ink++;
+                if (ink >= minimumRowInk) activeRows.Add(y);
+            }
+
+            var rowBands = MergeAxisBands(
+                    activeRows,
+                    Math.Clamp((int)Math.Round(pitch * .10), 1, 4),
+                    Math.Clamp(medianHeaderHeight / 3, 4, 9))
+                .Where(band => band.Length <= pitch * .90)
+                .ToArray();
+            var ordinal = 0;
+            for (var rowIndex = 0; rowIndex < rowBands.Length; rowIndex++)
+            {
+                var band = rowBands[rowIndex];
+                var rowCenter = (band.Start + band.End + 1) / 2;
+                var tileTop = Math.Max(contentTop, (int)Math.Round(rowCenter - pitch / 2));
+                var tileBottom = Math.Min(contentBottom, (int)Math.Round(tileTop + pitch));
+                if (tileBottom - tileTop < 14) continue;
+
+                for (var column = 0; column < columnCount; column++)
+                {
+                    var tileLeft = (int)Math.Round(column * pitch);
+                    var tileRight = (int)Math.Round((column + 1) * pitch);
+                    var probe = new RectI(
+                        Math.Min(tileRight - 1, tileLeft + 2),
+                        Math.Max(contentTop, band.Start - 1),
+                        Math.Max(1, tileRight - tileLeft - 4),
+                        Math.Max(1, Math.Min(contentBottom, band.End + 2) - Math.Max(contentTop, band.Start - 1)));
+                    var minimumTileInk = Math.Max(4,
+                        (int)Math.Ceiling((long)probe.Width * probe.Height * .008));
+                    if (GalleryInkCount(frame, probe) < minimumTileInk) continue;
+
+                    ordinal++;
+                    cards.Add(new OfficeShapeGalleryCard(
+                        new RectI(tileLeft, tileTop, Math.Max(1, tileRight - tileLeft), tileBottom - tileTop),
+                        header.Name,
+                        ordinal,
+                        rowIndex,
+                        column));
+                }
+            }
+        }
+
+        if (cards.Count < 12 || cards.Select(card => card.Section).Distinct(StringComparer.Ordinal).Count() < 3)
+            return null;
+        var galleryTop = Math.Max(0, headers[0].Bounds.Y - Math.Max(2, medianHeaderHeight / 3));
+        return new OfficeShapeGallery(
+            new RectI(0, galleryTop, contentRight, frame.Height - galleryTop),
+            cards);
+    }
+
+    private static string OfficeShapeSectionName(string normalized) => normalized switch
+    {
+        "recentlyusedshapes" => "Recently Used Shapes",
+        "lines" => "Lines",
+        "rectangles" => "Rectangles",
+        "basicshapes" => "Basic Shapes",
+        "blockarrows" => "Block Arrows",
+        "equationshapes" => "Equation Shapes",
+        "flowchart" => "Flowchart",
+        "starsandbanners" => "Stars and Banners",
+        "callouts" => "Callouts",
+        "actionbuttons" => "Action Buttons",
+        _ => string.Empty
+    };
+
+    private static int FindOfficeShapeGalleryContentRight(OpaqueSurfaceScanner.PixelFrame frame)
+    {
+        var scanLeft = Math.Max(0, frame.Width * 3 / 4);
+        var requiredInk = Math.Max(24, (int)Math.Ceiling(frame.Height * .35));
+        for (var x = scanLeft; x < frame.Width; x++)
+        {
+            var ink = 0;
+            for (var y = 0; y < frame.Height; y++)
+                if (IsGalleryInk(frame, x, y)) ink++;
+            if (ink >= requiredInk)
+                return Math.Max(scanLeft, x - Math.Clamp(frame.Width / 96, 2, 6));
+        }
+        return frame.Width;
+    }
+
+    private static int GalleryInkCount(OpaqueSurfaceScanner.PixelFrame frame, RectI bounds)
+    {
+        var ink = 0;
+        var left = Math.Clamp(bounds.X, 0, frame.Width);
+        var top = Math.Clamp(bounds.Y, 0, frame.Height);
+        var right = Math.Clamp(bounds.X + bounds.Width, left, frame.Width);
+        var bottom = Math.Clamp(bounds.Y + bounds.Height, top, frame.Height);
+        for (var y = top; y < bottom; y++)
+        for (var x = left; x < right; x++)
+            if (IsGalleryInk(frame, x, y)) ink++;
+        return ink;
+    }
+
+    private static void AppendOfficeShapeGalleryObservations(
+        List<AutomationObservation> result,
+        WindowTarget target,
+        OpaqueSurfaceScanner.PixelFrame frame,
+        OfficeShapeGallery? gallery,
+        double scaleX,
+        double scaleY)
+    {
+        if (gallery is null) return;
+        var groupIdentity = StableVisualIdentity("Group", "Shapes", "office-shape-gallery", "");
+        var groupId = "visual:v3:" + groupIdentity;
+        foreach (var card in gallery.Cards)
+        {
+            var name = $"{card.Section} shape {card.Ordinal}";
+            var identity = StableVisualIdentity("Button", name,
+                $"{groupIdentity}|{card.Section}|row:{card.Row}|column:{card.Column}",
+                CoarseFingerprint(frame, card.Bounds));
+            var id = "visual:v3:" + identity;
+            result.Add(CreateObservation(target, card.Bounds, scaleX, scaleY, id, "", name,
+                "Button", "shape-gallery-button", groupId, card.Row, card.Column, ["Invoke"]));
+        }
+    }
+
+    private static OfficeAvailableWindowsGallery? FindOfficeAvailableWindowsGallery(
+        WindowTarget target,
+        OpaqueSurfaceScanner.PixelFrame frame,
+        IReadOnlyList<VisualTextObservation> words)
+    {
+        if (!target.ClassName.Contains("Net UI Tool Window", StringComparison.OrdinalIgnoreCase) ||
+            frame.Width < 240 || frame.Height < 160 || words.Count < 2)
+            return null;
+
+        var segments = TextLineSegments(words);
+        var heading = segments.FirstOrDefault(segment =>
+            NormalizeIdentityText(segment.Text).Equals("availablewindows", StringComparison.Ordinal));
+        var screenClipping = segments.FirstOrDefault(segment =>
+            NormalizeIdentityText(segment.Text).Equals("screenclipping", StringComparison.Ordinal));
+        if (heading is null || screenClipping is null ||
+            heading.Bounds.Y >= frame.Height / 3 ||
+            screenClipping.Bounds.Y <= frame.Height * 2 / 3)
+            return null;
+
+        var footerTop = FindOfficeGalleryFooterTop(frame, heading.Bounds, screenClipping.Bounds);
+        var contentTop = Math.Clamp(
+            heading.Bounds.Y + heading.Bounds.Height + Math.Max(4, heading.Bounds.Height / 3),
+            0,
+            footerTop);
+        if (footerTop - contentTop < 48) return null;
+
+        var footerHeight = Math.Max(24, frame.Height - footerTop);
+        var cardWidth = Math.Clamp((int)Math.Round(footerHeight * 2.30), 64, 240);
+        var gap = Math.Clamp((int)Math.Round(footerHeight * .19), 5, 24);
+        var leftMargin = Math.Clamp((int)Math.Round(footerHeight * .14), 3, 20);
+        var pitch = cardWidth + gap;
+        var columnCount = Math.Clamp((frame.Width - leftMargin + gap) / Math.Max(1, pitch), 1, 8);
+        if (columnCount < 2) return null;
+
+        var activeRows = new List<int>();
+        var minimumRowInk = Math.Max(4, (int)Math.Ceiling(frame.Width * .009));
+        for (var y = contentTop; y < footerTop; y++)
+        {
+            var ink = 0;
+            for (var x = 2; x < frame.Width - 2; x++)
+                if (IsOfficeGalleryContentPixel(frame, x, y)) ink++;
+            if (ink >= minimumRowInk) activeRows.Add(y);
+        }
+
+        var rowBands = MergeAxisBands(
+                activeRows,
+                Math.Clamp((int)Math.Round(footerHeight * .18), 4, 18),
+                Math.Clamp((int)Math.Round(footerHeight * .25), 10, 32))
+            .Where(band => band.Start >= contentTop && band.End < footerTop)
+            .ToArray();
+        if (rowBands.Length == 0) return null;
+
+        var cards = new List<OfficeAvailableWindowCard>();
+        for (var row = 0; row < rowBands.Length; row++)
+        {
+            var band = rowBands[row];
+            for (var column = 0; column < columnCount; column++)
+            {
+                var left = leftMargin + column * pitch;
+                if (left >= frame.Width) break;
+                var width = Math.Min(cardWidth, frame.Width - left);
+                var bounds = new RectI(left, band.Start, width, band.Length);
+                var minimumCardInk = Math.Max(24,
+                    (int)Math.Ceiling((long)bounds.Width * bounds.Height * .006));
+                if (OfficeGalleryContentPixelCount(frame, bounds) < minimumCardInk) continue;
+                cards.Add(new OfficeAvailableWindowCard(bounds, row, column));
+            }
+        }
+
+        if (cards.Count == 0) return null;
+        return new OfficeAvailableWindowsGallery(
+            new RectI(0, contentTop, frame.Width, frame.Height - contentTop),
+            new RectI(0, footerTop, frame.Width, frame.Height - footerTop),
+            cards);
+    }
+
+    private static int FindOfficeGalleryFooterTop(
+        OpaqueSurfaceScanner.PixelFrame frame,
+        RectI heading,
+        RectI screenClipping)
+    {
+        var fallback = Math.Clamp(
+            screenClipping.Y - Math.Max(4, screenClipping.Height / 2),
+            heading.Y + heading.Height,
+            frame.Height - 1);
+        var searchTop = Math.Max(heading.Y + heading.Height,
+            screenClipping.Y - Math.Max(24, screenClipping.Height * 2));
+        var bestY = fallback;
+        var bestCount = 0;
+        for (var y = searchTop; y <= Math.Min(screenClipping.Y, frame.Height - 1); y++)
+        {
+            var count = 0;
+            for (var x = 1; x < frame.Width - 1; x++)
+            {
+                var offset = (y * frame.Width + x) * 4;
+                if (frame.Pixels[offset] < 248 ||
+                    frame.Pixels[offset + 1] < 248 ||
+                    frame.Pixels[offset + 2] < 248)
+                    count++;
+            }
+            if (count <= bestCount) continue;
+            bestCount = count;
+            bestY = y;
+        }
+        return bestCount >= frame.Width * .60 ? bestY : fallback;
+    }
+
+    private static int OfficeGalleryContentPixelCount(
+        OpaqueSurfaceScanner.PixelFrame frame,
+        RectI bounds)
+    {
+        var count = 0;
+        var left = Math.Clamp(bounds.X, 0, frame.Width);
+        var top = Math.Clamp(bounds.Y, 0, frame.Height);
+        var right = Math.Clamp(bounds.X + bounds.Width, left, frame.Width);
+        var bottom = Math.Clamp(bounds.Y + bounds.Height, top, frame.Height);
+        for (var y = top; y < bottom; y++)
+        for (var x = left; x < right; x++)
+            if (IsOfficeGalleryContentPixel(frame, x, y)) count++;
+        return count;
+    }
+
+    private static bool IsOfficeGalleryContentPixel(OpaqueSurfaceScanner.PixelFrame frame, int x, int y)
+    {
+        var offset = (y * frame.Width + x) * 4;
+        var blue = frame.Pixels[offset];
+        var green = frame.Pixels[offset + 1];
+        var red = frame.Pixels[offset + 2];
+        return Math.Min(red, Math.Min(green, blue)) < 248 ||
+               Math.Max(red, Math.Max(green, blue)) - Math.Min(red, Math.Min(green, blue)) >= 8;
+    }
+
+    private static void AppendOfficeAvailableWindowsGalleryObservations(
+        List<AutomationObservation> result,
+        WindowTarget target,
+        OpaqueSurfaceScanner.PixelFrame frame,
+        OfficeAvailableWindowsGallery? gallery,
+        double scaleX,
+        double scaleY)
+    {
+        if (gallery is null) return;
+        var groupIdentity = StableVisualIdentity(
+            "Group", "Available Windows", "office-available-windows-gallery", "");
+        var groupId = "visual:v3:" + groupIdentity;
+        for (var index = 0; index < gallery.Cards.Count; index++)
+        {
+            var card = gallery.Cards[index];
+            var name = $"Available window {index + 1}";
+            var identity = StableVisualIdentity("Button", name,
+                $"{groupIdentity}|row:{card.Row}|column:{card.Column}",
+                CoarseFingerprint(frame, card.Bounds));
+            var id = "visual:v3:" + identity;
+            result.Add(CreateObservation(target, card.Bounds, scaleX, scaleY, id, "", name,
+                "Button", "window-gallery-button", groupId, card.Row, card.Column, ["Invoke"]));
+        }
+
+        var clippingIdentity = StableVisualIdentity(
+            "Button", "Screen Clipping", $"{groupIdentity}|screen-clipping", "");
+        var clippingId = "visual:v3:" + clippingIdentity;
+        result.Add(CreateObservation(target, gallery.ScreenClippingBounds, scaleX, scaleY,
+            clippingId, "", "Screen Clipping", "Button", "window-gallery-action",
+            groupId, null, null, ["Invoke"]));
+    }
+
+    private static OfficeChartGallery? FindOfficeChartGallery(
+        WindowTarget target,
+        OpaqueSurfaceScanner.PixelFrame frame,
+        IReadOnlyList<VisualTextObservation> words)
+    {
+        if (!target.ClassName.Contains("Net UI Tool Window", StringComparison.OrdinalIgnoreCase) ||
+            frame.Width < 140 || frame.Height < 220 || words.Count < 4)
+            return null;
+
+        var segments = TextLineSegments(words);
+        var sectionNames = new[] { "2-D Pie", "3-D Pie", "Doughnut" };
+        var headers = segments
+            .Select(segment => new GallerySectionHeader(
+                OfficeChartSectionName(NormalizeIdentityText(segment.Text)), segment.Bounds))
+            .Where(header => header.Name.Length > 0)
+            .GroupBy(header => header.Name, StringComparer.Ordinal)
+            .Select(group => group.OrderBy(header => header.Bounds.Y).First())
+            .OrderBy(header => header.Bounds.Y)
+            .ToList();
+        if (!headers.Select(header => header.Name).SequenceEqual(sectionNames, StringComparer.Ordinal))
+            return null;
+
+        var moreCharts = segments.FirstOrDefault(segment =>
+            NormalizeIdentityText(segment.Text).StartsWith("morepie", StringComparison.Ordinal));
+        if (moreCharts is null || moreCharts.Bounds.Y <= headers[^1].Bounds.Y)
+            return null;
+
+        var footerTop = FindOfficeGalleryFooterTop(frame, headers[0].Bounds, moreCharts.Bounds);
+        var cards = new List<OfficeChartGalleryCard>();
+        for (var sectionIndex = 0; sectionIndex < headers.Count; sectionIndex++)
+        {
+            var header = headers[sectionIndex];
+            var nextTop = sectionIndex + 1 < headers.Count
+                ? headers[sectionIndex + 1].Bounds.Y
+                : footerTop;
+            var nextHeight = sectionIndex + 1 < headers.Count
+                ? headers[sectionIndex + 1].Bounds.Height
+                : moreCharts.Bounds.Height;
+            var contentTop = header.Bounds.Y + header.Bounds.Height +
+                             Math.Max(5, header.Bounds.Height / 3);
+            var fallbackBottom = Math.Min(footerTop, nextTop - Math.Max(8, nextHeight));
+            var contentBottom = sectionIndex + 1 < headers.Count
+                ? FindOfficeGallerySectionDivider(frame, contentTop, nextTop, fallbackBottom)
+                : footerTop;
+            if (contentBottom - contentTop < 20) return null;
+
+            var activeColumns = new List<int>();
+            for (var x = 2; x < frame.Width - 2; x++)
+            {
+                var ink = 0;
+                for (var y = contentTop; y < contentBottom; y++)
+                    if (IsOfficeGalleryContentPixel(frame, x, y)) ink++;
+                if (ink >= 2) activeColumns.Add(x);
+            }
+
+            var columnBands = MergeAxisBands(activeColumns, 5, 12)
+                .Where(band => band.Length <= frame.Width * .45)
+                .ToArray();
+            for (var column = 0; column < columnBands.Length; column++)
+            {
+                var band = columnBands[column];
+                var activeYs = new List<int>();
+                for (var y = contentTop; y < contentBottom; y++)
+                {
+                    var hasInk = false;
+                    for (var x = band.Start; x <= band.End; x++)
+                    {
+                        if (!IsOfficeGalleryContentPixel(frame, x, y)) continue;
+                        hasInk = true;
+                        break;
+                    }
+                    if (hasInk) activeYs.Add(y);
+                }
+                if (activeYs.Count == 0) continue;
+
+                const int padding = 3;
+                var left = Math.Max(0, band.Start - padding);
+                var right = Math.Min(frame.Width, band.End + 1 + padding);
+                var top = Math.Max(contentTop, activeYs[0] - padding);
+                var bottom = Math.Min(contentBottom, activeYs[^1] + 1 + padding);
+                var bounds = new RectI(left, top, right - left, bottom - top);
+                if (OfficeGalleryContentPixelCount(frame, bounds) < 24) continue;
+                cards.Add(new OfficeChartGalleryCard(bounds, header.Name, sectionIndex, column));
+            }
+        }
+
+        if (cards.Count(card => card.Section == "2-D Pie") < 2 ||
+            !cards.Any(card => card.Section == "3-D Pie") ||
+            !cards.Any(card => card.Section == "Doughnut"))
+            return null;
+
+        var galleryTop = Math.Max(0, headers[0].Bounds.Y - Math.Max(2, headers[0].Bounds.Height / 3));
+        return new OfficeChartGallery(
+            new RectI(0, galleryTop, frame.Width, frame.Height - galleryTop),
+            new RectI(0, footerTop, frame.Width, frame.Height - footerTop),
+            cards);
+    }
+
+    private static int FindOfficeGallerySectionDivider(
+        OpaqueSurfaceScanner.PixelFrame frame,
+        int searchTop,
+        int searchBottom,
+        int fallback)
+    {
+        var bestY = fallback;
+        var bestCount = 0;
+        for (var y = Math.Max(0, searchTop); y < Math.Min(frame.Height, searchBottom); y++)
+        {
+            var count = 0;
+            for (var x = 1; x < frame.Width - 1; x++)
+            {
+                var offset = (y * frame.Width + x) * 4;
+                if (frame.Pixels[offset] < 248 ||
+                    frame.Pixels[offset + 1] < 248 ||
+                    frame.Pixels[offset + 2] < 248)
+                    count++;
+            }
+            if (count <= bestCount) continue;
+            bestCount = count;
+            bestY = y;
+        }
+        return bestCount >= frame.Width * .60 ? bestY : fallback;
+    }
+
+    private static string OfficeChartSectionName(string normalized) => normalized switch
+    {
+        "2dpie" or "20pie" => "2-D Pie",
+        "3dpie" => "3-D Pie",
+        "doughnut" => "Doughnut",
+        _ => string.Empty
+    };
+
+    private static void AppendOfficeChartGalleryObservations(
+        List<AutomationObservation> result,
+        WindowTarget target,
+        OpaqueSurfaceScanner.PixelFrame frame,
+        OfficeChartGallery? gallery,
+        double scaleX,
+        double scaleY)
+    {
+        if (gallery is null) return;
+        var groupIdentity = StableVisualIdentity("Group", "Pie charts", "office-chart-gallery", "");
+        var groupId = "visual:v3:" + groupIdentity;
+        foreach (var section in gallery.Cards.GroupBy(card => card.Section, StringComparer.Ordinal))
+        {
+            var ordinal = 0;
+            foreach (var card in section.OrderBy(card => card.Column))
+            {
+                ordinal++;
+                var name = $"{card.Section} chart {ordinal}";
+                var identity = StableVisualIdentity("Button", name,
+                    $"{groupIdentity}|section:{card.SectionIndex}|column:{card.Column}",
+                    CoarseFingerprint(frame, card.Bounds));
+                var id = "visual:v3:" + identity;
+                result.Add(CreateObservation(target, card.Bounds, scaleX, scaleY, id, "", name,
+                    "Button", "chart-gallery-button", groupId,
+                    card.SectionIndex, card.Column, ["Invoke"]));
+            }
+        }
+
+        var moreIdentity = StableVisualIdentity(
+            "Button", "More Pie Charts...", $"{groupIdentity}|more-pie-charts", "");
+        var moreId = "visual:v3:" + moreIdentity;
+        result.Add(CreateObservation(target, gallery.MoreChartsBounds, scaleX, scaleY,
+            moreId, "", "More Pie Charts...", "Button", "chart-gallery-action",
+            groupId, null, null, ["Invoke"]));
     }
 
     private static IReadOnlyList<AxisBand> MergeAxisBands(
@@ -2355,12 +3009,50 @@ public static class VisualSurfaceScanner
                 : TryFindBorderedGrid(frame, candidate.Bounds);
             if (table is not null) result.Add(table);
         }
+
+        // A transient Excel UIA timeout can leave the frame with only the
+        // formula editor while the worksheet is still fully visible in the
+        // screenshot. Treat that editor as an Excel-specific anchor and scan
+        // the painted worksheet below it as one authoritative grid. Starting
+        // at the full capture width lets the painted outer edge determine the
+        // client-area inset instead of turning the window border into a fake
+        // row-header column.
+        var hasExcelGrid = knownControls.Any(control =>
+            control.ClassName.Equals("XLSpreadsheetGrid", StringComparison.OrdinalIgnoreCase));
+        if (!hasExcelGrid)
+        {
+            var formulaBar = knownControls
+                .Where(control =>
+                    control.ClassName.Equals("XLFormulaBarEditor", StringComparison.OrdinalIgnoreCase) &&
+                    !control.IsOffscreen && control.Bounds.Width >= 80 && control.Bounds.Height >= 12)
+                .OrderByDescending(control => (long)control.Bounds.Width * control.Bounds.Height)
+                .FirstOrDefault();
+            if (formulaBar is not null)
+            {
+                var formulaPixels = ToPixelRect(
+                    Intersect(formulaBar.Bounds, target.Bounds), target.Bounds,
+                    scaleX, scaleY, frame.Width, frame.Height);
+                var worksheetTop = Math.Clamp(
+                    formulaPixels.Y + formulaPixels.Height, 0, frame.Height);
+                var worksheetCandidate = new RectI(
+                    0, worksheetTop, frame.Width, frame.Height - worksheetTop);
+                if (worksheetCandidate.Width >= 240 && worksheetCandidate.Height >= 80 &&
+                    !excludedPixelRegions.Any(excluded =>
+                        IntersectionOverUnion(excluded, worksheetCandidate) >= .72))
+                {
+                    var worksheet = TryFindExcelWorksheetGrid(
+                        frame, worksheetCandidate, preserveDetectedLeadingColumnEdge: true);
+                    if (worksheet is not null) result.Add(worksheet);
+                }
+            }
+        }
         return result;
     }
 
     private static TableGroup? TryFindExcelWorksheetGrid(
         OpaqueSurfaceScanner.PixelFrame frame,
-        RectI candidate)
+        RectI candidate,
+        bool preserveDetectedLeadingColumnEdge = false)
     {
         var horizontal = FindStrongAxisLines(frame, candidate, horizontal: true, leadingEdge: true);
         // Excel scales row height with worksheet zoom. At 375-400% a normal
@@ -2386,10 +3078,13 @@ public static class VisualSurfaceScanner
         var columnEdges = FindStrongAxisLines(frame, rowSpan, horizontal: false, leadingEdge: true).ToList();
         if (columnEdges.Count < 4)
             return null;
-        if (columnEdges[0] - candidate.X is >= 0 and <= 12)
-            columnEdges[0] = candidate.X;
-        else if (columnEdges[0] - candidate.X is > 12 and <= 48)
-            columnEdges.Insert(0, candidate.X);
+        if (!preserveDetectedLeadingColumnEdge)
+        {
+            if (columnEdges[0] - candidate.X is >= 0 and <= 12)
+                columnEdges[0] = candidate.X;
+            else if (columnEdges[0] - candidate.X is > 12 and <= 48)
+                columnEdges.Insert(0, candidate.X);
+        }
         var candidateRight = Math.Min(frame.Width, candidate.X + candidate.Width);
         if (candidateRight - columnEdges[^1] is >= 12 and <= 120)
             columnEdges.Add(candidateRight);
@@ -2437,6 +3132,23 @@ public static class VisualSurfaceScanner
             columnSpans.Length,
             HasHeaderRow: true,
             IsSpreadsheet: true);
+    }
+
+    private static IReadOnlyList<TableGroup> ConsolidateGridTables(
+        IReadOnlyList<TableGroup> knownGridTables,
+        IReadOnlyList<TableGroup> inferredTables)
+    {
+        var authoritativeSpreadsheets = knownGridTables
+            .Where(table => table.IsSpreadsheet)
+            .ToArray();
+        return knownGridTables
+            .Concat(inferredTables.Where(inferred =>
+                !authoritativeSpreadsheets.Any(spreadsheet =>
+                    ContainsCenter(spreadsheet.Bounds, inferred.Bounds) ||
+                    OverlapRatio(spreadsheet.Bounds, inferred.Bounds) >= .72)))
+            .GroupBy(table => table.Bounds)
+            .Select(group => group.First())
+            .ToArray();
     }
 
     private static IReadOnlyList<ClassicTreeGroup> FindClassicTrees(
@@ -3526,6 +4238,27 @@ public static class VisualSurfaceScanner
     private sealed record GallerySectionHeader(string Name, RectI Bounds);
     private sealed record CellStyleGalleryCard(RectI Bounds, string Name, int Ordinal);
     private sealed record TableStyleGalleryCard(RectI Bounds, string Section, int Ordinal);
+    private sealed record OfficeShapeGallery(RectI Bounds, IReadOnlyList<OfficeShapeGalleryCard> Cards);
+    private sealed record OfficeShapeGalleryCard(
+        RectI Bounds,
+        string Section,
+        int Ordinal,
+        int Row,
+        int Column);
+    private sealed record OfficeAvailableWindowsGallery(
+        RectI Bounds,
+        RectI ScreenClippingBounds,
+        IReadOnlyList<OfficeAvailableWindowCard> Cards);
+    private sealed record OfficeAvailableWindowCard(RectI Bounds, int Row, int Column);
+    private sealed record OfficeChartGallery(
+        RectI Bounds,
+        RectI MoreChartsBounds,
+        IReadOnlyList<OfficeChartGalleryCard> Cards);
+    private sealed record OfficeChartGalleryCard(
+        RectI Bounds,
+        string Section,
+        int SectionIndex,
+        int Column);
     private readonly record struct AxisBand(int Start, int End)
     {
         public int Length => End - Start + 1;

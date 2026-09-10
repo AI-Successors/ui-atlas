@@ -147,7 +147,9 @@ public static class OfflineRecordingEnricher
                         IsVisualFallbackControl(control) && ContainsCenter(table.Bounds, control.Bounds))).ToArray();
                 }
                 var hasStructuredPopupGallery = visual.Any(control =>
-                    string.Equals(control.VisualRole, "cell-style-button", StringComparison.Ordinal));
+                    control.VisualRole is "cell-style-button" or "shape-gallery-button" or
+                        "window-gallery-button" or "window-gallery-action" or
+                        "chart-gallery-button" or "chart-gallery-action");
                 var popupText = IsVisualPopupFallback(frame) && !hasStructuredPopupGallery
                     ? await VisualSurfaceScanner.DiscoverPopupActionRowsAsync(
                         target, pixels, words, cancellationToken).ConfigureAwait(false)

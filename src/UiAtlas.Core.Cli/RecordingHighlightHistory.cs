@@ -1,8 +1,10 @@
 using System.Text.Json;
 using System.Globalization;
 using UiAtlas.Core.Contracts;
+using UiAtlas.Core.Reader;
 using UiAtlas.Core.Recording;
 using UiAtlas.Core.Recording.Windows;
+using UiAtlas.Core.Storage;
 
 namespace UiAtlas.Core.Cli;
 
@@ -11,8 +13,24 @@ internal sealed record RecordedHighlight(
     string LayerKey,
     RectI Bounds);
 
+internal sealed record MappedSurfaceHighlightSnapshot(
+    string Id,
+    string BundleId,
+    long FrameSequence,
+    string ClassName,
+    string Title,
+    string Role,
+    RectI CapturedSurfaceBounds,
+    IReadOnlyList<RectI> RelativeHighlightBounds,
+    IReadOnlyList<AutomationObservation> IdentityControls)
+{
+    public bool IsPrimarySurface => Role is "root" or "root-owner";
+}
+
 internal static class RecordingHighlightHistory
 {
+    private const string RawDataStreamsLayer = "raw-data-streams";
+
     public static IReadOnlyList<RecordedHighlight> Load(IEnumerable<string> recordingPaths)
     {
         ArgumentNullException.ThrowIfNull(recordingPaths);
@@ -40,6 +58,354 @@ internal static class RecordingHighlightHistory
             .DistinctBy(highlight => RelativeIdentity(highlight))
             .ToArray();
     }
+
+    public static IReadOnlyList<MappedSurfaceHighlightSnapshot> LoadMappedSurfaces(string mapPath)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(mapPath);
+        var nodes = SqliteGraphStore.ReadLayerNodes(mapPath, RawDataStreamsLayer);
+        var surfaceNodes = nodes
+            .Where(node => node.Kind == GraphNodeKind.Window)
+            .ToArray();
+        var controlsBySurface = nodes
+            .Where(node => node.Kind == GraphNodeKind.Control)
+            .Where(node => !IsTrue(Property(node, "curationHidden")))
+            .GroupBy(node => Property(node, "rawDataStreamSurfaceId"), StringComparer.Ordinal)
+            .Where(group => !string.IsNullOrWhiteSpace(group.Key))
+            .ToDictionary(group => group.Key, group => group.ToArray(), StringComparer.Ordinal);
+        var snapshots = new List<MappedSurfaceHighlightSnapshot>();
+
+        foreach (var surfaceNode in surfaceNodes)
+        {
+            if (!controlsBySurface.TryGetValue(surfaceNode.Id, out var surfaceControlNodes))
+                continue;
+
+            foreach (var evidenceGroup in surfaceNode.Evidence
+                         .Where(evidence => evidence.FrameSequence > 0 && evidence.Bounds is { IsValid: true })
+                         .GroupBy(evidence => (evidence.BundleId, evidence.FrameSequence)))
+            {
+                var surfaceEvidence = evidenceGroup.First();
+                var surfaceBounds = surfaceEvidence.Bounds!;
+                var controls = surfaceControlNodes
+                    .Select(node => ToControlView(node, surfaceNode.Id, evidenceGroup.Key.BundleId,
+                        evidenceGroup.Key.FrameSequence))
+                    .Where(control => control is not null)
+                    .Cast<UiMapControlView>()
+                    .Where(IsPresentableRawControl)
+                    .ToArray();
+                if (controls.Length == 0)
+                    continue;
+
+                var surfaceKind = Property(surfaceNode, "nativeWindowType") is { Length: > 0 } nativeKind
+                    ? nativeKind
+                    : Property(surfaceNode, "surfaceClass") is { Length: > 0 } surfaceClass
+                        ? surfaceClass
+                        : "RawWindow";
+                var surface = new UiMapSurfaceView(
+                    surfaceNode.Id,
+                    UiUnderstandingLevel.RawDataStreams,
+                    surfaceNode.Label,
+                    surfaceKind,
+                    surfaceNode.ParentId,
+                    surfaceBounds,
+                    controls.Length,
+                    [],
+                    [surfaceEvidence],
+                    surfaceNode);
+                var rendered = controls
+                    .Where(control => !UiMapPresentation.IsStaleCachedControlForFrame(
+                        control, evidenceGroup.Key.FrameSequence, evidenceGroup.Key.BundleId, controls))
+                    .Where(control => !UiMapPresentation.IsRedundantCaptionButton(
+                        control, evidenceGroup.Key.FrameSequence, evidenceGroup.Key.BundleId, controls))
+                    .Where(control => !UiMapPresentation.IsRedundantCompositeBoundary(
+                        control, evidenceGroup.Key.FrameSequence, evidenceGroup.Key.BundleId, controls))
+                    .Where(control => !UiMapPresentation.IsRedundantPopupEditor(
+                        control, surface, evidenceGroup.Key.FrameSequence, evidenceGroup.Key.BundleId, controls))
+                    .Where(control => UiMapPresentation.ShouldRenderControl(
+                        control, surface, UiMapProjectionMode.Overlay))
+                    .Select(control => UiMapPresentation.ProjectToSurface(
+                        UiMapPresentation.ResolveControlBounds(
+                            control, evidenceGroup.Key.FrameSequence, evidenceGroup.Key.BundleId, controls),
+                        surfaceBounds))
+                    .Where(bounds => bounds is not null)
+                    .Cast<RectI>()
+                    .Distinct()
+                    .Take(5_000)
+                    .ToArray();
+                if (rendered.Length == 0)
+                    continue;
+
+                snapshots.Add(new(
+                    $"{surfaceNode.Id}:{evidenceGroup.Key.BundleId}:{evidenceGroup.Key.FrameSequence}",
+                    evidenceGroup.Key.BundleId,
+                    evidenceGroup.Key.FrameSequence,
+                    Property(surfaceNode, "className"),
+                    Property(surfaceNode, "title") is { Length: > 0 } title ? title : surfaceNode.Label,
+                    Property(surfaceNode, "role"),
+                    surfaceBounds,
+                    rendered,
+                    controls.Select(ToAutomationObservation).ToArray()));
+            }
+        }
+
+        return snapshots
+            .OrderBy(snapshot => snapshot.BundleId, StringComparer.Ordinal)
+            .ThenBy(snapshot => snapshot.FrameSequence)
+            .ThenBy(snapshot => snapshot.Id, StringComparer.Ordinal)
+            .ToArray();
+    }
+
+    internal static MappedSurfaceHighlightSnapshot? SelectBestMappedSurface(
+        IReadOnlyList<MappedSurfaceHighlightSnapshot> snapshots,
+        WindowObservation currentWindow,
+        IReadOnlyList<AutomationObservation> currentControls,
+        bool currentIsPrimarySurface)
+    {
+        ArgumentNullException.ThrowIfNull(snapshots);
+        ArgumentNullException.ThrowIfNull(currentWindow);
+        ArgumentNullException.ThrowIfNull(currentControls);
+        var candidates = snapshots
+            .Where(snapshot => snapshot.IsPrimarySurface == currentIsPrimarySurface)
+            .ToArray();
+        if (candidates.Length == 0)
+            return null;
+
+        var exactClass = candidates.Where(snapshot => SameText(snapshot.ClassName, currentWindow.ClassName)).ToArray();
+        if (exactClass.Length > 0)
+            candidates = exactClass;
+        else if (!currentIsPrimarySurface)
+            return null;
+
+        var exactTitle = candidates.Where(snapshot => SameText(snapshot.Title, currentWindow.Title)).ToArray();
+        if (exactTitle.Length > 0)
+            candidates = exactTitle;
+
+        var currentKeys = currentControls
+            .Where(control => control.IsEnabled && !control.IsOffscreen && control.Bounds.IsValid)
+            .Select(ControlIdentityKey)
+            .Where(key => key.Length > 0)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var currentSelection = SelectedNavigationKey(currentControls);
+        var candidateSelections = candidates
+            .Select(snapshot => SelectedNavigationKey(snapshot.IdentityControls))
+            .Where(selection => selection.Length > 0)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (currentSelection.Length == 0 && candidateSelections.Length > 1)
+            return null;
+        if (currentSelection.Length > 0)
+        {
+            var snapshotsWithSelection = candidates
+                .Select(snapshot => new
+                {
+                    Snapshot = snapshot,
+                    Selection = SelectedNavigationKey(snapshot.IdentityControls)
+                })
+                .Where(item => item.Selection.Length > 0)
+                .ToArray();
+            var exactSelection = snapshotsWithSelection
+                .Where(item => SameText(item.Selection, currentSelection))
+                .Select(item => item.Snapshot)
+                .ToArray();
+            if (exactSelection.Length > 0)
+                candidates = exactSelection;
+            else if (snapshotsWithSelection.Length > 0)
+                return null;
+        }
+        var scored = candidates
+            .Select(snapshot =>
+            {
+                var snapshotKeys = snapshot.IdentityControls
+                    .Select(ControlIdentityKey)
+                    .Where(key => key.Length > 0)
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+                var shared = currentKeys.Count == 0 ? 0 : currentKeys.Count(snapshotKeys.Contains);
+                var candidateSelection = SelectedNavigationKey(snapshot.IdentityControls);
+                var selectionScore = currentSelection.Length == 0 || candidateSelection.Length == 0
+                    ? 0
+                    : SameText(currentSelection, candidateSelection) ? 1_000 : -500;
+                var classScore = SameText(snapshot.ClassName, currentWindow.ClassName) ? 500 : 0;
+                var titleScore = SameText(snapshot.Title, currentWindow.Title) ? 300 : 0;
+                var sizeScore = SurfaceSizeScore(snapshot.CapturedSurfaceBounds, currentWindow.Bounds);
+                var similarityScore = shared * 12 +
+                                      (currentKeys.Count == 0 ? 0 : (int)Math.Round(shared * 500d / currentKeys.Count));
+                return new { Snapshot = snapshot, Shared = shared, Score = selectionScore + classScore + titleScore + sizeScore + similarityScore };
+            })
+            .OrderByDescending(item => item.Score)
+            .ThenByDescending(item => item.Shared)
+            .ThenByDescending(item => item.Snapshot.RelativeHighlightBounds.Count)
+            .ThenByDescending(item => item.Snapshot.FrameSequence)
+            .ToArray();
+        var best = scored.FirstOrDefault();
+        if (best is null)
+            return null;
+
+        // A generic owned popup class and title can be reused for unrelated menus.
+        // Require at least one live identity match before declaring such a surface
+        // already mapped; otherwise an unseen dialog would be painted purple.
+        if (!currentIsPrimarySurface && currentKeys.Count > 0 && best.Shared == 0)
+            return null;
+        return best.Snapshot;
+    }
+
+    internal static IReadOnlyList<RectI> ProjectMappedHighlights(
+        MappedSurfaceHighlightSnapshot snapshot,
+        RectI currentRootBounds,
+        RectI currentSurfaceBounds)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        if (!currentRootBounds.IsValid || !currentSurfaceBounds.IsValid || !snapshot.CapturedSurfaceBounds.IsValid)
+            return [];
+        var scaleX = currentSurfaceBounds.Width / (double)snapshot.CapturedSurfaceBounds.Width;
+        var scaleY = currentSurfaceBounds.Height / (double)snapshot.CapturedSurfaceBounds.Height;
+        return snapshot.RelativeHighlightBounds
+            .Select(bounds => new RectI(
+                currentSurfaceBounds.X - currentRootBounds.X + (int)Math.Round(bounds.X * scaleX),
+                currentSurfaceBounds.Y - currentRootBounds.Y + (int)Math.Round(bounds.Y * scaleY),
+                Math.Max(1, (int)Math.Round(bounds.Width * scaleX)),
+                Math.Max(1, (int)Math.Round(bounds.Height * scaleY))))
+            .Distinct()
+            .ToArray();
+    }
+
+    internal static IReadOnlyList<AutomationObservation> ProjectMappedControls(
+        MappedSurfaceHighlightSnapshot snapshot,
+        RectI currentSurfaceBounds,
+        long currentWindowHwnd)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        if (!snapshot.CapturedSurfaceBounds.IsValid || !currentSurfaceBounds.IsValid)
+            return [];
+
+        var scaleX = currentSurfaceBounds.Width / (double)snapshot.CapturedSurfaceBounds.Width;
+        var scaleY = currentSurfaceBounds.Height / (double)snapshot.CapturedSurfaceBounds.Height;
+        return snapshot.IdentityControls
+            .Where(control => control.Bounds.IsValid)
+            .Take(RecordingContractLimits.MaxControlsPerFrame)
+            .Select(control =>
+            {
+                var relativeX = control.Bounds.X - snapshot.CapturedSurfaceBounds.X;
+                var relativeY = control.Bounds.Y - snapshot.CapturedSurfaceBounds.Y;
+                var projected = new RectI(
+                    currentSurfaceBounds.X + (int)Math.Round(relativeX * scaleX),
+                    currentSurfaceBounds.Y + (int)Math.Round(relativeY * scaleY),
+                    Math.Max(1, (int)Math.Round(control.Bounds.Width * scaleX)),
+                    Math.Max(1, (int)Math.Round(control.Bounds.Height * scaleY)));
+                return control with { Bounds = projected, WindowHwnd = currentWindowHwnd };
+            })
+            .ToArray();
+    }
+
+    private static UiMapControlView? ToControlView(
+        GraphNode node,
+        string surfaceId,
+        string bundleId,
+        long frameSequence)
+    {
+        var evidence = node.Evidence.FirstOrDefault(item =>
+            item.FrameSequence == frameSequence &&
+            string.Equals(item.BundleId, bundleId, StringComparison.Ordinal) &&
+            item.Bounds is { IsValid: true });
+        if (evidence?.Bounds is not { } bounds)
+            return null;
+        return new(
+            node.Id,
+            UiUnderstandingLevel.RawDataStreams,
+            node.Label,
+            Property(node, "controlType") is { Length: > 0 } controlType ? controlType : "Control",
+            surfaceId,
+            string.Empty,
+            bounds,
+            node.Evidence,
+            node);
+    }
+
+    private static AutomationObservation ToAutomationObservation(UiMapControlView control) => new(
+        Property(control.Source, "runtimeId"),
+        Property(control.Source, "parentRuntimeId"),
+        Property(control.Source, "automationId"),
+        Property(control.Source, "name") is { Length: > 0 } name ? name : control.DisplayName,
+        control.CanonicalKind,
+        Property(control.Source, "className"),
+        control.Bounds,
+        !IsFalse(Property(control.Source, "enabled")),
+        IsTrue(Property(control.Source, "offscreen")),
+        Property(control.Source, "frameworkId"),
+        SupportedPatterns: Properties(control.Source, "supportedPattern"),
+        HasKeyboardFocus: IsTrue(Property(control.Source, "focused")),
+        IsSelected: IsTrue(Property(control.Source, "selected")),
+        ToggleState: Property(control.Source, "toggleState"),
+        ExpandCollapseState: Property(control.Source, "expandCollapseState"));
+
+    private static bool IsPresentableRawControl(UiMapControlView control)
+    {
+        var framework = Property(control.Source, "frameworkId");
+        var className = Property(control.Source, "className");
+        var visual = className is "UiAtlas.VisualControlRegion" or "UiAtlas.HoverRegion";
+        var cached = framework.Equals("UiAtlas.Cached", StringComparison.OrdinalIgnoreCase);
+        if (visual || cached)
+            return control.Bounds.IsValid;
+        if (IsFalse(Property(control.Source, "effectivelyVisible")))
+            return false;
+        return !IsTrue(Property(control.Source, "offscreen"));
+    }
+
+    private static int SurfaceSizeScore(RectI recorded, RectI current)
+    {
+        if (!recorded.IsValid || !current.IsValid)
+            return 0;
+        var widthRatio = Math.Min(recorded.Width, current.Width) / (double)Math.Max(recorded.Width, current.Width);
+        var heightRatio = Math.Min(recorded.Height, current.Height) / (double)Math.Max(recorded.Height, current.Height);
+        return (int)Math.Round((widthRatio + heightRatio) * 100);
+    }
+
+    private static string SelectedNavigationKey(IEnumerable<AutomationObservation> controls)
+    {
+        foreach (var control in controls
+                     .Where(control => control.IsSelected)
+                     .Concat(controls.Where(control => !control.IsSelected && control.HasKeyboardFocus)))
+        {
+            var type = NormalizeControlType(control.ControlType);
+            if (type is not ("TabItem" or "MenuItem" or "ListItem"))
+                continue;
+            var label = string.IsNullOrWhiteSpace(control.Name) ? control.AutomationId : control.Name;
+            if (!string.IsNullOrWhiteSpace(label))
+                return $"{type}|{label.Trim()}";
+        }
+        return string.Empty;
+    }
+
+    private static string ControlIdentityKey(AutomationObservation control)
+    {
+        var type = NormalizeControlType(control.ControlType);
+        var automationId = control.AutomationId?.Trim() ?? string.Empty;
+        var name = control.Name?.Trim() ?? string.Empty;
+        var className = control.ClassName?.Trim() ?? string.Empty;
+        if (automationId.Length == 0 && name.Length == 0)
+            return string.Empty;
+        return $"{type}|{automationId}|{name}|{className}";
+    }
+
+    private static string NormalizeControlType(string value)
+    {
+        const string prefix = "ControlType.";
+        return value.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) ? value[prefix.Length..] : value;
+    }
+
+    private static bool SameText(string left, string right) =>
+        !string.IsNullOrWhiteSpace(left) && !string.IsNullOrWhiteSpace(right) &&
+        string.Equals(left.Trim(), right.Trim(), StringComparison.OrdinalIgnoreCase);
+
+    private static string Property(GraphNode node, string name) => node.Properties
+        .FirstOrDefault(property => string.Equals(property.Name, name, StringComparison.OrdinalIgnoreCase))?.Value ?? string.Empty;
+
+    private static IReadOnlyList<string> Properties(GraphNode node, string name) => node.Properties
+        .Where(property => string.Equals(property.Name, name, StringComparison.OrdinalIgnoreCase))
+        .Select(property => property.Value)
+        .Where(value => !string.IsNullOrWhiteSpace(value))
+        .ToArray();
+
+    private static bool IsTrue(string value) => bool.TryParse(value, out var parsed) && parsed;
+    private static bool IsFalse(string value) => bool.TryParse(value, out var parsed) && !parsed;
 
     private static void LoadBundle(string path, List<RecordedHighlight> output)
     {

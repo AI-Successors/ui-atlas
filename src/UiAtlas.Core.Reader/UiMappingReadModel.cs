@@ -252,6 +252,30 @@ public static class UiMapPresentation
         return componentCount >= 3;
     }
 
+    public static bool IsStaleCachedControlForFrame(
+        UiMapControlView control,
+        long? frameSequence,
+        string? bundleId,
+        IReadOnlyList<UiMapControlView> siblingControls)
+    {
+        ArgumentNullException.ThrowIfNull(control);
+        ArgumentNullException.ThrowIfNull(siblingControls);
+        if (!IsCachedControl(control.Source) ||
+            !IsTrue(SourceProperty(control.Source, "offscreen")))
+            return false;
+
+        // Cached controls are recovery hints from another observation. Once the
+        // current frame has a live Excel worksheet, painting any of those hints
+        // can resurrect a closed task pane over real cells (for example its
+        // scrollbar and New comment button inside columns S/T).
+        return siblingControls.Any(candidate =>
+            candidate.OwnerSurfaceId == control.OwnerSurfaceId &&
+            !IsCachedControl(candidate.Source) &&
+            IsExcelWorksheetGrid(candidate.Source) &&
+            !IsTrue(SourceProperty(candidate.Source, "offscreen")) &&
+            HasEvidenceForFrame(candidate, frameSequence, bundleId));
+    }
+
     private static bool HasEvidenceForFrame(UiMapControlView control, long? frameSequence, string? bundleId) =>
         frameSequence is null || control.Evidence.Any(evidence =>
             evidence.FrameSequence == frameSequence.Value &&
@@ -426,7 +450,10 @@ public static class UiMapPresentation
         SourceProperty(node, "className") is "UiAtlas.VisualControlRegion" or "UiAtlas.HoverRegion";
 
     internal static bool IsCachedControl(GraphNode node) =>
-        SourceProperty(node, "frameworkId").Equals("UiAtlas.Cached", StringComparison.OrdinalIgnoreCase);
+        SourceProperty(node, "frameworkId").StartsWith("UiAtlas.Cached", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsExcelWorksheetGrid(GraphNode node) =>
+        SourceProperty(node, "className").Equals("XLSpreadsheetGrid", StringComparison.OrdinalIgnoreCase);
 
     private static bool IsExcelWorksheetControl(GraphNode node) =>
         SourceProperty(node, "className") is "XLSpreadsheetGrid" or "XLGridColumnHeader" or
@@ -875,6 +902,8 @@ public sealed class UiMappingReadModel
             .ToArray();
         var controls = graph.Nodes
             .Where(node => node.Kind == GraphNodeKind.Control && Property(node, "layer") == layer)
+            .Where(node => !string.Equals(Property(node, "curationHidden"), bool.TrueString,
+                StringComparison.OrdinalIgnoreCase))
             .Select(node => new UiMapControlView(
                 node.Id,
                 level,

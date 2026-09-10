@@ -225,6 +225,25 @@ public sealed class AutoTabDiscoveryTests
     }
 
     [Fact]
+    public void BackstageSectionMaterializationRejectsSelectedNavigationWithStaleBody()
+    {
+        AutomationObservation[] stale =
+        [
+            new("root", "", "", "Backstage view", "ControlType.Pane", "FullpageUIHost",
+                new RectI(0, 0, 1_920, 1_030), true, false, "Win32", 1),
+            Backstage("info", "Info", "ControlType.TabItem", 336, isSelected: true),
+            new("open-body", "root", "", "Open", "ControlType.Text", "NetUILabel",
+                new RectI(250, 80, 60, 30), true, false, "Win32", 1)
+        ];
+        var materialized = stale.Append(new AutomationObservation(
+            "info-body", "root", "", "Info", "ControlType.Text", "NetUILabel",
+            new RectI(250, 80, 60, 30), true, false, "Win32", 1)).ToArray();
+
+        Assert.False(AutoTabDiscovery.IsBackstageSectionMaterialized(stale, "Info"));
+        Assert.True(AutoTabDiscovery.IsBackstageSectionMaterialized(materialized, "Info"));
+    }
+
+    [Fact]
     public void BackstageActionDiscoveryReturnsOnlyReversibleInfoActionsInSafeOrder()
     {
         var window = new WindowObservation(100, 100, 7, "XLMAIN", "Workbook",

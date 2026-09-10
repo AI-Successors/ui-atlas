@@ -1,6 +1,7 @@
 using System.Text.Json;
 using UiAtlas.Core.Build;
 using UiAtlas.Core.Contracts;
+using UiAtlas.Core.Reader;
 using UiAtlas.Core.Storage;
 
 namespace UiAtlas.Core.Tests;
@@ -211,6 +212,61 @@ public sealed class MapCurationStoreTests
     }
 
     [Fact]
+    public void DetectedButtonCanBeResizedByAStableManualCorrection()
+    {
+        using var temp = new TempDirectory();
+        const string logicalMapId = "detected-resize-curation";
+        var graph = new RecordingGraphBuilder().Build(
+            [SyntheticBundleFactory.Create(temp.Path, sessionId: "detected-resize-session")], logicalMapId);
+        var target = graph.Nodes.First(node => node.Kind == GraphNodeKind.Control &&
+            Property(node, "layer") == "semantic-world" &&
+            Property(node, "controlType")?.Contains("Button", StringComparison.OrdinalIgnoreCase) == true);
+        var surface = graph.Nodes.Single(node => node.Id == Property(target, "semanticSurfaceId"));
+        var now = DateTimeOffset.UtcNow;
+        var correctedBounds = new NormalizedControlBounds(.22, .31, .18, .09);
+        var annotation = new ManualControlAnnotation(
+            "manual-detected-resize", surface.StableKey, surface.Id, target.Label, "Button",
+            correctedBounds, now, now, ReplacesControlStableKey: target.StableKey);
+
+        var corrected = MapCurationStore.Apply(graph,
+            MapCurationStore.UpsertManualControl(MapCurationDocument.Empty(logicalMapId), annotation));
+
+        Assert.Equal(graph.Nodes.Count, corrected.Nodes.Count);
+        var updated = corrected.Nodes.Single(node => node.Id == target.Id);
+        Assert.Equal(annotation.Id, Property(updated, "manualAnnotationId"));
+        Assert.Equal(target.StableKey, Property(updated, "replacementStableKey"));
+        var expected = MapCurationStore.ProjectBounds(correctedBounds, surface.Evidence[0].Bounds!);
+        Assert.Contains(updated.Evidence, evidence => evidence.Bounds == expected);
+        Assert.True(GraphValidator.Validate(corrected).IsValid);
+    }
+
+    [Fact]
+    public void HiddenDetectedControlDisappearsFromMapButKeepsGraphEvidence()
+    {
+        using var temp = new TempDirectory();
+        const string logicalMapId = "detected-hide-curation";
+        var graph = new RecordingGraphBuilder().Build(
+            [SyntheticBundleFactory.Create(temp.Path, sessionId: "detected-hide-session")], logicalMapId);
+        var target = graph.Nodes.First(node => node.Kind == GraphNodeKind.Control &&
+            Property(node, "layer") == "semantic-world");
+        var document = MapCurationStore.UpsertRule(
+            MapCurationDocument.Empty(logicalMapId), target.StableKey, "Hide", DateTimeOffset.UtcNow);
+
+        var hidden = MapCurationStore.Apply(graph, document);
+
+        Assert.Equal(graph.Nodes.Count, hidden.Nodes.Count);
+        Assert.Equal("True", Property(hidden.Nodes.Single(node => node.Id == target.Id), "curationHidden"));
+        Assert.DoesNotContain(new UiMappingReadModel(hidden).LayerFor(UiUnderstandingLevel.SemanticWorld).Controls,
+            control => control.Id == target.Id);
+        Assert.True(GraphValidator.Validate(hidden).IsValid);
+
+        var restored = MapCurationStore.Reapply(hidden, MapCurationDocument.Empty(logicalMapId));
+        Assert.Null(Property(restored.Nodes.Single(node => node.Id == target.Id), "curationHidden"));
+        Assert.Contains(new UiMappingReadModel(restored).LayerFor(UiUnderstandingLevel.SemanticWorld).Controls,
+            control => control.Id == target.Id);
+    }
+
+    [Fact]
     public void SuccessfulRecordedUserClickVerifiesCoordinateActionAndLinksInteraction()
     {
         using var temp = new TempDirectory();
@@ -272,6 +328,33 @@ public sealed class MapCurationStoreTests
         var suppressed = MapCurationStore.Apply(graph,
             MapCurationStore.UpsertRule(MapCurationDocument.Empty(logicalMapId), candidate.StableKey, "Suppress", now));
         Assert.DoesNotContain(suppressed.Nodes, node => node.Id == candidate.Id);
+    }
+
+    [Fact]
+    public void LoadingMapAppliesSavedCurationWithoutRewritingLargeDatabase()
+    {
+        using var temp = new TempDirectory();
+        const string logicalMapId = "sidecar-only-curation";
+        var graph = new RecordingGraphBuilder().Build(
+            [SyntheticBundleFactory.Create(temp.Path, visualFallback: true)], logicalMapId);
+        var candidate = graph.Nodes.First(node => node.Kind == GraphNodeKind.Control &&
+            Property(node, "layer") == "semantic-world" &&
+            Property(node, "className") == "UiAtlas.VisualControlRegion" &&
+            Property(node, "controlType")?.Contains("Button", StringComparison.OrdinalIgnoreCase) == true);
+        graph = WithVerification(graph, candidate, "Unverified");
+        candidate = graph.Nodes.Single(node => node.Id == candidate.Id);
+        var mapPath = Path.Combine(temp.Path, "map.db");
+        SqliteGraphStore.Save(graph, mapPath);
+        var databaseTimestamp = File.GetLastWriteTimeUtc(mapPath);
+        var document = MapCurationStore.UpsertRule(
+            MapCurationDocument.Empty(logicalMapId), candidate.StableKey, "Confirm", DateTimeOffset.UtcNow);
+
+        MapCurationStore.Save(mapPath, document);
+        var reopened = SqliteGraphStore.Load(mapPath);
+
+        Assert.Equal(databaseTimestamp, File.GetLastWriteTimeUtc(mapPath));
+        Assert.Equal("Confirmed", Property(reopened.Nodes.Single(node => node.Id == candidate.Id),
+            "verificationStatus"));
     }
 
     [Fact]

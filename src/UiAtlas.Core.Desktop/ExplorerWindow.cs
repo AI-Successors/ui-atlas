@@ -133,6 +133,7 @@ public sealed class ExplorerWindow : Window
     private double _appMapMinZoom = 1;
     private bool _appMapZoomPinnedToFit = true;
     private bool _resetAppMapZoomOnNextRender = true;
+    private bool _mapEditing;
     private bool _drawingManualButton;
     private Point _manualDrawStart;
     private Rectangle? _manualDrawPreview;
@@ -142,6 +143,7 @@ public sealed class ExplorerWindow : Window
     private byte[]? _renderedEvidencePng;
     private Point _renderedImageSourceOffset;
     private string? _resizingAnnotationId;
+    private string? _resizingControlId;
     private string? _resizeDirection;
     private Point _resizeStart;
     private Rect _resizeOriginal;
@@ -1092,7 +1094,7 @@ public sealed class ExplorerWindow : Window
                 args.Handled = true;
                 return;
             }
-            if (_resizingAnnotationId is not null && _resizeOutline is not null &&
+            if ((_resizingAnnotationId is not null || _resizingControlId is not null) && _resizeOutline is not null &&
                 args.LeftButton == MouseButtonState.Pressed)
             {
                 ApplyCanvasRect(_resizeOutline, ResizeRect(_resizeOriginal, _resizeStart, point, _resizeDirection!));
@@ -1101,13 +1103,27 @@ public sealed class ExplorerWindow : Window
         };
         _appMapOverlay.MouseLeftButtonUp += async (_, args) =>
         {
-            if (_resizingAnnotationId is not null && _resizeOutline is not null)
+            if ((_resizingAnnotationId is not null || _resizingControlId is not null) && _resizeOutline is not null)
             {
                 var annotationId = _resizingAnnotationId;
+                var controlId = _resizingControlId;
+                var moved = string.Equals(_resizeDirection, "move", StringComparison.Ordinal);
                 var resizedBounds = CanvasRect(_resizeOutline);
+                var boundsChanged = Math.Abs(resizedBounds.X - _resizeOriginal.X) >= .5 ||
+                                    Math.Abs(resizedBounds.Y - _resizeOriginal.Y) >= .5 ||
+                                    Math.Abs(resizedBounds.Width - _resizeOriginal.Width) >= .5 ||
+                                    Math.Abs(resizedBounds.Height - _resizeOriginal.Height) >= .5;
                 ClearResizeState();
                 _appMapOverlay.ReleaseMouseCapture();
-                await ResizeManualButtonAsync(annotationId, resizedBounds);
+                if (!boundsChanged)
+                {
+                    args.Handled = true;
+                    return;
+                }
+                if (annotationId is not null)
+                    await UpdateManualButtonBoundsAsync(annotationId, resizedBounds, moved);
+                else if (controlId is not null)
+                    await UpdateDetectedButtonBoundsAsync(controlId, resizedBounds, moved);
                 args.Handled = true;
                 return;
             }
@@ -1129,6 +1145,11 @@ public sealed class ExplorerWindow : Window
         };
         _appMapOverlay.LostMouseCapture += (_, _) =>
         {
+            if (_resizingAnnotationId is not null || _resizingControlId is not null)
+            {
+                ClearResizeState();
+                return;
+            }
             if (!_drawingManualButton) return;
             _drawingManualButton = false;
             if (_manualDrawPreview is not null) _appMapOverlay.Children.Remove(_manualDrawPreview);
@@ -1138,11 +1159,13 @@ public sealed class ExplorerWindow : Window
 
     private void SetMapEditingMode(bool enabled)
     {
+        _mapEditing = enabled;
         _editMapButton.Visibility = enabled ? Visibility.Collapsed : Visibility.Visible;
         _mapEditingToolsHost.Visibility = enabled ? Visibility.Visible : Visibility.Collapsed;
         if (!enabled)
         {
             CancelManualButtonEditor();
+            ClearResizeState();
             _drawButtonToggle.IsChecked = false;
             SetManualButtonDrawingMode(false);
             _status.Text = "Map editing finished.";
@@ -1269,9 +1292,13 @@ public sealed class ExplorerWindow : Window
             name.BorderBrush = UiBorder;
         };
         var confirm = CandidateActionButton("M2,6 L5,9 L11,2", Green, Brush("#1FAD78"),
-            "Confirm button", "Confirm drawn button", () => _ = ConfirmDraftAsync());
+            "Confirm button", "Confirm drawn button", () => ConfirmDraftAsync());
         var cancel = CandidateActionButton("M2,2 L10,10 M10,2 L2,10", Brush("#E34D59"), Brush("#C93845"),
-            "Cancel", "Cancel drawn button", CancelDraft, new Thickness(5, 0, 0, 0));
+            "Cancel", "Cancel drawn button", () =>
+            {
+                CancelDraft();
+                return Task.CompletedTask;
+            }, new Thickness(5, 0, 0, 0));
         var actions = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(8, 0, 0, 0) };
         actions.Children.Add(confirm);
         actions.Children.Add(cancel);
@@ -1348,6 +1375,17 @@ public sealed class ExplorerWindow : Window
 
     private Rect ResizeRect(Rect original, Point start, Point current, string direction)
     {
+        if (string.Equals(direction, "move", StringComparison.Ordinal))
+        {
+            var moveDeltaX = current.X - start.X;
+            var moveDeltaY = current.Y - start.Y;
+            var movedLeft = Math.Clamp(
+                original.Left + moveDeltaX, 0, Math.Max(0, _appMapOverlay.Width - original.Width));
+            var movedTop = Math.Clamp(
+                original.Top + moveDeltaY, 0, Math.Max(0, _appMapOverlay.Height - original.Height));
+            return new Rect(movedLeft, movedTop, original.Width, original.Height);
+        }
+
         var left = original.Left;
         var top = original.Top;
         var right = original.Right;
@@ -1365,17 +1403,53 @@ public sealed class ExplorerWindow : Window
     {
         if (_resizeOutline is not null) _appMapOverlay.Children.Remove(_resizeOutline);
         _resizingAnnotationId = null;
+        _resizingControlId = null;
         _resizeDirection = null;
         _resizeOutline = null;
     }
 
+    private void BeginControlBoundsEdit(
+        string? annotationId,
+        string? controlId,
+        Rect bounds,
+        string direction,
+        Point start)
+    {
+        ClearResizeState();
+        _resizingAnnotationId = annotationId;
+        _resizingControlId = controlId;
+        _resizeDirection = direction;
+        _resizeStart = ClampToAppMap(start);
+        _resizeOriginal = bounds;
+        _resizeOutline = new Rectangle
+        {
+            Stroke = Green,
+            StrokeThickness = 3,
+            StrokeDashArray = [3, 2],
+            Fill = new SolidColorBrush(Color.FromArgb(42, 45, 206, 145)),
+            IsHitTestVisible = false
+        };
+        ApplyCanvasRect(_resizeOutline, bounds);
+        Panel.SetZIndex(_resizeOutline, 120);
+        _appMapOverlay.Children.Add(_resizeOutline);
+        _appMapOverlay.CaptureMouse();
+    }
+
     private void AddManualControlEditingAdornments(RectI local, string annotationId)
+        => AddControlEditingAdornments(local, annotationId, null);
+
+    private void AddDetectedControlEditingAdornments(RectI local, string controlId)
+        => AddControlEditingAdornments(local, null, controlId);
+
+    private void AddControlEditingAdornments(RectI local, string? annotationId, string? controlId)
     {
         var bounds = new Rect(local.X, local.Y, local.Width, local.Height);
         var delete = CandidateActionButton(
             "M3,4 H11 M5,4 V2 H9 V4 M4,5 V12 H10 V5 M6,7 V10 M8,7 V10",
-            Brush("#E34D59"), Brush("#C93845"), "Delete manual button", "Delete manual button",
-            () => _ = DeleteManualButtonAsync(annotationId));
+            Brush("#E34D59"), Brush("#C93845"), "Delete button", "Delete button from this curated map",
+            () => _ = annotationId is not null
+                ? DeleteManualButtonAsync(annotationId)
+                : HideDetectedButtonAsync(controlId!));
         Panel.SetZIndex(delete, 130);
         Canvas.SetLeft(delete, Math.Clamp(bounds.Right - 20, 0, Math.Max(0, _appMapOverlay.Width - 20)));
         Canvas.SetTop(delete, Math.Clamp(bounds.Top - 24, 0, Math.Max(0, _appMapOverlay.Height - 20)));
@@ -1410,22 +1484,12 @@ public sealed class ExplorerWindow : Window
             Canvas.SetTop(grip, handle.Item3 - 4.5);
             grip.MouseLeftButtonDown += (_, args) =>
             {
-                _resizingAnnotationId = annotationId;
-                _resizeDirection = handle.Item1;
-                _resizeStart = ClampToAppMap(args.GetPosition(_appMapOverlay));
-                _resizeOriginal = bounds;
-                _resizeOutline = new Rectangle
-                {
-                    Stroke = Green,
-                    StrokeThickness = 3,
-                    StrokeDashArray = [3, 2],
-                    Fill = new SolidColorBrush(Color.FromArgb(42, 45, 206, 145)),
-                    IsHitTestVisible = false
-                };
-                ApplyCanvasRect(_resizeOutline, bounds);
-                Panel.SetZIndex(_resizeOutline, 120);
-                _appMapOverlay.Children.Add(_resizeOutline);
-                _appMapOverlay.CaptureMouse();
+                BeginControlBoundsEdit(
+                    annotationId,
+                    controlId,
+                    bounds,
+                    handle.Item1,
+                    args.GetPosition(_appMapOverlay));
                 args.Handled = true;
             };
             _appMapOverlay.Children.Add(grip);
@@ -1452,7 +1516,7 @@ public sealed class ExplorerWindow : Window
         await PersistCurationAsync(document, annotation.Id, "Button added to the semantic screen.");
     }
 
-    private async Task ResizeManualButtonAsync(string annotationId, Rect localBounds)
+    private async Task UpdateManualButtonBoundsAsync(string annotationId, Rect localBounds, bool moved)
     {
         if (!TryNormalizeManualBounds(localBounds, out var normalized)) return;
         var document = LoadCurationDocument();
@@ -1460,7 +1524,42 @@ public sealed class ExplorerWindow : Window
         if (annotation is null) return;
         document = MapCurationStore.UpsertManualControl(document,
             annotation with { Bounds = normalized, UpdatedUtc = DateTimeOffset.UtcNow });
-        await PersistCurationAsync(document, annotationId, "Button size saved.");
+        await PersistCurationAsync(document, annotationId,
+            moved ? "Button position saved." : "Button size saved.");
+    }
+
+    private async Task UpdateDetectedButtonBoundsAsync(string controlId, Rect localBounds, bool moved)
+    {
+        if (_model is null || _selectedSurface is null || !TryNormalizeManualBounds(localBounds, out var normalized))
+            return;
+        var target = _model.Graph.Nodes.FirstOrDefault(node => node.Id == controlId);
+        if (target is null || target.Kind != GraphNodeKind.Control) return;
+
+        var document = LoadCurationDocument();
+        var existing = document.ManualControls.FirstOrDefault(item =>
+            string.Equals(item.ReplacesControlStableKey, target.StableKey, StringComparison.Ordinal));
+        var now = DateTimeOffset.UtcNow;
+        var actionVerificationStatus = string.Equals(
+            PropertyValue(target, "actionVerificationStatus"), "Observed", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(PropertyValue(target, "safeForAutoExplore"), bool.TrueString, StringComparison.OrdinalIgnoreCase)
+                ? "Observed"
+                : "Unobserved";
+        var annotation = existing is null
+            ? new ManualControlAnnotation(
+                "manual-" + Guid.NewGuid().ToString("N"),
+                _selectedSurface.Source.StableKey,
+                _selectedSurface.Id,
+                target.Label,
+                "Button",
+                normalized,
+                now,
+                now,
+                actionVerificationStatus,
+                ReplacesControlStableKey: target.StableKey)
+            : existing with { Bounds = normalized, UpdatedUtc = now };
+        document = MapCurationStore.UpsertManualControl(document, annotation);
+        await PersistCurationAsync(document, annotation.Id,
+            moved ? "Corrected button position saved." : "Corrected button size saved.");
     }
 
     private async Task RenameManualButtonAsync(string annotationId, string label)
@@ -1479,13 +1578,38 @@ public sealed class ExplorerWindow : Window
     private async Task DeleteManualButtonAsync(string annotationId)
     {
         if (_model is null || string.IsNullOrWhiteSpace(_graphPath)) return;
+        var current = LoadCurationDocument();
+        var annotation = current.ManualControls.FirstOrDefault(item => item.Id == annotationId);
+        if (annotation is null) return;
         var answer = MessageBox.Show(this,
-            "Delete this manually added button from every variant of the semantic screen?",
+            annotation.ReplacesControlStableKey is null
+                ? "Delete this manually added button from every variant of the semantic screen?"
+                : "Delete this corrected button from every variant of the semantic screen?",
             "Delete button", MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No);
         if (answer != MessageBoxResult.Yes) return;
-        var document = MapCurationStore.RemoveManualControl(LoadCurationDocument(), annotationId);
+        var document = MapCurationStore.RemoveManualControl(current, annotationId);
+        if (!string.IsNullOrWhiteSpace(annotation.ReplacesControlStableKey))
+            document = MapCurationStore.UpsertRule(
+                document, annotation.ReplacesControlStableKey, "Hide", DateTimeOffset.UtcNow);
         _selectedControl = null;
-        await PersistCurationAsync(document, null, "Manual button deleted.");
+        await PersistCurationAsync(document, null, "Button deleted from the curated map.");
+    }
+
+    private async Task HideDetectedButtonAsync(string controlId)
+    {
+        if (_model is null || string.IsNullOrWhiteSpace(_graphPath)) return;
+        var target = _model.Graph.Nodes.FirstOrDefault(node => node.Id == controlId);
+        if (target is null || target.Kind != GraphNodeKind.Control) return;
+        var answer = MessageBox.Show(this,
+            $"Delete ‘{target.Label}’ from the visible map?\n\n" +
+            "Its source evidence will be retained so the correction can survive a rebuild.",
+            "Delete incorrect button", MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No);
+        if (answer != MessageBoxResult.Yes) return;
+
+        var document = MapCurationStore.UpsertRule(
+            LoadCurationDocument(), target.StableKey, "Hide", DateTimeOffset.UtcNow);
+        _selectedControl = null;
+        await PersistCurationAsync(document, null, "Incorrect button deleted from the curated map.");
     }
 
     private bool TryNormalizeManualBounds(Rect localBounds, out NormalizedControlBounds normalized)
@@ -1531,9 +1655,7 @@ public sealed class ExplorerWindow : Window
             var updated = await Task.Run(() =>
             {
                 MapCurationStore.Save(graphPath, document);
-                var curated = MapCurationStore.Reapply(sourceGraph, document);
-                SaveGraph(curated, graphPath);
-                return curated;
+                return MapCurationStore.Reapply(sourceGraph, document);
             });
             _model = new UiMappingReadModel(updated);
             UpdateCaptureSummary(graphPath);
@@ -1728,7 +1850,7 @@ public sealed class ExplorerWindow : Window
                 return true;
             if (source is Border border && Equals(border.Cursor, Cursors.Hand))
                 return true;
-            if (source is Rectangle rectangle && Equals(rectangle.Cursor, Cursors.Hand))
+            if (source is Rectangle rectangle && rectangle.Cursor is not null)
                 return true;
             source = GetDependencyParent(source);
         }
@@ -2144,23 +2266,27 @@ public sealed class ExplorerWindow : Window
             return;
         }
 
-        var processOpen = Process.GetProcessesByName(manifest.ProcessName)
-            .Any(process =>
-            {
-                try { return process.MainWindowHandle != IntPtr.Zero; }
-                catch { return false; }
-            });
+        var targetOpen = WindowCatalog.ListTopLevelWindows().Any(window =>
+            string.Equals(window.ProcessName, manifest.ProcessName, StringComparison.OrdinalIgnoreCase));
+        if (!targetOpen)
+        {
+            _status.Text = $"{manifest.ProcessName} is not open. Open it and press Resume again.";
+            MessageBox.Show(this,
+                $"{manifest.ProcessName} is not open.\n\nOpen the application manually, wait until its main window appears, and then press Resume recording again.",
+                "Target application is closed", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
 
-        var prompt = processOpen
-            ? $"Do you want to continue recording on this map?\n\nUiAtlas will reconnect to the open {manifest.ProcessName} window and append a new recording bundle."
-            : $"Do you want to continue recording on this map?\n\nUiAtlas knows this map belongs to {manifest.ProcessName}, but that application window is not open right now. Open it first, then press Resume again.";
+        var prompt = $"Do you want to continue recording on this map?\n\n" +
+                     $"UiAtlas will reconnect to the visible {manifest.ProcessName} window and append a new recording bundle.";
         var result = MessageBox.Show(this, prompt, "Resume recording", MessageBoxButton.OKCancel, MessageBoxImage.Question);
-        if (result != MessageBoxResult.OK || !processOpen)
+        if (result != MessageBoxResult.OK)
             return;
 
         try
         {
-            StartResumeRecorderProcess(_graphPath, manualReview);
+            var recorder = StartResumeRecorderProcess(_graphPath, manualReview);
+            _ = MonitorResumeRecorderLaunchAsync(recorder, manifest.ProcessName);
             _status.Text = $"Resume requested for {System.IO.Path.GetFileName(_graphPath)}.";
         }
         catch (Exception ex) when (ex is IOException or InvalidOperationException or Win32Exception)
@@ -2169,7 +2295,28 @@ public sealed class ExplorerWindow : Window
         }
     }
 
-    private static void StartResumeRecorderProcess(string graphPath, bool manualReview = false)
+    private async Task MonitorResumeRecorderLaunchAsync(Process recorder, string processName)
+    {
+        try
+        {
+            await recorder.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(2));
+            _status.Text = "Recorder did not open.";
+            MessageBox.Show(this,
+                $"The recorder could not connect to {processName}.\n\n" +
+                "Make sure the application has a visible window and that another UiAtlas recorder is not busy, then try again.",
+                "Recorder did not open", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+        catch (TimeoutException)
+        {
+            _status.Text = $"Recorder opened for {processName}.";
+        }
+        finally
+        {
+            recorder.Dispose();
+        }
+    }
+
+    private static Process StartResumeRecorderProcess(string graphPath, bool manualReview = false)
     {
         var basePath = AppContext.BaseDirectory;
         var executable = System.IO.Path.Combine(basePath, "ui-atlas.exe");
@@ -2206,7 +2353,7 @@ public sealed class ExplorerWindow : Window
         start.ArgumentList.Add(System.IO.Path.GetFullPath(graphPath));
         if (manualReview)
             start.ArgumentList.Add("--manual-review");
-        Process.Start(start);
+        return Process.Start(start) ?? throw new InvalidOperationException("The recorder process could not be started.");
     }
 
     private void ShowExportMenu(Button anchor)
@@ -2702,8 +2849,8 @@ public sealed class ExplorerWindow : Window
                         false,
                         canConfirmButton ? Brush("#F97316") : unverified ? Muted : LevelBrush(level),
                         FontWeights.Normal,
-                        canConfirmButton ? () => _ = ConfirmButtonCandidateAsync(control.Id) : null,
-                        canRemoveButton ? () => _ = RemoveButtonCandidateAsync(control.Id) : null);
+                        canConfirmButton ? () => ConfirmButtonCandidateAsync(control.Id) : null,
+                        canRemoveButton ? () => RemoveButtonCandidateAsync(control.Id) : null);
                     controlItem.Opacity = unverified && !canConfirmButton ? 0.68 : 1;
                     controlItem.ToolTip = canConfirmButton
                         ? $"{control.CanonicalKind} | potential button: hover to confirm or remove"
@@ -2830,7 +2977,8 @@ public sealed class ExplorerWindow : Window
         {
             if (!positions.TryGetValue(node.Id, out var point)) continue;
             var border = new Border { Width = 175, Height = 55, CornerRadius = new CornerRadius(7), Background = NodeBackground(node.Kind),
-                BorderBrush = NodeBrush(node.Kind), BorderThickness = new Thickness(1.2), Padding = new Thickness(9, 7, 9, 5), Cursor = Cursors.Hand };
+                BorderBrush = NodeBrush(node.Kind), BorderThickness = new Thickness(1.2), Padding = new Thickness(9, 7, 9, 5), Cursor = Cursors.Hand,
+                Tag = node.Kind };
             var text = new StackPanel();
             text.Children.Add(Text(node.DisplayName, 11, FontWeights.SemiBold, NodeBrush(node.Kind), textTrimming: TextTrimming.CharacterEllipsis));
             text.Children.Add(Text(node.Subtitle, 9, FontWeights.Normal, Muted, textTrimming: TextTrimming.CharacterEllipsis));
@@ -2966,15 +3114,13 @@ public sealed class ExplorerWindow : Window
             var updated = await Task.Run(() =>
             {
                 MapCurationStore.Save(graphPath, document);
-                var curated = MapCurationStore.Reapply(sourceGraph, document);
-                SaveGraph(curated, graphPath);
-                return curated;
+                return MapCurationStore.Reapply(sourceGraph, document);
             });
 
             _model = new UiMappingReadModel(updated);
             UpdateCaptureSummary(graphPath);
             RefreshSurfaceKindFilter();
-            RefreshAll();
+            BuildHierarchy(_search.Text.Trim());
             SelectControlById(controlId);
             _status.Text = "Button confirmed and saved in the map.";
         }
@@ -3018,9 +3164,7 @@ public sealed class ExplorerWindow : Window
             var updated = await Task.Run(() =>
             {
                 MapCurationStore.Save(graphPath, document);
-                var curated = MapCurationStore.Reapply(sourceGraph, document);
-                SaveGraph(curated, graphPath);
-                return curated;
+                return MapCurationStore.Reapply(sourceGraph, document);
             });
 
             _model = new UiMappingReadModel(updated);
@@ -3042,21 +3186,40 @@ public sealed class ExplorerWindow : Window
         }
     }
 
-    private static void SaveGraph(UiKnowledgeGraph graph, string path)
+    private void HighlightTopology(string surfaceId, bool bringIntoView = false)
     {
-        if (IOPath.GetExtension(path).Equals(".json", StringComparison.OrdinalIgnoreCase))
-            GraphJsonStore.Save(graph, path);
-        else
-            SqliteGraphStore.Save(graph, path);
-    }
-
-    private void HighlightTopology(string surfaceId)
-    {
+        Border? selectedShape = null;
         foreach (var pair in _topologyShapes)
         {
-            pair.Value.BorderThickness = new Thickness(pair.Key == surfaceId ? 2.5 : 1.2);
-            pair.Value.Effect = null;
+            var selected = pair.Key == surfaceId;
+            var kind = pair.Value.Tag is UiPipelineNodeKind nodeKind
+                ? nodeKind
+                : UiPipelineNodeKind.RawSurface;
+            pair.Value.Background = selected ? Brush("#E9D5FF") : NodeBackground(kind);
+            pair.Value.BorderBrush = selected ? Brush("#6D28D9") : NodeBrush(kind);
+            pair.Value.BorderThickness = new Thickness(selected ? 3 : 1.2);
+            pair.Value.Effect = selected
+                ? new DropShadowEffect
+                {
+                    Color = Color.FromRgb(0x7C, 0x3A, 0xED),
+                    BlurRadius = 12,
+                    ShadowDepth = 0,
+                    Opacity = 0.55
+                }
+                : null;
+            if (selected)
+                selectedShape = pair.Value;
         }
+
+        if (!bringIntoView || selectedShape is null) return;
+        var expectedShape = selectedShape;
+        expectedShape.Dispatcher.BeginInvoke(
+            DispatcherPriority.Loaded,
+            new Action(() =>
+            {
+                if (_topologyShapes.TryGetValue(surfaceId, out var current) && ReferenceEquals(current, expectedShape))
+                    current.BringIntoView(new Rect(-24, -24, current.ActualWidth + 48, current.ActualHeight + 48));
+            }));
     }
 
     private void BuildVariants(UiMapSurfaceView surface)
@@ -3113,6 +3276,13 @@ public sealed class ExplorerWindow : Window
     {
         _selectedVariant = variant;
         _selectedSurface = ResolveSurfaceForVariant(variant) ?? _selectedSurface;
+        if (_selectedSurface is not null)
+        {
+            _synchronizing = true;
+            RevealHierarchyItem(_selectedSurface.Id);
+            _synchronizing = false;
+            HighlightTopology(_selectedSurface.Id, bringIntoView: true);
+        }
         RenderAppMap();
         if (_selectedSurface is not null)
             ShowProperties(_selectedSurface.Source, _selectedSurface.ControlCount, _visibleVariants.Count);
@@ -3248,6 +3418,8 @@ public sealed class ExplorerWindow : Window
             .Where(control => frameSequence is null || control.Evidence.Any(item =>
                 item.FrameSequence == frameSequence &&
                 (frameBundleId is null || string.Equals(item.BundleId, frameBundleId, StringComparison.Ordinal))))
+            .Where(control => !UiMapPresentation.IsStaleCachedControlForFrame(
+                control, frameSequence, frameBundleId, scopedControls))
             .Where(control => !UiMapPresentation.IsRedundantCaptionButton(
                 control, frameSequence, frameBundleId, scopedControls))
             .Where(control => !UiMapPresentation.IsRedundantCompositeBoundary(
@@ -3283,7 +3455,8 @@ public sealed class ExplorerWindow : Window
         _renderedViewportBounds = viewportBounds;
         if (projection.ShowsControlGeometry)
         {
-            var selectedBounds = _selectedControl is null
+            var selectedBounds = _selectedControl is null ||
+                                 !controls.Any(item => item.Control.Id == _selectedControl.Id)
                 ? null
                 : UiMapPresentation.ResolveControlBounds(
                     _selectedControl, frameSequence, frameBundleId, scopedControls);
@@ -3302,6 +3475,9 @@ public sealed class ExplorerWindow : Window
                 var isUnverified = GraphControlConfirmation.IsUnverified(control.Source);
                 var isButtonCandidate = GraphControlConfirmation.IsConfirmableButtonCandidate(control.Source);
                 var isCompactPopupAction = UiMapPresentation.IsCompactPopupAction(control, ownerSurface);
+                var manualAnnotationId = PropertyValue(control.Source, "manualAnnotationId");
+                var canMove = isSelected && _mapEditing &&
+                              _inspectionLevel == UiUnderstandingLevel.SemanticWorld;
                 var highlightColor = isUnverified ? Color.FromRgb(0xFF, 0x8B, 0x3D) : Color.FromRgb(0x2D, 0xCE, 0x91);
                 var rectangle = new Rectangle { Width = Math.Max(1, local.Width), Height = Math.Max(1, local.Height),
                     Stroke = isSelected || isButtonCandidate || isCompactPopupAction
@@ -3317,8 +3493,25 @@ public sealed class ExplorerWindow : Window
                     Effect = isSelected
                         ? new DropShadowEffect { Color = highlightColor, BlurRadius = 14, ShadowDepth = 0, Opacity = 0.8 }
                         : null,
-                    Cursor = Cursors.Hand };
-                rectangle.MouseLeftButtonDown += (_, args) => { SelectControlById(control.Id); args.Handled = true; };
+                    Cursor = canMove ? Cursors.SizeAll : Cursors.Hand,
+                    ToolTip = canMove ? "Drag to move button" : null };
+                rectangle.MouseLeftButtonDown += (_, args) =>
+                {
+                    if (canMove)
+                    {
+                        BeginControlBoundsEdit(
+                            string.IsNullOrWhiteSpace(manualAnnotationId) ? null : manualAnnotationId,
+                            string.IsNullOrWhiteSpace(manualAnnotationId) ? control.Id : null,
+                            new Rect(local.X, local.Y, local.Width, local.Height),
+                            "move",
+                            args.GetPosition(_appMapOverlay));
+                    }
+                    else
+                    {
+                        SelectControlById(control.Id);
+                    }
+                    args.Handled = true;
+                };
                 Canvas.SetLeft(rectangle, local.X); Canvas.SetTop(rectangle, local.Y); _appMapOverlay.Children.Add(rectangle);
                 if (projection.ShowsControlLabels || projection.ShowsControlCrops && controlCrop is null)
                 {
@@ -3327,8 +3520,13 @@ public sealed class ExplorerWindow : Window
                     label.IsHitTestVisible = false;
                     Canvas.SetLeft(label, local.X + 2); Canvas.SetTop(label, local.Y + 1); _appMapOverlay.Children.Add(label);
                 }
-                if (isSelected && PropertyValue(control.Source, "manualAnnotationId") is { Length: > 0 } annotationId)
-                    AddManualControlEditingAdornments(local, annotationId);
+                if (isSelected && _mapEditing && _inspectionLevel == UiUnderstandingLevel.SemanticWorld)
+                {
+                    if (!string.IsNullOrWhiteSpace(manualAnnotationId))
+                        AddManualControlEditingAdornments(local, manualAnnotationId);
+                    else
+                        AddDetectedControlEditingAdornments(local, control.Id);
+                }
             }
 
             if (legacyGridRepair is not null)
@@ -3407,7 +3605,8 @@ public sealed class ExplorerWindow : Window
 
             _legacyGridRepairCache[repairKey] = repair;
             if (string.Equals(_activeLegacyGridRepairKey, repairKey, StringComparison.Ordinal) &&
-                !_drawingManualButton && _manualButtonEditor is null && _resizingAnnotationId is null)
+                !_drawingManualButton && _manualButtonEditor is null &&
+                _resizingAnnotationId is null && _resizingControlId is null)
                 RenderAppMap();
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -4219,7 +4418,7 @@ public sealed class ExplorerWindow : Window
     }
 
     private static TreeViewItem TreeItem(string header, SelectionRef? selection, bool expanded, Brush accent,
-        FontWeight weight, Action? confirmAction = null, Action? removeAction = null) => new()
+        FontWeight weight, Func<Task>? confirmAction = null, Func<Task>? removeAction = null) => new()
     {
         Header = HierarchyItemHeader(header, accent, weight, confirmAction, removeAction),
         Tag = selection,
@@ -4234,8 +4433,8 @@ public sealed class ExplorerWindow : Window
         string label,
         Brush accent,
         FontWeight weight,
-        Action? confirmAction = null,
-        Action? removeAction = null)
+        Func<Task>? confirmAction = null,
+        Func<Task>? removeAction = null)
     {
         var marker = new Border
         {
@@ -4302,6 +4501,7 @@ public sealed class ExplorerWindow : Window
             };
             row.MouseLeave += (_, _) =>
             {
+                if (actions.Children.OfType<Button>().Any(button => button.Tag is true)) return;
                 actions.Opacity = 0;
                 actions.IsHitTestVisible = false;
             };
@@ -4315,7 +4515,7 @@ public sealed class ExplorerWindow : Window
         Brush border,
         string toolTip,
         string automationName,
-        Action action,
+        Func<Task> action,
         Thickness? margin = null)
     {
         var icon = new System.Windows.Shapes.Path
@@ -4339,12 +4539,45 @@ public sealed class ExplorerWindow : Window
             Cursor = Cursors.Hand,
             Content = new Viewbox { Width = 11, Height = 11, Child = icon },
             ToolTip = toolTip,
-            FocusVisualStyle = null
+            FocusVisualStyle = null,
+            Template = RoundedButtonTemplate(5)
         };
-        button.Click += (_, args) =>
+        var idleContent = button.Content;
+        button.Click += async (_, args) =>
         {
             args.Handled = true;
-            action();
+            if (button.Tag is true) return;
+            button.Tag = true;
+            button.IsEnabled = false;
+            button.Opacity = 1;
+            button.Cursor = Cursors.Wait;
+            button.Background = border;
+            button.ToolTip = automationName.StartsWith("Confirm", StringComparison.Ordinal)
+                ? "Confirming..."
+                : "Saving...";
+            button.Content = new TextBlock
+            {
+                Text = "…",
+                Foreground = Brushes.White,
+                FontWeight = FontWeights.Bold,
+                FontSize = 13,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            try
+            {
+                await action();
+            }
+            finally
+            {
+                button.Tag = false;
+                button.IsEnabled = true;
+                button.Opacity = 1;
+                button.Cursor = Cursors.Hand;
+                button.Background = background;
+                button.ToolTip = toolTip;
+                button.Content = idleContent;
+            }
         };
         System.Windows.Automation.AutomationProperties.SetName(button, automationName);
         return button;

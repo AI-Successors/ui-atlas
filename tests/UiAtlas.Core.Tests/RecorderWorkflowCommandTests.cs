@@ -11,6 +11,8 @@ public sealed class RecorderWorkflowCommandTests
     [InlineData("Stage 1 of 5: capturing the current screen before scanning controls.", "Capturing screen...", "Stage 1 of 5")]
     [InlineData("Stage 2 of 5: scanning visible controls and tables. Complex applications can take several minutes.", "Scanning controls & tables...", "several minutes")]
     [InlineData("Stage 3 of 5: verifying 219 discovered controls and attaching them to this screen.", "Verifying discovered controls...", "219")]
+    [InlineData("Matching the current screen to the existing map...", "Matching existing map...", "not being rediscovered")]
+    [InlineData("Matched the existing map. Showing 219 saved controls in lilac.", "Ready for next click", "shown in lilac")]
     public void RecordingProgressExplainsCurrentStage(string message, string headline, string detailFragment)
     {
         Assert.Equal(headline, RecordingControlPanel.ActiveBarText(message));

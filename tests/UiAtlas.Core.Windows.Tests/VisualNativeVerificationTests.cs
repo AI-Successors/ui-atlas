@@ -248,6 +248,17 @@ public sealed class VisualNativeVerificationTests
         const int height = 700;
         var pixels = Enumerable.Repeat((byte)245, width * height * 4).ToArray();
         for (var index = 3; index < pixels.Length; index += 4) pixels[index] = 255;
+        foreach (var bounds in new[]
+                 {
+                     new RectI(125, 100, 100, 72),
+                     new RectI(125, 190, 100, 72),
+                     new RectI(125, 280, 100, 72),
+                     new RectI(125, 370, 100, 72),
+                     // Reset Changes Pane intentionally has no visible border:
+                     // its disabled Office style must be inferred from the row.
+                     new RectI(125, 550, 100, 72)
+                 })
+            DrawBorder(pixels, width, bounds, 120);
         var target = new WindowTarget(1, 1, 7, "EXCEL", DateTimeOffset.UnixEpoch,
             "Book1 - Excel", "XLMAIN", new RectI(0, 0, width, height));
         var backstage = new AutomationObservation(
@@ -271,10 +282,21 @@ public sealed class VisualNativeVerificationTests
             "Protect Workbook", "Check for Issues", "Version History", "Manage Workbook",
             "Reset Changes Pane", "Browser View Options"
         ];
-        Assert.Equal(expected, controls.Where(control => expected.Contains(control.Name))
-            .Select(control => control.Name));
+        var mappedActions = controls.Where(control => expected.Contains(control.Name)).ToArray();
+        Assert.True(mappedActions.Length == expected.Length,
+            string.Join("; ", mappedActions.Select(control =>
+                $"{control.Name}@{control.Bounds.X},{control.Bounds.Y},{control.Bounds.Width},{control.Bounds.Height}:{control.VisualRole}")));
+        Assert.Equal(expected, mappedActions.Select(control => control.Name));
         Assert.All(controls.Where(control => expected.Contains(control.Name)),
             control => Assert.Equal("ControlType.Button", control.ControlType));
+        Assert.All(controls.Where(control => expected.Contains(control.Name)), control =>
+        {
+            Assert.False(control.IsOffscreen);
+            Assert.InRange(control.Bounds.X, 123, 126);
+            Assert.InRange(control.Bounds.Width, 99, 103);
+            Assert.InRange(control.Bounds.Height, 71, 73);
+        });
+        Assert.InRange(controls.Single(control => control.Name == "Reset Changes Pane").Bounds.Y, 458, 462);
         Assert.DoesNotContain(controls, control => control.ControlType == "ControlType.Table");
 
         var actionableFrame = new FrameObservation(
@@ -444,6 +466,29 @@ public sealed class VisualNativeVerificationTests
 
     private static VisualTextObservation Word(string text, int x, int y) =>
         new(text, new RectI(x, y, Math.Max(12, text.Length * 6), 14), 0);
+
+    private static void DrawBorder(byte[] pixels, int frameWidth, RectI bounds, byte value)
+    {
+        for (var x = bounds.X; x < bounds.X + bounds.Width; x++)
+        {
+            SetPixel(x, bounds.Y);
+            SetPixel(x, bounds.Y + bounds.Height - 1);
+        }
+        for (var y = bounds.Y; y < bounds.Y + bounds.Height; y++)
+        {
+            SetPixel(bounds.X, y);
+            SetPixel(bounds.X + bounds.Width - 1, y);
+        }
+        return;
+
+        void SetPixel(int x, int y)
+        {
+            var offset = (y * frameWidth + x) * 4;
+            pixels[offset] = value;
+            pixels[offset + 1] = value;
+            pixels[offset + 2] = value;
+        }
+    }
 
     private static AutomationObservation BackstageNavigation(string id, string name, bool isSelected) =>
         new(id, "backstage", id, name, "ControlType.TabItem", "NetUIBackstageTab",

@@ -16,7 +16,8 @@ public sealed record ManualControlAnnotation(
     NormalizedControlBounds Bounds,
     DateTimeOffset CreatedUtc,
     DateTimeOffset UpdatedUtc,
-    string ActionVerificationStatus = "Unobserved");
+    string ActionVerificationStatus = "Unobserved",
+    string? ReplacesControlStableKey = null);
 
 public sealed record ControlCurationRule(
     string StableKey,
@@ -84,6 +85,15 @@ public static class MapCurationStore
             File.WriteAllBytes(temporary, JsonSerializer.SerializeToUtf8Bytes(document, JsonDefaults.Options)));
     }
 
+    public static UiKnowledgeGraph ReapplySavedCuration(string mapPath, UiKnowledgeGraph graph)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(mapPath);
+        ArgumentNullException.ThrowIfNull(graph);
+        return File.Exists(PathForMap(mapPath))
+            ? Reapply(graph, Load(mapPath, graph.Metadata.EffectiveLogicalMapId))
+            : graph;
+    }
+
     public static MapCurationDocument? ResolveForImport(
         string sourceMapPath,
         UiKnowledgeGraph sourceGraph,
@@ -134,6 +144,7 @@ public static class MapCurationStore
                         GraphControlConfirmation.ConfirmButtonCandidate(current, target.Id, rule.UpdatedUtc),
                     "Suppress" when GraphControlConfirmation.IsRemovableButtonCandidate(target) =>
                         GraphControlConfirmation.RemoveButtonCandidate(current, target.Id),
+                    "Hide" => GraphControlConfirmation.HideControl(current, target.Id, rule.UpdatedUtc),
                     _ => current
                 };
             }
@@ -160,12 +171,16 @@ public static class MapCurationStore
             .ToHashSet(StringComparer.Ordinal);
         var nodes = graph.Nodes
             .Where(node => !standaloneIds.Contains(node.Id))
-            .Select(node => Property(node, "manualAnnotationId") is null ? node : node with
+            .Select(node =>
             {
-                Properties = node.Properties.Where(property => property.Name is not
-                    ("manualAnnotationId" or "confirmationSource" or "geometrySource" or
-                     "interactionMethod" or "actionVerificationStatus" or "annotationScope" or
-                     "safeForAutoExplore")).ToArray()
+                var manuallyCorrected = Property(node, "manualAnnotationId") is not null;
+                var properties = node.Properties.Where(property => property.Name is not
+                    ("curationHidden" or "curationUpdatedUtc") &&
+                    (!manuallyCorrected || property.Name is not
+                        ("manualAnnotationId" or "confirmationSource" or "geometrySource" or
+                         "interactionMethod" or "actionVerificationStatus" or "annotationScope" or
+                         "safeForAutoExplore" or "replacementStableKey"))).ToArray();
+                return properties.Length == node.Properties.Count ? node : node with { Properties = properties };
             })
             .ToArray();
         var edges = graph.Edges
@@ -203,7 +218,7 @@ public static class MapCurationStore
         string action,
         DateTimeOffset updatedUtc)
     {
-        if (action is not ("Confirm" or "Suppress"))
+        if (action is not ("Confirm" or "Suppress" or "Hide"))
             throw new ArgumentException("Unsupported curation action.", nameof(action));
         var rules = document.ControlRules
             .Where(rule => rule.StableKey != stableKey)
@@ -235,7 +250,13 @@ public static class MapCurationStore
         var effectiveAnnotation = actionObserved && annotation.ActionVerificationStatus != "Observed"
             ? annotation with { ActionVerificationStatus = "Observed" }
             : annotation;
-        var matching = graph.Nodes.FirstOrDefault(node =>
+        var matching = string.IsNullOrWhiteSpace(annotation.ReplacesControlStableKey)
+            ? null
+            : graph.Nodes.FirstOrDefault(node =>
+                node.Kind == GraphNodeKind.Control && Layer(node) == "semantic-world" &&
+                Property(node, "semanticSurfaceId") == semanticSurface.Id &&
+                node.StableKey == annotation.ReplacesControlStableKey);
+        matching ??= graph.Nodes.FirstOrDefault(node =>
             node.Kind == GraphNodeKind.Control && Layer(node) == "semantic-world" &&
             Property(node, "semanticSurfaceId") == semanticSurface.Id &&
             IsButton(node) && LabelsMatch(node.Label, annotation.Label) &&
@@ -243,7 +264,7 @@ public static class MapCurationStore
                 SameFrame(existing, projected) && existing.Bounds is { } left && projected.Bounds is { } right &&
                 IntersectionOverUnion(left, right) >= .72)));
         if (matching is not null)
-            return ConfirmMatchedControl(graph, matching, effectiveAnnotation);
+            return ConfirmMatchedControl(graph, matching, effectiveAnnotation, evidence);
 
         var rawId = StableIdentity.Create("control", "raw-world", graph.Metadata.EffectiveLogicalMapId, annotation.Id);
         var semanticId = StableIdentity.Create("control", "semantic-world", graph.Metadata.EffectiveLogicalMapId, annotation.Id);
@@ -287,7 +308,8 @@ public static class MapCurationStore
     private static UiKnowledgeGraph ConfirmMatchedControl(
         UiKnowledgeGraph graph,
         GraphNode semantic,
-        ManualControlAnnotation annotation)
+        ManualControlAnnotation annotation,
+        IReadOnlyList<EvidenceRef> evidence)
     {
         var related = new HashSet<string>(StringComparer.Ordinal) { semantic.Id };
         var rawId = Property(semantic, "sourceRawControlId");
@@ -296,21 +318,34 @@ public static class MapCurationStore
             ? node with
             {
                 Label = annotation.Label,
-                Properties = UpsertProperties(node.Properties,
-                [
-                    new("name", annotation.Label, true),
-                    new("verificationStatus", "Confirmed"),
-                    new("confirmationSource", "User"),
-                    new("geometrySource", "UserDrawn"),
-                    new("affordance", "Invoke"),
-                    new("interactionMethod", "VisualCoordinate"),
-                    new("actionVerificationStatus", annotation.ActionVerificationStatus),
-                    new("manualAnnotationId", annotation.Id),
-                    new("safeForAutoExplore", Bool(annotation.ActionVerificationStatus == "Observed"))
-                ])
+                Evidence = evidence,
+                Properties = CorrectedControlProperties(node, annotation)
             }
             : node).ToArray();
         return Rehash(graph, nodes, graph.Edges);
+    }
+
+    private static IReadOnlyList<GraphProperty> CorrectedControlProperties(
+        GraphNode node,
+        ManualControlAnnotation annotation)
+    {
+        var replacements = new List<GraphProperty>
+        {
+            new("name", annotation.Label, true),
+            new("verificationStatus", "Confirmed"),
+            new("confirmationSource", "User"),
+            new("geometrySource", "UserDrawn"),
+            new("manualAnnotationId", annotation.Id),
+            new("replacementStableKey", annotation.ReplacesControlStableKey ?? node.StableKey)
+        };
+        if (IsButton(node) || string.IsNullOrWhiteSpace(annotation.ReplacesControlStableKey))
+        {
+            replacements.Add(new("affordance", "Invoke"));
+            replacements.Add(new("interactionMethod", "VisualCoordinate"));
+            replacements.Add(new("actionVerificationStatus", annotation.ActionVerificationStatus));
+            replacements.Add(new("safeForAutoExplore", Bool(annotation.ActionVerificationStatus == "Observed")));
+        }
+        return UpsertProperties(node.Properties, replacements);
     }
 
     private static IReadOnlyList<GraphProperty> ManualProperties(
@@ -350,6 +385,8 @@ public static class MapCurationStore
             values.Add(new("sourceRawControlId", rawId));
             values.Add(new("semanticControlKind", "Button"));
         }
+        if (!string.IsNullOrWhiteSpace(annotation.ReplacesControlStableKey))
+            values.Add(new("replacementStableKey", annotation.ReplacesControlStableKey));
         return values;
     }
 
@@ -476,11 +513,12 @@ public static class MapCurationStore
             if (item is null || string.IsNullOrWhiteSpace(item.Id) || item.Id.Length > 128 ||
                 string.IsNullOrWhiteSpace(item.SurfaceStableKey) || item.SurfaceStableKey.Length > 256 ||
                 string.IsNullOrWhiteSpace(item.Label) || item.Label.Length > 512 ||
-                item.ControlKind != "Button" || !Valid(item.Bounds))
+                item.ControlKind != "Button" || !Valid(item.Bounds) ||
+                item.ReplacesControlStableKey is { Length: > 256 })
                 throw new InvalidDataException("A manual control annotation is invalid.");
         }
         if (document.ControlRules.Any(rule => rule is null || string.IsNullOrWhiteSpace(rule.StableKey) ||
-                                              rule.StableKey.Length > 256 || rule.Action is not ("Confirm" or "Suppress")))
+                                               rule.StableKey.Length > 256 || rule.Action is not ("Confirm" or "Suppress" or "Hide")))
             throw new InvalidDataException("A map curation rule is invalid.");
     }
 

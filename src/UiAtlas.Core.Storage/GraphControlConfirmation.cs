@@ -116,6 +116,39 @@ public static class GraphControlConfirmation
         };
     }
 
+    public static UiKnowledgeGraph HideControl(
+        UiKnowledgeGraph graph,
+        string controlId,
+        DateTimeOffset updatedUtc)
+    {
+        ArgumentNullException.ThrowIfNull(graph);
+        ArgumentException.ThrowIfNullOrWhiteSpace(controlId);
+        var target = graph.Nodes.FirstOrDefault(node => node.Id == controlId)
+            ?? throw new ArgumentException("Control does not exist in this map.", nameof(controlId));
+        if (target.Kind != GraphNodeKind.Control)
+            throw new InvalidOperationException("Only controls can be hidden from the curated map.");
+
+        var relatedIds = RelatedControlIds(graph, target);
+        var nodes = graph.Nodes.Select(node => !relatedIds.Contains(node.Id)
+            ? node
+            : node with
+            {
+                Properties = node.Properties
+                    .Where(property => property.Name is not ("curationHidden" or "curationUpdatedUtc"))
+                    .Concat([
+                        new GraphProperty("curationHidden", bool.TrueString),
+                        new GraphProperty("curationUpdatedUtc", updatedUtc.ToUniversalTime().ToString("O"))
+                    ])
+                    .ToArray()
+            }).ToArray();
+        var semanticHash = GraphSemantics.ComputeHash(nodes, graph.Edges);
+        return graph with
+        {
+            Metadata = graph.Metadata with { SemanticHash = semanticHash },
+            Nodes = nodes
+        };
+    }
+
     private static GraphNode Confirm(GraphNode node, DateTimeOffset confirmedUtc)
     {
         var properties = node.Properties

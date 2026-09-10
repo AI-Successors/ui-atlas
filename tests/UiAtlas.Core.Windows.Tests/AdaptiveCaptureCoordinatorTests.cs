@@ -8,6 +8,21 @@ namespace UiAtlas.Core.Windows.Tests;
 public sealed class AdaptiveCaptureCoordinatorTests
 {
     [Fact]
+    public void PopupAccessibilityDiagnosticsDistinguishIncompleteContentFromTimeouts()
+    {
+        var detail = AdaptiveCaptureCoordinator.DescribePopupAccessibility(
+            "content-incomplete", calls: 3, timedOutCalls: 0,
+            elapsedMilliseconds: 412, longestCallMilliseconds: 170, lastRawNodes: 1);
+
+        Assert.Contains("status=content-incomplete", detail);
+        Assert.Contains("timedOutCalls=0", detail);
+        Assert.Contains("elapsedMs=412", detail);
+        Assert.Contains("longestCallMs=170", detail);
+        Assert.Contains("lastRawNodes=1", detail);
+        Assert.Contains("perCallTimeoutMs=3500", detail);
+    }
+
+    [Fact]
     public void VisualPopupFallbackKeepsVisibleControlsConnectedToThePopup()
     {
         var process = System.Diagnostics.Process.GetCurrentProcess();

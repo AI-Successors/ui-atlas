@@ -108,6 +108,38 @@ public static class AutoTabDiscovery
             IsSafeBackstageNavigationControl(control));
     }
 
+    internal static bool IsBackstageSectionMaterialized(
+        IReadOnlyList<AutomationObservation> controls,
+        string displayName)
+    {
+        ArgumentNullException.ThrowIfNull(controls);
+        if (!IsBackstageSectionSelected(controls, displayName)) return false;
+
+        var root = controls
+            .Where(control => control.Bounds.IsValid &&
+                              NormalizeControlType(control.ControlType) is "Window" or "Pane")
+            .OrderByDescending(control => (long)control.Bounds.Width * control.Bounds.Height)
+            .FirstOrDefault();
+        if (root is null) return true;
+
+        var bodyLeft = root.Bounds.X + Math.Min(220, Math.Max(1, root.Bounds.Width / 5));
+        var expected = displayName.Trim();
+        if (controls.Any(control =>
+                !control.IsOffscreen && control.Bounds.IsValid && control.Bounds.X >= bodyLeft &&
+                DisplayName(control).Equals(expected, StringComparison.OrdinalIgnoreCase)))
+            return true;
+
+        if (!expected.Equals("Info", StringComparison.OrdinalIgnoreCase)) return false;
+        string[] infoActions =
+        [
+            "Protect Workbook", "Check for Issues", "Version History", "Manage Workbook",
+            "Reset Changes Pane", "Browser View Options"
+        ];
+        return controls.Any(control =>
+            !control.IsOffscreen && control.Bounds.IsValid && control.Bounds.X >= bodyLeft &&
+            infoActions.Contains(DisplayName(control), StringComparer.OrdinalIgnoreCase));
+    }
+
     private static bool IsSafeBackstageNavigationControl(AutomationObservation control)
     {
         var controlType = NormalizeControlType(control.ControlType);

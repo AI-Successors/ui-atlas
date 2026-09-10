@@ -484,6 +484,178 @@ public sealed class AdaptiveExtractionCascadeTests
     }
 
     [Fact]
+    public void VisualFallbackTreatsEachOfficeShapeGalleryIconAsOneButton()
+    {
+        const int width = 360;
+        const int height = 340;
+        var pixels = Enumerable.Repeat((byte)255, width * height * 4).ToArray();
+        for (var index = 3; index < pixels.Length; index += 4) pixels[index] = 255;
+        var target = new WindowTarget(
+            44, 22, 7, "EXCEL", DateTimeOffset.UnixEpoch, "", "Net UI Tool Window",
+            new RectI(0, 0, width, height));
+        VisualTextObservation[] words =
+        [
+            new("Recently Used Shapes", new RectI(18, 10, 146, 14), 0),
+            new("Lines", new RectI(18, 110, 36, 14), 1),
+            new("Basic Shapes", new RectI(18, 210, 82, 14), 2)
+        ];
+        foreach (var centerY in new[] { 45, 75, 145, 175, 245, 275, 305 })
+        for (var column = 0; column < 10; column++)
+            DrawBorder(pixels, width, new RectI(column * 30 + 7, centerY - 7, 16, 15), 55);
+
+        var controls = VisualSurfaceScanner.DiscoverCore(
+            target,
+            new OpaqueSurfaceScanner.PixelFrame(width, height, pixels),
+            [target.Bounds],
+            [],
+            words);
+
+        var buttons = controls.Where(control => control.VisualRole == "shape-gallery-button").ToArray();
+        Assert.Equal(70, buttons.Length);
+        Assert.All(buttons, button =>
+        {
+            Assert.Equal("ControlType.Button", button.ControlType);
+            Assert.Equal(30, button.Bounds.Width);
+            Assert.InRange(button.Bounds.Height, 20, 32);
+            Assert.Contains("Invoke", button.SupportedPatterns ?? []);
+        });
+        Assert.Equal(3, buttons.Select(button => button.Name.Split(" shape ")[0]).Distinct().Count());
+        Assert.DoesNotContain(controls, control =>
+            control.ControlType == "ControlType.Button" && control.Bounds.Width > 30);
+    }
+
+    [Fact]
+    public void VisualFallbackTreatsAvailableWindowPreviewsAsButtonsInsteadOfATable()
+    {
+        const int width = 545;
+        const int height = 492;
+        var pixels = Enumerable.Repeat((byte)255, width * height * 4).ToArray();
+        for (var index = 3; index < pixels.Length; index += 4) pixels[index] = 255;
+        var target = new WindowTarget(
+            44, 22, 7, "EXCEL", DateTimeOffset.UnixEpoch, "", "Net UI Tool Window",
+            new RectI(0, 0, width, height));
+        VisualTextObservation[] words =
+        [
+            new("Available", new RectI(18, 14, 68, 16), 0),
+            new("Windows", new RectI(92, 14, 64, 16), 0),
+            new("Screen", new RectI(47, 449, 55, 18), 1),
+            new("Clipping", new RectI(108, 449, 64, 18), 1)
+        ];
+        RectI[] previews =
+        [
+            new(18, 44, 96, 120),
+            new(137, 76, 120, 58),
+            new(267, 68, 120, 86),
+            new(397, 50, 120, 109),
+            new(7, 191, 120, 88),
+            new(137, 190, 120, 89),
+            new(267, 208, 120, 56),
+            new(7, 330, 120, 69)
+        ];
+        foreach (var preview in previews)
+        {
+            FillRect(pixels, width, preview, 246, 246, 246);
+            DrawBorder(pixels, width, preview, 80);
+        }
+        for (var row = 0; row < 2; row++)
+        for (var column = 0; column < 2; column++)
+            DrawBorder(pixels, width, new RectI(150 + column * 24, 215 + row * 18, 25, 19), 45);
+        FillRect(pixels, width, new RectI(1, 440, width - 2, 1), 218, 218, 218);
+
+        var controls = VisualSurfaceScanner.DiscoverCore(
+            target,
+            new OpaqueSurfaceScanner.PixelFrame(width, height, pixels),
+            [target.Bounds],
+            [],
+            words);
+
+        var previewButtons = controls
+            .Where(control => control.VisualRole == "window-gallery-button")
+            .ToArray();
+        Assert.Equal(8, previewButtons.Length);
+        Assert.All(previewButtons, button =>
+        {
+            Assert.Equal("ControlType.Button", button.ControlType);
+            Assert.Contains("Invoke", button.SupportedPatterns ?? []);
+            Assert.InRange(button.Bounds.Width, 116, 122);
+        });
+        var clipping = Assert.Single(controls, control =>
+            control.VisualRole == "window-gallery-action");
+        Assert.Equal("Screen Clipping", clipping.Name);
+        Assert.Equal(new RectI(0, 440, width, 52), clipping.Bounds);
+        Assert.DoesNotContain(controls, control =>
+            control.ControlType is "ControlType.Table" or "ControlType.DataItem" or
+                "ControlType.List" or "ControlType.Edit");
+    }
+
+    [Fact]
+    public void VisualFallbackTreatsEachPieChartPreviewAsASeparateButton()
+    {
+        const int width = 214;
+        const int height = 400;
+        var pixels = Enumerable.Repeat((byte)255, width * height * 4).ToArray();
+        for (var index = 3; index < pixels.Length; index += 4) pixels[index] = 255;
+        var target = new WindowTarget(
+            44, 22, 7, "EXCEL", DateTimeOffset.UnixEpoch, "", "Net UI Tool Window",
+            new RectI(0, 0, width, height));
+        VisualTextObservation[] words =
+        [
+            new("2-0", new RectI(11, 18, 25, 13), 0),
+            new("Pie", new RectI(41, 17, 20, 12), 0),
+            new("3-D", new RectI(17, 138, 25, 13), 1),
+            new("Pie", new RectI(47, 137, 20, 12), 1),
+            new("Doughnut", new RectI(23, 257, 70, 15), 2),
+            new("More", new RectI(56, 376, 35, 14), 3),
+            new("Pie", new RectI(95, 374, 20, 12), 3)
+        ];
+        RectI[] previews =
+        [
+            new(16, 53, 42, 42),
+            new(85, 62, 44, 24),
+            new(155, 62, 44, 24),
+            new(15, 178, 44, 32),
+            new(15, 292, 44, 44)
+        ];
+        foreach (var preview in previews)
+        {
+            FillRect(pixels, width, preview, 230, 242, 250);
+            DrawBorder(pixels, width, preview, 80);
+        }
+        foreach (var y in new[] { 120, 240, 359 })
+            FillRect(pixels, width, new RectI(1, y, width - 2, 1), 218, 218, 218);
+
+        var controls = VisualSurfaceScanner.DiscoverCore(
+            target,
+            new OpaqueSurfaceScanner.PixelFrame(width, height, pixels),
+            [target.Bounds],
+            [],
+            words);
+
+        var chartButtons = controls
+            .Where(control => control.VisualRole == "chart-gallery-button")
+            .OrderBy(control => control.TableRow)
+            .ThenBy(control => control.TableColumn)
+            .ToArray();
+        Assert.Equal(5, chartButtons.Length);
+        Assert.Equal(
+            ["2-D Pie chart 1", "2-D Pie chart 2", "2-D Pie chart 3", "3-D Pie chart 1", "Doughnut chart 1"],
+            chartButtons.Select(button => button.Name));
+        Assert.All(chartButtons, button =>
+        {
+            Assert.Equal("ControlType.Button", button.ControlType);
+            Assert.Contains("Invoke", button.SupportedPatterns ?? []);
+            Assert.InRange(button.Bounds.Width, 46, 50);
+        });
+        var moreCharts = Assert.Single(controls, control =>
+            control.VisualRole == "chart-gallery-action");
+        Assert.Equal("More Pie Charts...", moreCharts.Name);
+        Assert.Equal(new RectI(0, 359, width, 41), moreCharts.Bounds);
+        Assert.DoesNotContain(controls, control =>
+            control.ControlType is "ControlType.Table" or "ControlType.DataItem" or
+                "ControlType.List" or "ControlType.ListItem" or "ControlType.Edit");
+    }
+
+    [Fact]
     public async Task VisualFallbackTreatsTextOnlyExcelHeadingStylesAsSeparateButtons()
     {
         const int width = 820;
@@ -599,6 +771,43 @@ public sealed class AdaptiveExtractionCascadeTests
         var cellA1 = Assert.Single(controls, control =>
             control.VisualRole == "spreadsheet-cell" && control.Name == "A1");
         Assert.Equal(new RectI(32, 64, 80, 24), cellA1.Bounds);
+    }
+
+    [Fact]
+    public void VisualFallbackUsesFormulaBarToRecoverOneWorksheetWhenExcelGridIsMissing()
+    {
+        const int width = 500;
+        const int height = 300;
+        var pixels = Enumerable.Repeat((byte)255, width * height * 4).ToArray();
+        for (var index = 3; index < pixels.Length; index += 4) pixels[index] = 255;
+        int[] verticalEdges = [8, 40, 120, 200, 280, 360, 440, 480];
+        int[] horizontalEdges = [60, 84, 108, 132, 156, 180, 204, 228, 252, 276];
+        foreach (var x in verticalEdges)
+            FillRect(pixels, width, new RectI(x, 60, 2, 216), 205, 205, 205);
+        foreach (var y in horizontalEdges)
+            FillRect(pixels, width, new RectI(8, y, 472, 2), 205, 205, 205);
+
+        var target = new WindowTarget(
+            44, 22, 7, "EXCEL", DateTimeOffset.UnixEpoch, "Book1 - Excel", "XLMAIN",
+            new RectI(100, 200, width, height));
+        var formulaBar = new AutomationObservation(
+            "formula", "", "", "Formula Bar", "ControlType.Edit", "XLFormulaBarEditor",
+            new RectI(300, 220, 280, 40), true, false, "Win32", target.Hwnd);
+
+        var controls = VisualSurfaceScanner.DiscoverLegacySurfaceControls(
+            target,
+            new OpaqueSurfaceScanner.PixelFrame(width, height, pixels),
+            [formulaBar]);
+
+        var table = Assert.Single(controls, control => control.VisualRole == "table");
+        Assert.Equal("Worksheet grid", table.Name);
+        Assert.Equal(108, table.Bounds.X);
+        var selectAll = Assert.Single(controls, control =>
+            control.VisualRole == "spreadsheet-column-header" && control.Name == "Select all cells");
+        Assert.Equal(new RectI(108, 260, 32, 24), selectAll.Bounds);
+        var cellA1 = Assert.Single(controls, control =>
+            control.VisualRole == "spreadsheet-cell" && control.Name == "A1");
+        Assert.Equal(new RectI(140, 284, 80, 24), cellA1.Bounds);
     }
 
     [Fact]

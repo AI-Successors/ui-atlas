@@ -1,0 +1,2004 @@
+﻿{
+    "formatVersion":  "ui-atlas.recording-golden/1",
+    "recordingId":  "20260903-075704-excel-fb8b9c66",
+    "recordingSha256":  "a320daf6a74f473309877fee992234f33c386ceda82780f004a4b0942075e801",
+    "frameCount":  106,
+    "capture":  {
+                    "automationStatusCounts":  {
+                                                   "not-requested":  1,
+                                                   "ok":  71,
+                                                   "partial":  1,
+                                                   "visual-only":  33
+                                               },
+                    "popupFallbackReasonCounts":  {
+                                                      "content-incomplete":  36
+                                                  }
+                },
+    "frames":  [
+                   {
+                       "sequence":  1,
+                       "reviewed":  false,
+                       "controlCount":  0,
+                       "digest":  "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                       "typeCounts":  {
+
+                                      },
+                       "roleCounts":  {
+
+                                      }
+                   },
+                   {
+                       "sequence":  2,
+                       "reviewed":  false,
+                       "controlCount":  947,
+                       "digest":  "94510a83f7303de6a004a33176155df6ee5d0ab5ed66dd8d0f27135d193d15ad",
+                       "typeCounts":  {
+                                          "Button":  68,
+                                          "ComboBox":  4,
+                                          "Custom":  2,
+                                          "DataGrid":  1,
+                                          "DataItem":  779,
+                                          "Edit":  6,
+                                          "MenuItem":  30,
+                                          "Native50037":  1,
+                                          "Pane":  10,
+                                          "ScrollBar":  6,
+                                          "Slider":  1,
+                                          "SplitButton":  13,
+                                          "StatusBar":  1,
+                                          "Tab":  1,
+                                          "TabItem":  11,
+                                          "Text":  3,
+                                          "Thumb":  7,
+                                          "ToolBar":  2,
+                                          "Window":  1
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  947
+                                      }
+                   },
+                   {
+                       "sequence":  3,
+                       "reviewed":  false,
+                       "controlCount":  779,
+                       "digest":  "a9d85bdce8be6d47628e4ba790a31ee1d72af4f7168e0350d803a63ba9d416de",
+                       "typeCounts":  {
+                                          "Button":  25,
+                                          "ComboBox":  1,
+                                          "DataItem":  675,
+                                          "Edit":  8,
+                                          "HeaderItem":  25,
+                                          "MenuItem":  29,
+                                          "Pane":  2,
+                                          "RadioButton":  1,
+                                          "ScrollBar":  1,
+                                          "Slider":  1,
+                                          "StatusBar":  1,
+                                          "Tab":  1,
+                                          "TabItem":  1,
+                                          "Table":  3,
+                                          "Text":  2,
+                                          "Thumb":  2,
+                                          "ToolBar":  1
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  59,
+                                          "button":  7,
+                                          "field":  9,
+                                          "radio-button":  1,
+                                          "spreadsheet-cell":  675,
+                                          "spreadsheet-column-header":  25,
+                                          "table":  3
+                                      }
+                   },
+                   {
+                       "sequence":  4,
+                       "reviewed":  false,
+                       "controlCount":  8,
+                       "digest":  "bb87b5f7a1a09994a516af9f525a2a5459d3a971a8ed2077dcd5490f86bd2996",
+                       "typeCounts":  {
+                                          "Custom":  1,
+                                          "Group":  1,
+                                          "Menu":  1,
+                                          "MenuItem":  2,
+                                          "Pane":  1,
+                                          "Window":  2
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  8
+                                      }
+                   },
+                   {
+                       "sequence":  5,
+                       "reviewed":  false,
+                       "controlCount":  8,
+                       "digest":  "2e99892506d17bb5cf0398d439f64e25de5b0edcb8d289118103f57e57857f91",
+                       "typeCounts":  {
+                                          "Custom":  1,
+                                          "Group":  1,
+                                          "Menu":  1,
+                                          "MenuItem":  2,
+                                          "Pane":  1,
+                                          "Window":  2
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  8
+                                      }
+                   },
+                   {
+                       "sequence":  6,
+                       "reviewed":  false,
+                       "controlCount":  24,
+                       "digest":  "772d340b29c466de5741f88f550e27f27d2602c977ce9dbd5c8420d29db0a387",
+                       "typeCounts":  {
+                                          "List":  1,
+                                          "ListItem":  22,
+                                          "Window":  1
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  1,
+                                          "list":  1,
+                                          "list-item":  22
+                                      }
+                   },
+                   {
+                       "sequence":  7,
+                       "reviewed":  false,
+                       "controlCount":  23,
+                       "digest":  "c497de9b41fd655d21836f044e04a4432336be721b6ab72f8ca074a9a9aae64f",
+                       "typeCounts":  {
+                                          "List":  1,
+                                          "ListItem":  21,
+                                          "Window":  1
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  1,
+                                          "list":  1,
+                                          "list-item":  21
+                                      }
+                   },
+                   {
+                       "sequence":  8,
+                       "reviewed":  false,
+                       "controlCount":  29,
+                       "digest":  "5fb252bb8147f37aef75420a20c55dd5ed379d9e9602a5084446b43091e73ea1",
+                       "typeCounts":  {
+                                          "Custom":  1,
+                                          "Group":  5,
+                                          "Menu":  1,
+                                          "MenuItem":  19,
+                                          "Pane":  1,
+                                          "Window":  2
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  29
+                                      }
+                   },
+                   {
+                       "sequence":  9,
+                       "reviewed":  false,
+                       "controlCount":  23,
+                       "digest":  "459878d34636c94805cf801a1146de4d693daed3a01342b198b84fbdab36d38d",
+                       "typeCounts":  {
+                                          "Custom":  1,
+                                          "Group":  2,
+                                          "Menu":  1,
+                                          "MenuItem":  16,
+                                          "Pane":  1,
+                                          "Window":  2
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  23
+                                      }
+                   },
+                   {
+                       "sequence":  10,
+                       "reviewed":  false,
+                       "controlCount":  5,
+                       "digest":  "a693a89eaa20c1f8202e0cf405e279ae15adec7afed0dbf5e0db62b93f24110b",
+                       "typeCounts":  {
+                                          "DataItem":  3,
+                                          "Table":  1,
+                                          "Window":  1
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  1,
+                                          "table":  1,
+                                          "table-cell":  3
+                                      }
+                   },
+                   {
+                       "sequence":  11,
+                       "reviewed":  false,
+                       "controlCount":  5,
+                       "digest":  "271af34d1cd480a681a3acb4601d932a045c0438f1a84c29f48e5d6988008fc9",
+                       "typeCounts":  {
+                                          "DataItem":  3,
+                                          "Table":  1,
+                                          "Window":  1
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  1,
+                                          "table":  1,
+                                          "table-cell":  3
+                                      }
+                   },
+                   {
+                       "sequence":  12,
+                       "reviewed":  false,
+                       "controlCount":  13,
+                       "digest":  "bb11b9adbaa1a87710d574c94de6759b9a8b6f04db244ce2bef245f7421883b0",
+                       "typeCounts":  {
+                                          "Custom":  1,
+                                          "Group":  2,
+                                          "Menu":  1,
+                                          "MenuItem":  6,
+                                          "Pane":  1,
+                                          "Window":  2
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  13
+                                      }
+                   },
+                   {
+                       "sequence":  13,
+                       "reviewed":  false,
+                       "controlCount":  10,
+                       "digest":  "344fbc0721802fd868da684b6e5023b38c445ceeccefc9c36f6ad1d5332afa42",
+                       "typeCounts":  {
+                                          "Custom":  1,
+                                          "Group":  1,
+                                          "Menu":  1,
+                                          "MenuItem":  4,
+                                          "Pane":  1,
+                                          "Window":  2
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  10
+                                      }
+                   },
+                   {
+                       "sequence":  14,
+                       "reviewed":  false,
+                       "controlCount":  13,
+                       "digest":  "36d47c6754a4b451910a552c2712182a45e339935ab63edcfc8c4917b0d1ced5",
+                       "typeCounts":  {
+                                          "List":  1,
+                                          "ListItem":  11,
+                                          "Window":  1
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  1,
+                                          "list":  1,
+                                          "list-item":  11
+                                      }
+                   },
+                   {
+                       "sequence":  15,
+                       "reviewed":  false,
+                       "controlCount":  16,
+                       "digest":  "219776989959d9edddc4368fa44247758fe56f6ecf3c4a1e6f8c8197db395255",
+                       "typeCounts":  {
+                                          "Custom":  1,
+                                          "Group":  3,
+                                          "Menu":  1,
+                                          "MenuItem":  8,
+                                          "Pane":  1,
+                                          "Window":  2
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  16
+                                      }
+                   },
+                   {
+                       "sequence":  16,
+                       "reviewed":  false,
+                       "controlCount":  97,
+                       "digest":  "946e771a3c233fb2a06469dc376b7afda0a8429e4e2d9e14ab5d67e9b148031f",
+                       "typeCounts":  {
+                                          "Button":  68,
+                                          "DataItem":  15,
+                                          "List":  10,
+                                          "Table":  3,
+                                          "Window":  1
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  1,
+                                          "button":  68,
+                                          "list":  10,
+                                          "table":  3,
+                                          "table-cell":  15
+                                      }
+                   },
+                   {
+                       "sequence":  17,
+                       "reviewed":  false,
+                       "controlCount":  12,
+                       "digest":  "7a9b3241c2d3e2d7bd5cc3f53cd04bfa9b2f01b1fc29a02c34a9f08472004d2c",
+                       "typeCounts":  {
+                                          "Custom":  1,
+                                          "Group":  3,
+                                          "Menu":  1,
+                                          "MenuItem":  4,
+                                          "Pane":  1,
+                                          "Window":  2
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  12
+                                      }
+                   },
+                   {
+                       "sequence":  18,
+                       "reviewed":  false,
+                       "controlCount":  12,
+                       "digest":  "19975045f01556eba80b49bf33d64dcb2896a8126b06af9a9508a12b01d73bd2",
+                       "typeCounts":  {
+                                          "Custom":  1,
+                                          "Group":  3,
+                                          "Menu":  1,
+                                          "MenuItem":  4,
+                                          "Pane":  1,
+                                          "Window":  2
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  12
+                                      }
+                   },
+                   {
+                       "sequence":  19,
+                       "reviewed":  false,
+                       "controlCount":  23,
+                       "digest":  "ba89b3b1f4a092bffa2d25d95aefbeda07ff4f5d308909825b6819751a9da279",
+                       "typeCounts":  {
+                                          "Custom":  1,
+                                          "Group":  6,
+                                          "Menu":  1,
+                                          "MenuItem":  12,
+                                          "Pane":  1,
+                                          "Window":  2
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  23
+                                      }
+                   },
+                   {
+                       "sequence":  20,
+                       "reviewed":  false,
+                       "controlCount":  14,
+                       "digest":  "c96614ac7b949a0398ad18e22bf9b40bc413824dd35d15772dd03c81509ea1c3",
+                       "typeCounts":  {
+                                          "Custom":  1,
+                                          "Group":  1,
+                                          "Menu":  1,
+                                          "MenuItem":  8,
+                                          "Pane":  1,
+                                          "Window":  2
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  14
+                                      }
+                   },
+                   {
+                       "sequence":  21,
+                       "reviewed":  false,
+                       "controlCount":  13,
+                       "digest":  "5eaecd7bc0d2dd0a5f985ff3202a84a705438af449f5321f844cd0416eefc954",
+                       "typeCounts":  {
+                                          "Custom":  1,
+                                          "Group":  2,
+                                          "Menu":  1,
+                                          "MenuItem":  6,
+                                          "Pane":  1,
+                                          "Window":  2
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  13
+                                      }
+                   },
+                   {
+                       "sequence":  22,
+                       "reviewed":  false,
+                       "controlCount":  13,
+                       "digest":  "d8592e4ced1535c61d6b56454332e7e64b531c5644753b66b943cecab44c4a50",
+                       "typeCounts":  {
+                                          "Custom":  1,
+                                          "Group":  2,
+                                          "Menu":  1,
+                                          "MenuItem":  6,
+                                          "Pane":  1,
+                                          "Window":  2
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  13
+                                      }
+                   },
+                   {
+                       "sequence":  23,
+                       "reviewed":  false,
+                       "controlCount":  13,
+                       "digest":  "8c01cd020b0866bca4a0636071bdf357bf2f292eedfd7792d5e9c8702a8fd0bf",
+                       "typeCounts":  {
+                                          "Custom":  1,
+                                          "Group":  2,
+                                          "Menu":  1,
+                                          "MenuItem":  6,
+                                          "Pane":  1,
+                                          "Window":  2
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  13
+                                      }
+                   },
+                   {
+                       "sequence":  24,
+                       "reviewed":  false,
+                       "controlCount":  33,
+                       "digest":  "caac8fb49eee710ae658bad09453e0b74d7b387413e35602aaabe6e7f7a8d0d2",
+                       "typeCounts":  {
+                                          "Button":  14,
+                                          "Custom":  2,
+                                          "Pane":  2,
+                                          "Text":  13,
+                                          "Window":  2
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  33
+                                      }
+                   },
+                   {
+                       "sequence":  25,
+                       "reviewed":  false,
+                       "controlCount":  1014,
+                       "digest":  "9068db9b7cc3577b2451cc3e38f52d6fde81096ef70e75198e5d19498dd05c4f",
+                       "typeCounts":  {
+                                          "Button":  17,
+                                          "CheckBox":  24,
+                                          "ComboBox":  14,
+                                          "Custom":  1,
+                                          "Edit":  11,
+                                          "Group":  6,
+                                          "Image":  6,
+                                          "List":  7,
+                                          "ListItem":  864,
+                                          "RadioButton":  14,
+                                          "Spinner":  3,
+                                          "Tab":  1,
+                                          "TabItem":  6,
+                                          "Text":  38,
+                                          "Window":  2
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  1014
+                                      }
+                   },
+                   {
+                       "sequence":  26,
+                       "reviewed":  false,
+                       "controlCount":  1016,
+                       "digest":  "98a6ee680ed2f572b61044f0b477ce2f4d4980aac5933556216133f7c951c5b1",
+                       "typeCounts":  {
+                                          "Button":  17,
+                                          "CheckBox":  24,
+                                          "ComboBox":  14,
+                                          "Custom":  1,
+                                          "Edit":  11,
+                                          "Group":  6,
+                                          "Image":  6,
+                                          "List":  7,
+                                          "ListItem":  864,
+                                          "RadioButton":  14,
+                                          "ScrollBar":  2,
+                                          "Spinner":  3,
+                                          "Tab":  1,
+                                          "TabItem":  6,
+                                          "Text":  38,
+                                          "Window":  2
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  1016
+                                      }
+                   },
+                   {
+                       "sequence":  27,
+                       "reviewed":  false,
+                       "controlCount":  1014,
+                       "digest":  "0871f9b1caf32968ad4caa8f7f540bf5346af0fb716cf4ad68859b89ea6eadea",
+                       "typeCounts":  {
+                                          "Button":  17,
+                                          "CheckBox":  24,
+                                          "ComboBox":  14,
+                                          "Custom":  1,
+                                          "Edit":  11,
+                                          "Group":  6,
+                                          "Image":  6,
+                                          "List":  7,
+                                          "ListItem":  864,
+                                          "RadioButton":  14,
+                                          "Spinner":  3,
+                                          "Tab":  1,
+                                          "TabItem":  6,
+                                          "Text":  38,
+                                          "Window":  2
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  1014
+                                      }
+                   },
+                   {
+                       "sequence":  28,
+                       "reviewed":  false,
+                       "controlCount":  1090,
+                       "digest":  "266e323ab37e88653abb9605f9f39bc41921868bdf75631f1cf26355871759bc",
+                       "typeCounts":  {
+                                          "Button":  17,
+                                          "CheckBox":  24,
+                                          "ComboBox":  14,
+                                          "Custom":  1,
+                                          "Edit":  11,
+                                          "Group":  10,
+                                          "Image":  4,
+                                          "List":  7,
+                                          "ListItem":  935,
+                                          "RadioButton":  14,
+                                          "Spinner":  3,
+                                          "SplitButton":  1,
+                                          "Tab":  1,
+                                          "TabItem":  6,
+                                          "Text":  38,
+                                          "ToolBar":  2,
+                                          "Window":  2
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  1090
+                                      }
+                   },
+                   {
+                       "sequence":  29,
+                       "reviewed":  false,
+                       "controlCount":  1014,
+                       "digest":  "39f1208acec4e5e62e38d47f9926f2a2f6b5dfa0a759210bb6d3975c735fe85b",
+                       "typeCounts":  {
+                                          "Button":  17,
+                                          "CheckBox":  24,
+                                          "ComboBox":  14,
+                                          "Custom":  1,
+                                          "Edit":  11,
+                                          "Group":  6,
+                                          "Image":  6,
+                                          "List":  7,
+                                          "ListItem":  864,
+                                          "RadioButton":  14,
+                                          "Spinner":  3,
+                                          "Tab":  1,
+                                          "TabItem":  6,
+                                          "Text":  38,
+                                          "Window":  2
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  1014
+                                      }
+                   },
+                   {
+                       "sequence":  30,
+                       "reviewed":  false,
+                       "controlCount":  787,
+                       "digest":  "9b2d36fc7d139bd8529f862e4a1302dae06d56d76cdade26a2313d90d0f47bb9",
+                       "typeCounts":  {
+                                          "Button":  31,
+                                          "ComboBox":  2,
+                                          "Custom":  1,
+                                          "DataItem":  675,
+                                          "Edit":  4,
+                                          "Group":  1,
+                                          "HeaderItem":  25,
+                                          "MenuItem":  27,
+                                          "RadioButton":  1,
+                                          "SplitButton":  7,
+                                          "TabItem":  10,
+                                          "Table":  3
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  82,
+                                          "field":  1,
+                                          "radio-button":  1,
+                                          "spreadsheet-cell":  675,
+                                          "spreadsheet-column-header":  25,
+                                          "table":  3
+                                      }
+                   },
+                   {
+                       "sequence":  31,
+                       "reviewed":  false,
+                       "controlCount":  5,
+                       "digest":  "400dc256e04fa679d4cd9c631947af0d0c02945932525a553bf6a21351b04927",
+                       "typeCounts":  {
+                                          "List":  1,
+                                          "ListItem":  3,
+                                          "Window":  1
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  1,
+                                          "list":  1,
+                                          "list-item":  3
+                                      }
+                   },
+                   {
+                       "sequence":  32,
+                       "reviewed":  false,
+                       "controlCount":  6,
+                       "digest":  "9410b049a33cd1d9ee4c54e1e08629d63973ab3203d7d3a73bb45a66666728d1",
+                       "typeCounts":  {
+                                          "List":  1,
+                                          "ListItem":  4,
+                                          "Window":  1
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  1,
+                                          "list":  1,
+                                          "list-item":  4
+                                      }
+                   },
+                   {
+                       "sequence":  33,
+                       "reviewed":  false,
+                       "controlCount":  8,
+                       "digest":  "d3e7b3dd64f7c3fa98626a5e08dc4a213dbfc786bf72c8484404a2c32e17aeb2",
+                       "typeCounts":  {
+                                          "Custom":  1,
+                                          "Group":  1,
+                                          "Menu":  1,
+                                          "MenuItem":  2,
+                                          "Pane":  1,
+                                          "Window":  2
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  8
+                                      }
+                   },
+                   {
+                       "sequence":  34,
+                       "reviewed":  true,
+                       "controlCount":  156,
+                       "digest":  "9c19d065827f8259fadc373d8685d66c5c0d1a6889f5d4050b52f465e3ea3993",
+                       "typeCounts":  {
+                                          "Button":  155,
+                                          "Window":  1
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  1,
+                                          "shape-gallery-button":  155
+                                      }
+                   },
+                   {
+                       "sequence":  35,
+                       "reviewed":  true,
+                       "controlCount":  10,
+                       "digest":  "af1b615964f0899628f1803d97b78b28b9a26b1458cefb8d7b792383da909275",
+                       "typeCounts":  {
+                                          "Button":  9,
+                                          "Window":  1
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  1,
+                                          "window-gallery-action":  1,
+                                          "window-gallery-button":  8
+                                      }
+                   },
+                   {
+                       "sequence":  36,
+                       "reviewed":  false,
+                       "controlCount":  8,
+                       "digest":  "5f85c44133bdbf1738c8fa48a73defc53ee5115a9196147aa5962c40cf16a636",
+                       "typeCounts":  {
+                                          "Custom":  1,
+                                          "Group":  1,
+                                          "Menu":  1,
+                                          "MenuItem":  2,
+                                          "Pane":  1,
+                                          "Window":  2
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  8
+                                      }
+                   },
+                   {
+                       "sequence":  37,
+                       "reviewed":  false,
+                       "controlCount":  16,
+                       "digest":  "7f47a2e56cb809358863c7c2aa1594267518fb168ffbdebf45bec4c5617c60ce",
+                       "typeCounts":  {
+                                          "Button":  15,
+                                          "Window":  1
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  1,
+                                          "button":  15
+                                      }
+                   },
+                   {
+                       "sequence":  38,
+                       "reviewed":  true,
+                       "controlCount":  7,
+                       "digest":  "fa2544f0e0fb133a31de89fa49d0c713c89b38ebe62f156ff8dc5dfdf7c57f12",
+                       "typeCounts":  {
+                                          "Button":  6,
+                                          "Window":  1
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  1,
+                                          "chart-gallery-action":  1,
+                                          "chart-gallery-button":  5
+                                      }
+                   },
+                   {
+                       "sequence":  39,
+                       "reviewed":  false,
+                       "controlCount":  4,
+                       "digest":  "64aef298a3a6a2d1e63bc5d09426ad7db776c2e17c501d468039926dca75dcfe",
+                       "typeCounts":  {
+                                          "Button":  3,
+                                          "Window":  1
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  1,
+                                          "button":  3
+                                      }
+                   },
+                   {
+                       "sequence":  40,
+                       "reviewed":  false,
+                       "controlCount":  6,
+                       "digest":  "4cd4695be27348b3a8b623344be1633bfd748a270b4e2fcd3794bfadff0bab4a",
+                       "typeCounts":  {
+                                          "Button":  1,
+                                          "List":  1,
+                                          "ListItem":  3,
+                                          "Window":  1
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  1,
+                                          "button":  1,
+                                          "list":  1,
+                                          "list-item":  3
+                                      }
+                   },
+                   {
+                       "sequence":  41,
+                       "reviewed":  false,
+                       "controlCount":  9,
+                       "digest":  "9a9be44422789b8f56c984ca36f3a19ef3ad4fd4633fe50d61c7a98aca94b171",
+                       "typeCounts":  {
+                                          "Button":  8,
+                                          "Window":  1
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  1,
+                                          "button":  8
+                                      }
+                   },
+                   {
+                       "sequence":  42,
+                       "reviewed":  false,
+                       "controlCount":  2,
+                       "digest":  "ee65d8f91fe17f0bcd6b1c2865cd091f6e01a27b52172314a039132273ad66d9",
+                       "typeCounts":  {
+                                          "Button":  1,
+                                          "Window":  1
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  1,
+                                          "button":  1
+                                      }
+                   },
+                   {
+                       "sequence":  43,
+                       "reviewed":  false,
+                       "controlCount":  3,
+                       "digest":  "2c1161b8fab79812fc1553f33e76281d12715a30d1b6e0d5c5db240fe73174bb",
+                       "typeCounts":  {
+                                          "Button":  2,
+                                          "Window":  1
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  1,
+                                          "button":  2
+                                      }
+                   },
+                   {
+                       "sequence":  44,
+                       "reviewed":  false,
+                       "controlCount":  8,
+                       "digest":  "6d9e3f40d546f11f1381c6f03ff23024ce9f9a1952970219f857f82acf229477",
+                       "typeCounts":  {
+                                          "Custom":  1,
+                                          "Group":  1,
+                                          "Menu":  1,
+                                          "MenuItem":  2,
+                                          "Pane":  1,
+                                          "Window":  2
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  8
+                                      }
+                   },
+                   {
+                       "sequence":  45,
+                       "reviewed":  false,
+                       "controlCount":  6,
+                       "digest":  "1b8789ccd415147da6c911d57d8be65c49e0876a1f7731cc1327003e3fc79e55",
+                       "typeCounts":  {
+                                          "Button":  1,
+                                          "Edit":  4,
+                                          "Window":  1
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  1,
+                                          "button":  1,
+                                          "field":  4
+                                      }
+                   },
+                   {
+                       "sequence":  46,
+                       "reviewed":  false,
+                       "controlCount":  5,
+                       "digest":  "ef6a25788145e0a0cebd60e2aaa5382ab7d0ab9eb644c89aa0988b03b948571e",
+                       "typeCounts":  {
+                                          "Button":  2,
+                                          "Text":  2,
+                                          "Window":  1
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  5
+                                      }
+                   },
+                   {
+                       "sequence":  47,
+                       "reviewed":  false,
+                       "controlCount":  762,
+                       "digest":  "cd41ee89f2291befb8a1570ea29fa8712ad0e97e3c6df740d6012208eb1f2ddc",
+                       "typeCounts":  {
+                                          "Button":  19,
+                                          "ComboBox":  2,
+                                          "Custom":  1,
+                                          "DataItem":  675,
+                                          "Edit":  4,
+                                          "HeaderItem":  25,
+                                          "MenuItem":  9,
+                                          "RadioButton":  1,
+                                          "SplitButton":  13,
+                                          "TabItem":  10,
+                                          "Table":  3
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  57,
+                                          "field":  1,
+                                          "radio-button":  1,
+                                          "spreadsheet-cell":  675,
+                                          "spreadsheet-column-header":  25,
+                                          "table":  3
+                                      }
+                   },
+                   {
+                       "sequence":  48,
+                       "reviewed":  false,
+                       "controlCount":  12,
+                       "digest":  "9fa91043a35b0edfc88c54c863d51231ead67ac9390101edc31a1b393ef31191",
+                       "typeCounts":  {
+                                          "Custom":  1,
+                                          "Group":  1,
+                                          "Menu":  1,
+                                          "MenuItem":  6,
+                                          "Pane":  1,
+                                          "Window":  2
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  12
+                                      }
+                   },
+                   {
+                       "sequence":  49,
+                       "reviewed":  false,
+                       "controlCount":  127,
+                       "digest":  "cd9fa005375d6f44c6c94c470df7fe350520fdb5156ae629824cca19b749a442",
+                       "typeCounts":  {
+                                          "Button":  25,
+                                          "CheckBox":  4,
+                                          "ComboBox":  4,
+                                          "Custom":  1,
+                                          "DataItem":  42,
+                                          "Edit":  7,
+                                          "HeaderItem":  6,
+                                          "MenuItem":  22,
+                                          "RadioButton":  1,
+                                          "SplitButton":  4,
+                                          "TabItem":  10,
+                                          "Table":  1
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  75,
+                                          "field":  2,
+                                          "radio-button":  1,
+                                          "spreadsheet-cell":  42,
+                                          "spreadsheet-column-header":  6,
+                                          "table":  1
+                                      }
+                   },
+                   {
+                       "sequence":  50,
+                       "reviewed":  false,
+                       "controlCount":  24,
+                       "digest":  "d93ceecaeeec028cbaaa5282b429757dcb0934e1249bee9666889c06b7988acc",
+                       "typeCounts":  {
+                                          "List":  2,
+                                          "ListItem":  21,
+                                          "Window":  1
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  1,
+                                          "list":  2,
+                                          "list-item":  21
+                                      }
+                   },
+                   {
+                       "sequence":  51,
+                       "reviewed":  false,
+                       "controlCount":  23,
+                       "digest":  "495a50cdf67923874e4c9b2b928c1488c57c86b5f67d5b7258a45755d67c88a6",
+                       "typeCounts":  {
+                                          "List":  1,
+                                          "ListItem":  21,
+                                          "Window":  1
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  1,
+                                          "list":  1,
+                                          "list-item":  21
+                                      }
+                   },
+                   {
+                       "sequence":  52,
+                       "reviewed":  false,
+                       "controlCount":  17,
+                       "digest":  "9c4534527118b24a014e4cff4d09962c93becb0ae9711f5cc2ea57bda2545d3d",
+                       "typeCounts":  {
+                                          "Button":  14,
+                                          "List":  2,
+                                          "Window":  1
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  1,
+                                          "button":  14,
+                                          "list":  2
+                                      }
+                   },
+                   {
+                       "sequence":  53,
+                       "reviewed":  false,
+                       "controlCount":  18,
+                       "digest":  "cd58dd0919c5d337f95aeb03338fef7ee1ad38cbaccfa490b89f6ae23cacb63b",
+                       "typeCounts":  {
+                                          "List":  1,
+                                          "ListItem":  16,
+                                          "Window":  1
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  1,
+                                          "list":  1,
+                                          "list-item":  16
+                                      }
+                   },
+                   {
+                       "sequence":  54,
+                       "reviewed":  false,
+                       "controlCount":  3,
+                       "digest":  "290fe98b79cefe17cd3733bfd2137e15b87361d41fa87795dcce57c0821ff4b7",
+                       "typeCounts":  {
+                                          "Button":  1,
+                                          "Edit":  1,
+                                          "Window":  1
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  1,
+                                          "button":  1,
+                                          "field":  1
+                                      }
+                   },
+                   {
+                       "sequence":  55,
+                       "reviewed":  false,
+                       "controlCount":  3,
+                       "digest":  "00a6f200657862aca7845fce5b6cd937e8e3d7d24c7b9d1ae99cdef76e476f34",
+                       "typeCounts":  {
+                                          "Button":  2,
+                                          "Window":  1
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  1,
+                                          "button":  2
+                                      }
+                   },
+                   {
+                       "sequence":  56,
+                       "reviewed":  false,
+                       "controlCount":  8,
+                       "digest":  "b39b082b2c759c19d4d6a7d82dde798c11363bb40ab03ba1c17e620b35666871",
+                       "typeCounts":  {
+                                          "Custom":  1,
+                                          "Group":  1,
+                                          "Menu":  1,
+                                          "MenuItem":  2,
+                                          "Pane":  1,
+                                          "Window":  2
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  8
+                                      }
+                   },
+                   {
+                       "sequence":  57,
+                       "reviewed":  false,
+                       "controlCount":  10,
+                       "digest":  "e0767fc5e9d6daa35b3128db30af5c10f5242b61f30669aa463cf038402b6f7f",
+                       "typeCounts":  {
+                                          "Custom":  1,
+                                          "Group":  2,
+                                          "Menu":  1,
+                                          "MenuItem":  3,
+                                          "Pane":  1,
+                                          "Window":  2
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  10
+                                      }
+                   },
+                   {
+                       "sequence":  58,
+                       "reviewed":  false,
+                       "controlCount":  13,
+                       "digest":  "ec1a758f8595b4777f4aed982afabdb67b61abc6f32171fe562f2a15b11e68ae",
+                       "typeCounts":  {
+                                          "List":  1,
+                                          "ListItem":  11,
+                                          "Window":  1
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  1,
+                                          "list":  1,
+                                          "list-item":  11
+                                      }
+                   },
+                   {
+                       "sequence":  59,
+                       "reviewed":  false,
+                       "controlCount":  8,
+                       "digest":  "91989c767462e7a702e5989ca954ae22099d4f358873a451f8cf9cc210fbe5c0",
+                       "typeCounts":  {
+                                          "Custom":  1,
+                                          "Group":  1,
+                                          "Menu":  1,
+                                          "MenuItem":  2,
+                                          "Pane":  1,
+                                          "Window":  2
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  8
+                                      }
+                   },
+                   {
+                       "sequence":  60,
+                       "reviewed":  false,
+                       "controlCount":  8,
+                       "digest":  "97b9517c92bc739e14322c4ee6c00b38e3833fe656e6687be026936c198b860b",
+                       "typeCounts":  {
+                                          "Custom":  1,
+                                          "Group":  1,
+                                          "Menu":  1,
+                                          "MenuItem":  2,
+                                          "Pane":  1,
+                                          "Window":  2
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  8
+                                      }
+                   },
+                   {
+                       "sequence":  61,
+                       "reviewed":  false,
+                       "controlCount":  20,
+                       "digest":  "50aa58d6fe796aa1eea72cbb7fd7edb4d50b65cec5b6c5b34bf36387c5c0de26",
+                       "typeCounts":  {
+                                          "Custom":  1,
+                                          "Group":  4,
+                                          "Menu":  1,
+                                          "MenuItem":  11,
+                                          "Pane":  1,
+                                          "Window":  2
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  20
+                                      }
+                   },
+                   {
+                       "sequence":  62,
+                       "reviewed":  false,
+                       "controlCount":  131,
+                       "digest":  "74f027241d336c4bc61359f9366b0c26dfae37dc63c8c3ccd78095d62956ef69",
+                       "typeCounts":  {
+                                          "Button":  15,
+                                          "CheckBox":  12,
+                                          "ComboBox":  6,
+                                          "Custom":  1,
+                                          "Edit":  4,
+                                          "Image":  1,
+                                          "ListItem":  40,
+                                          "RadioButton":  9,
+                                          "Spinner":  9,
+                                          "Tab":  1,
+                                          "TabItem":  4,
+                                          "Text":  27,
+                                          "Window":  2
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  131
+                                      }
+                   },
+                   {
+                       "sequence":  63,
+                       "reviewed":  false,
+                       "controlCount":  131,
+                       "digest":  "74f027241d336c4bc61359f9366b0c26dfae37dc63c8c3ccd78095d62956ef69",
+                       "typeCounts":  {
+                                          "Button":  15,
+                                          "CheckBox":  12,
+                                          "ComboBox":  6,
+                                          "Custom":  1,
+                                          "Edit":  4,
+                                          "Image":  1,
+                                          "ListItem":  40,
+                                          "RadioButton":  9,
+                                          "Spinner":  9,
+                                          "Tab":  1,
+                                          "TabItem":  4,
+                                          "Text":  27,
+                                          "Window":  2
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  131
+                                      }
+                   },
+                   {
+                       "sequence":  64,
+                       "reviewed":  false,
+                       "controlCount":  131,
+                       "digest":  "74f027241d336c4bc61359f9366b0c26dfae37dc63c8c3ccd78095d62956ef69",
+                       "typeCounts":  {
+                                          "Button":  15,
+                                          "CheckBox":  12,
+                                          "ComboBox":  6,
+                                          "Custom":  1,
+                                          "Edit":  4,
+                                          "Image":  1,
+                                          "ListItem":  40,
+                                          "RadioButton":  9,
+                                          "Spinner":  9,
+                                          "Tab":  1,
+                                          "TabItem":  4,
+                                          "Text":  27,
+                                          "Window":  2
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  131
+                                      }
+                   },
+                   {
+                       "sequence":  65,
+                       "reviewed":  false,
+                       "controlCount":  131,
+                       "digest":  "74f027241d336c4bc61359f9366b0c26dfae37dc63c8c3ccd78095d62956ef69",
+                       "typeCounts":  {
+                                          "Button":  15,
+                                          "CheckBox":  12,
+                                          "ComboBox":  6,
+                                          "Custom":  1,
+                                          "Edit":  4,
+                                          "Image":  1,
+                                          "ListItem":  40,
+                                          "RadioButton":  9,
+                                          "Spinner":  9,
+                                          "Tab":  1,
+                                          "TabItem":  4,
+                                          "Text":  27,
+                                          "Window":  2
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  131
+                                      }
+                   },
+                   {
+                       "sequence":  66,
+                       "reviewed":  false,
+                       "controlCount":  123,
+                       "digest":  "8554c55edc6b6adac6ade6d6a55273f73afaa09ade2e5159d0584ed9955df57b",
+                       "typeCounts":  {
+                                          "Button":  27,
+                                          "ComboBox":  2,
+                                          "Custom":  1,
+                                          "DataItem":  42,
+                                          "Edit":  5,
+                                          "HeaderItem":  6,
+                                          "MenuItem":  22,
+                                          "RadioButton":  1,
+                                          "SplitButton":  6,
+                                          "TabItem":  10,
+                                          "Table":  1
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  71,
+                                          "field":  2,
+                                          "radio-button":  1,
+                                          "spreadsheet-cell":  42,
+                                          "spreadsheet-column-header":  6,
+                                          "table":  1
+                                      }
+                   },
+                   {
+                       "sequence":  67,
+                       "reviewed":  false,
+                       "controlCount":  13,
+                       "digest":  "44900a7da7728ac1b69a543fe9872ba9f2aaa40bb3bc924b4b6c94425bbf95da",
+                       "typeCounts":  {
+                                          "Custom":  1,
+                                          "Group":  2,
+                                          "Menu":  1,
+                                          "MenuItem":  6,
+                                          "Pane":  1,
+                                          "Window":  2
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  13
+                                      }
+                   },
+                   {
+                       "sequence":  68,
+                       "reviewed":  false,
+                       "controlCount":  13,
+                       "digest":  "5f10f0774d215be37561578dea852043fe37bbc70341f8bbb23a80f2acab70ed",
+                       "typeCounts":  {
+                                          "List":  1,
+                                          "ListItem":  11,
+                                          "Window":  1
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  1,
+                                          "list":  1,
+                                          "list-item":  11
+                                      }
+                   },
+                   {
+                       "sequence":  69,
+                       "reviewed":  false,
+                       "controlCount":  22,
+                       "digest":  "41e6f42d2092c573372529994ac902bd61daa657fa392471ea378072fae26604",
+                       "typeCounts":  {
+                                          "List":  1,
+                                          "ListItem":  20,
+                                          "Window":  1
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  1,
+                                          "list":  1,
+                                          "list-item":  20
+                                      }
+                   },
+                   {
+                       "sequence":  70,
+                       "reviewed":  false,
+                       "controlCount":  22,
+                       "digest":  "5b87897571635ba7acc3f0cdabeb463600668cbbdcda1c53e4183d78769952df",
+                       "typeCounts":  {
+                                          "List":  1,
+                                          "ListItem":  20,
+                                          "Window":  1
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  1,
+                                          "list":  1,
+                                          "list-item":  20
+                                      }
+                   },
+                   {
+                       "sequence":  71,
+                       "reviewed":  false,
+                       "controlCount":  21,
+                       "digest":  "c711bd9e46da8625301d4097f8caf6d6486f49bc170806cc7b19d009e09c6fc2",
+                       "typeCounts":  {
+                                          "List":  1,
+                                          "ListItem":  19,
+                                          "Window":  1
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  1,
+                                          "list":  1,
+                                          "list-item":  19
+                                      }
+                   },
+                   {
+                       "sequence":  72,
+                       "reviewed":  false,
+                       "controlCount":  22,
+                       "digest":  "fb2fbea0da83b3d57a9fb2967e94261063abe8ac32832d55785685f83cae29e9",
+                       "typeCounts":  {
+                                          "List":  1,
+                                          "ListItem":  20,
+                                          "Window":  1
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  1,
+                                          "list":  1,
+                                          "list-item":  20
+                                      }
+                   },
+                   {
+                       "sequence":  73,
+                       "reviewed":  false,
+                       "controlCount":  12,
+                       "digest":  "f2e193ac8130b93d6a7187180d2c89e0ee18ef4abdf47a746c09bf782d364946",
+                       "typeCounts":  {
+                                          "Custom":  1,
+                                          "Group":  1,
+                                          "Menu":  1,
+                                          "MenuItem":  6,
+                                          "Pane":  1,
+                                          "Window":  2
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  12
+                                      }
+                   },
+                   {
+                       "sequence":  74,
+                       "reviewed":  false,
+                       "controlCount":  8,
+                       "digest":  "d8c9f02b15f66dfa706c6909fb422ebf723ae2a27f53ff7a9f9b5f8546cb8b3d",
+                       "typeCounts":  {
+                                          "Custom":  1,
+                                          "Group":  1,
+                                          "Menu":  1,
+                                          "MenuItem":  2,
+                                          "Pane":  1,
+                                          "Window":  2
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  8
+                                      }
+                   },
+                   {
+                       "sequence":  75,
+                       "reviewed":  false,
+                       "controlCount":  10,
+                       "digest":  "8b7e1a159a5dc3ea30ea1545dae179e78eb30a2bc37c1870e33e5a399d600927",
+                       "typeCounts":  {
+                                          "Custom":  1,
+                                          "Group":  2,
+                                          "Menu":  1,
+                                          "MenuItem":  3,
+                                          "Pane":  1,
+                                          "Window":  2
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  10
+                                      }
+                   },
+                   {
+                       "sequence":  76,
+                       "reviewed":  false,
+                       "controlCount":  9,
+                       "digest":  "4b43826b68ff31f3cb2769d1cfecf61eca384966c72d9712ecddaeee50f7aaea",
+                       "typeCounts":  {
+                                          "Custom":  1,
+                                          "Group":  1,
+                                          "Menu":  1,
+                                          "MenuItem":  3,
+                                          "Pane":  1,
+                                          "Window":  2
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  9
+                                      }
+                   },
+                   {
+                       "sequence":  77,
+                       "reviewed":  false,
+                       "controlCount":  13,
+                       "digest":  "762e02c25cb401fc2079ff987da49c0a975462957f4ae0f1f473269daf6fb80b",
+                       "typeCounts":  {
+                                          "Custom":  1,
+                                          "Group":  3,
+                                          "Menu":  1,
+                                          "MenuItem":  5,
+                                          "Pane":  1,
+                                          "Window":  2
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  13
+                                      }
+                   },
+                   {
+                       "sequence":  78,
+                       "reviewed":  false,
+                       "controlCount":  133,
+                       "digest":  "c2c1fec4459e9bedaca4699f860b4383f960eb309eada070006719e26b86ac04",
+                       "typeCounts":  {
+                                          "Button":  43,
+                                          "ComboBox":  2,
+                                          "Custom":  1,
+                                          "DataItem":  42,
+                                          "Edit":  5,
+                                          "HeaderItem":  6,
+                                          "MenuItem":  17,
+                                          "SplitButton":  6,
+                                          "TabItem":  10,
+                                          "Table":  1
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  82,
+                                          "field":  2,
+                                          "spreadsheet-cell":  42,
+                                          "spreadsheet-column-header":  6,
+                                          "table":  1
+                                      }
+                   },
+                   {
+                       "sequence":  79,
+                       "reviewed":  false,
+                       "controlCount":  21,
+                       "digest":  "4143cf18b3051aceab92aa683f59ba67e6477216b3dfbd64368dc327602ded63",
+                       "typeCounts":  {
+                                          "Custom":  1,
+                                          "Group":  5,
+                                          "Menu":  1,
+                                          "MenuItem":  11,
+                                          "Pane":  1,
+                                          "Window":  2
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  21
+                                      }
+                   },
+                   {
+                       "sequence":  80,
+                       "reviewed":  false,
+                       "controlCount":  8,
+                       "digest":  "2f71987c8bfd01b988c14c8bd75c1b6f385688ccbc91b473f3b7bf1c995217bf",
+                       "typeCounts":  {
+                                          "Custom":  1,
+                                          "Group":  1,
+                                          "Menu":  1,
+                                          "MenuItem":  2,
+                                          "Pane":  1,
+                                          "Window":  2
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  8
+                                      }
+                   },
+                   {
+                       "sequence":  81,
+                       "reviewed":  false,
+                       "controlCount":  12,
+                       "digest":  "0ae6c76ecd517bd018515e0c731110def988d62d39a669265db0bad947f88cf7",
+                       "typeCounts":  {
+                                          "Custom":  1,
+                                          "Group":  2,
+                                          "Menu":  1,
+                                          "MenuItem":  5,
+                                          "Pane":  1,
+                                          "Window":  2
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  12
+                                      }
+                   },
+                   {
+                       "sequence":  82,
+                       "reviewed":  false,
+                       "controlCount":  9,
+                       "digest":  "33d9b1f71a6f557944a50d24d6a894a0f3e17b2d1f4328d092ba6b88e557c968",
+                       "typeCounts":  {
+                                          "Custom":  1,
+                                          "Group":  1,
+                                          "Menu":  1,
+                                          "MenuItem":  3,
+                                          "Pane":  1,
+                                          "Window":  2
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  9
+                                      }
+                   },
+                   {
+                       "sequence":  83,
+                       "reviewed":  false,
+                       "controlCount":  11,
+                       "digest":  "15b43db426b973b2ee4320218c6c3a721d8da77121b8fd87fcd7512d31a718f0",
+                       "typeCounts":  {
+                                          "Custom":  1,
+                                          "Group":  2,
+                                          "Menu":  1,
+                                          "MenuItem":  2,
+                                          "Pane":  1,
+                                          "SplitButton":  2,
+                                          "Window":  2
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  11
+                                      }
+                   },
+                   {
+                       "sequence":  84,
+                       "reviewed":  false,
+                       "controlCount":  9,
+                       "digest":  "9d25a33d347117fd924f2589ce7363d95a7d1a8555ecc13402dbf23160afc357",
+                       "typeCounts":  {
+                                          "Custom":  1,
+                                          "Group":  1,
+                                          "Menu":  1,
+                                          "MenuItem":  3,
+                                          "Pane":  1,
+                                          "Window":  2
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  9
+                                      }
+                   },
+                   {
+                       "sequence":  85,
+                       "reviewed":  false,
+                       "controlCount":  8,
+                       "digest":  "d0ec556cf089b235d3cabb73b9f4a0b8032245c8b5554acd56429c07fec1b481",
+                       "typeCounts":  {
+                                          "Custom":  1,
+                                          "Group":  1,
+                                          "Menu":  1,
+                                          "MenuItem":  2,
+                                          "Pane":  1,
+                                          "Window":  2
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  8
+                                      }
+                   },
+                   {
+                       "sequence":  86,
+                       "reviewed":  false,
+                       "controlCount":  8,
+                       "digest":  "42c89bef307d047bc453289547e76ee7d2b4f580f8f6eea96b6a73c4e48f577b",
+                       "typeCounts":  {
+                                          "Custom":  1,
+                                          "Group":  1,
+                                          "Menu":  1,
+                                          "MenuItem":  2,
+                                          "Pane":  1,
+                                          "Window":  2
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  8
+                                      }
+                   },
+                   {
+                       "sequence":  87,
+                       "reviewed":  false,
+                       "controlCount":  13,
+                       "digest":  "7bbf873c68e3a4f66d9954861136d48637b08134f7fecb93bd634b95e50acfdd",
+                       "typeCounts":  {
+                                          "Button":  6,
+                                          "CheckBox":  3,
+                                          "Custom":  1,
+                                          "Text":  1,
+                                          "Window":  2
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  13
+                                      }
+                   },
+                   {
+                       "sequence":  88,
+                       "reviewed":  false,
+                       "controlCount":  114,
+                       "digest":  "7f6575277fdf2bbab772a52d429e4386621602d8b3aa24cd0e1d016f23c30b68",
+                       "typeCounts":  {
+                                          "Button":  30,
+                                          "ComboBox":  2,
+                                          "Custom":  1,
+                                          "DataItem":  42,
+                                          "Edit":  5,
+                                          "Group":  1,
+                                          "HeaderItem":  6,
+                                          "MenuItem":  11,
+                                          "RadioButton":  1,
+                                          "SplitButton":  4,
+                                          "TabItem":  10,
+                                          "Table":  1
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  62,
+                                          "field":  2,
+                                          "radio-button":  1,
+                                          "spreadsheet-cell":  42,
+                                          "spreadsheet-column-header":  6,
+                                          "table":  1
+                                      }
+                   },
+                   {
+                       "sequence":  89,
+                       "reviewed":  false,
+                       "controlCount":  8,
+                       "digest":  "e39d7f56e0dde39c9d4da7f7fc204cafefd5456ed7dc56cf84dd8d3b5608c420",
+                       "typeCounts":  {
+                                          "List":  1,
+                                          "ListItem":  6,
+                                          "Window":  1
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  1,
+                                          "list":  1,
+                                          "list-item":  6
+                                      }
+                   },
+                   {
+                       "sequence":  90,
+                       "reviewed":  false,
+                       "controlCount":  12,
+                       "digest":  "39638a2273d81ab4f26696e46c599a01870d5ec8d1d58c130a62ebdb53063644",
+                       "typeCounts":  {
+                                          "Custom":  1,
+                                          "Group":  1,
+                                          "Menu":  1,
+                                          "MenuItem":  6,
+                                          "Pane":  1,
+                                          "Window":  2
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  12
+                                      }
+                   },
+                   {
+                       "sequence":  91,
+                       "reviewed":  false,
+                       "controlCount":  9,
+                       "digest":  "86fb9faf78be10fb9513d729da6bcad69454929640c056bb4b0b621b47d829fd",
+                       "typeCounts":  {
+                                          "Custom":  1,
+                                          "Group":  1,
+                                          "Menu":  1,
+                                          "MenuItem":  3,
+                                          "Pane":  1,
+                                          "Window":  2
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  9
+                                      }
+                   },
+                   {
+                       "sequence":  92,
+                       "reviewed":  false,
+                       "controlCount":  127,
+                       "digest":  "2cdaace097889022786774ff7a83962a4d6b45605200f3b04ced8abba92db260",
+                       "typeCounts":  {
+                                          "Button":  36,
+                                          "CheckBox":  5,
+                                          "ComboBox":  3,
+                                          "Custom":  1,
+                                          "DataItem":  42,
+                                          "Edit":  6,
+                                          "HeaderItem":  6,
+                                          "MenuItem":  12,
+                                          "RadioButton":  1,
+                                          "SplitButton":  4,
+                                          "TabItem":  10,
+                                          "Table":  1
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  75,
+                                          "field":  2,
+                                          "radio-button":  1,
+                                          "spreadsheet-cell":  42,
+                                          "spreadsheet-column-header":  6,
+                                          "table":  1
+                                      }
+                   },
+                   {
+                       "sequence":  93,
+                       "reviewed":  false,
+                       "controlCount":  9,
+                       "digest":  "0cf0e5bd21419ccca8c802e3b6461992a44771b1c93d2c354b17adbbc2497eca",
+                       "typeCounts":  {
+                                          "Custom":  1,
+                                          "Group":  1,
+                                          "Menu":  1,
+                                          "MenuItem":  3,
+                                          "Pane":  1,
+                                          "Window":  2
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  9
+                                      }
+                   },
+                   {
+                       "sequence":  94,
+                       "reviewed":  false,
+                       "controlCount":  11,
+                       "digest":  "6873c0ace1db1b466929b0a1a9c5efb4099532f8b16ca3312cf66624c9f90ade",
+                       "typeCounts":  {
+                                          "List":  1,
+                                          "ListItem":  9,
+                                          "Window":  1
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  1,
+                                          "list":  1,
+                                          "list-item":  9
+                                      }
+                   },
+                   {
+                       "sequence":  95,
+                       "reviewed":  false,
+                       "controlCount":  7,
+                       "digest":  "4ffb6acab277f0380fab79350bc169992e035fdafc5e705d63c60abdbcdaeccf",
+                       "typeCounts":  {
+                                          "Custom":  1,
+                                          "Group":  1,
+                                          "Menu":  1,
+                                          "MenuItem":  1,
+                                          "Pane":  1,
+                                          "Window":  2
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  7
+                                      }
+                   },
+                   {
+                       "sequence":  96,
+                       "reviewed":  false,
+                       "controlCount":  10,
+                       "digest":  "b610e3601d4a441074d3cf60e205810e53907b9da5f3507cfcf972c6ac496731",
+                       "typeCounts":  {
+                                          "Custom":  1,
+                                          "Group":  2,
+                                          "Menu":  1,
+                                          "MenuItem":  3,
+                                          "Pane":  1,
+                                          "Window":  2
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  10
+                                      }
+                   },
+                   {
+                       "sequence":  97,
+                       "reviewed":  false,
+                       "controlCount":  102,
+                       "digest":  "8b80efcd5ead2e1872a48ae21ce239130baf0f70ed97437099a9117156240fc2",
+                       "typeCounts":  {
+                                          "Button":  22,
+                                          "ComboBox":  2,
+                                          "Custom":  1,
+                                          "DataItem":  42,
+                                          "Edit":  5,
+                                          "HeaderItem":  6,
+                                          "MenuItem":  11,
+                                          "SplitButton":  2,
+                                          "TabItem":  10,
+                                          "Table":  1
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  44,
+                                          "button":  7,
+                                          "field":  2,
+                                          "spreadsheet-cell":  42,
+                                          "spreadsheet-column-header":  6,
+                                          "table":  1
+                                      }
+                   },
+                   {
+                       "sequence":  98,
+                       "reviewed":  false,
+                       "controlCount":  8,
+                       "digest":  "4395b57572144f73c5c43f5a43168f583886b685ae90c737ab3b894b93baddde",
+                       "typeCounts":  {
+                                          "Custom":  1,
+                                          "Group":  1,
+                                          "Menu":  1,
+                                          "MenuItem":  2,
+                                          "Pane":  1,
+                                          "Window":  2
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  8
+                                      }
+                   },
+                   {
+                       "sequence":  99,
+                       "reviewed":  false,
+                       "controlCount":  10,
+                       "digest":  "ab48ee7d68798935c63e016ebb33469b7a8ea7a648a42a3514ef7f1cd99c796f",
+                       "typeCounts":  {
+                                          "Custom":  1,
+                                          "Group":  2,
+                                          "Menu":  1,
+                                          "MenuItem":  3,
+                                          "Pane":  1,
+                                          "Window":  2
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  10
+                                      }
+                   },
+                   {
+                       "sequence":  100,
+                       "reviewed":  false,
+                       "controlCount":  6,
+                       "digest":  "7ee3918c9536a253170db61f20231f36cba37afc51d72cf9ba9ea6c22f2aa704",
+                       "typeCounts":  {
+                                          "List":  1,
+                                          "ListItem":  4,
+                                          "Window":  1
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  1,
+                                          "list":  1,
+                                          "list-item":  4
+                                      }
+                   },
+                   {
+                       "sequence":  101,
+                       "reviewed":  false,
+                       "controlCount":  98,
+                       "digest":  "08dd3e050c71e3210cd675e2bb04b28a82907ba0f0ca19397266c3696c631a25",
+                       "typeCounts":  {
+                                          "Button":  20,
+                                          "ComboBox":  2,
+                                          "Custom":  1,
+                                          "DataItem":  42,
+                                          "Edit":  5,
+                                          "HeaderItem":  6,
+                                          "MenuItem":  8,
+                                          "RadioButton":  1,
+                                          "SplitButton":  2,
+                                          "TabItem":  10,
+                                          "Table":  1
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  46,
+                                          "field":  2,
+                                          "radio-button":  1,
+                                          "spreadsheet-cell":  42,
+                                          "spreadsheet-column-header":  6,
+                                          "table":  1
+                                      }
+                   },
+                   {
+                       "sequence":  102,
+                       "reviewed":  false,
+                       "controlCount":  68,
+                       "digest":  "82efc70455d21d30110cbef2c01f543f3d271b77747d0ec5957b591a0abae3b8",
+                       "typeCounts":  {
+                                          "Button":  12,
+                                          "Edit":  1,
+                                          "Group":  3,
+                                          "Hyperlink":  3,
+                                          "Image":  1,
+                                          "List":  3,
+                                          "ListItem":  30,
+                                          "MenuBar":  1,
+                                          "MenuItem":  2,
+                                          "Pane":  5,
+                                          "ScrollBar":  2,
+                                          "Text":  1,
+                                          "Thumb":  1,
+                                          "TitleBar":  2,
+                                          "Window":  1
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  68
+                                      }
+                   },
+                   {
+                       "sequence":  103,
+                       "reviewed":  false,
+                       "controlCount":  110,
+                       "digest":  "23f1a2c5c7b8adae0ab3dfc76131dbc4ae53623a0b416b0ac968ca008e913bff",
+                       "typeCounts":  {
+                                          "Button":  37,
+                                          "Edit":  1,
+                                          "Group":  3,
+                                          "Image":  1,
+                                          "List":  4,
+                                          "ListItem":  49,
+                                          "MenuBar":  1,
+                                          "MenuItem":  2,
+                                          "Pane":  4,
+                                          "ScrollBar":  1,
+                                          "Text":  3,
+                                          "Thumb":  1,
+                                          "TitleBar":  2,
+                                          "Window":  1
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  110
+                                      }
+                   },
+                   {
+                       "sequence":  104,
+                       "reviewed":  false,
+                       "controlCount":  110,
+                       "digest":  "4be5db01a59879e7a3aef86128971a32205164ea616a65f2f940f44b8223b806",
+                       "typeCounts":  {
+                                          "Button":  10,
+                                          "Edit":  1,
+                                          "Group":  6,
+                                          "Image":  1,
+                                          "List":  2,
+                                          "ListItem":  65,
+                                          "Menu":  1,
+                                          "MenuBar":  1,
+                                          "MenuItem":  2,
+                                          "Pane":  5,
+                                          "ScrollBar":  1,
+                                          "Tab":  1,
+                                          "TabItem":  7,
+                                          "Text":  3,
+                                          "Thumb":  1,
+                                          "TitleBar":  2,
+                                          "Window":  1
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  110
+                                      }
+                   },
+                   {
+                       "sequence":  105,
+                       "reviewed":  false,
+                       "controlCount":  31,
+                       "digest":  "789164eb8956e0758751851dee912af3a298c1184e9612463acf60e5baa72f19",
+                       "typeCounts":  {
+                                          "Button":  9,
+                                          "List":  1,
+                                          "ListItem":  13,
+                                          "MenuBar":  1,
+                                          "MenuItem":  2,
+                                          "Pane":  2,
+                                          "TitleBar":  2,
+                                          "Window":  1
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  25,
+                                          "button":  6
+                                      }
+                   },
+                   {
+                       "sequence":  106,
+                       "reviewed":  false,
+                       "controlCount":  88,
+                       "digest":  "4b34b83b72ccd3e93cea18a2dd8cf302f2d292c6ca5418d08a075f0608e7f306",
+                       "typeCounts":  {
+                                          "Button":  14,
+                                          "ComboBox":  2,
+                                          "Group":  19,
+                                          "Hyperlink":  2,
+                                          "Image":  9,
+                                          "List":  1,
+                                          "ListItem":  13,
+                                          "MenuBar":  1,
+                                          "MenuItem":  4,
+                                          "Pane":  4,
+                                          "Text":  16,
+                                          "TitleBar":  2,
+                                          "Window":  1
+                                      },
+                       "roleCounts":  {
+                                          "(none)":  88
+                                      }
+                   }
+               ]
+}

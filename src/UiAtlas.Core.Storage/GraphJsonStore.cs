@@ -37,7 +37,7 @@ public static class GraphJsonStore
                 var issue = report.Issues.First();
                 throw new InvalidDataException($"Graph JSON failed integrity validation: {issue.Code} at {issue.Path}.");
             }
-            return graph;
+            return MapCurationStore.ReapplySavedCuration(path, graph);
         }
         catch (JsonException ex) { throw new InvalidDataException("Graph JSON is malformed.", ex); }
     }

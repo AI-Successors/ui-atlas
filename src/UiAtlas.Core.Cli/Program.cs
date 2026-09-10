@@ -1019,24 +1019,37 @@ internal static class Program
                 Console.WriteLine($"Recording session ID: {sessionTarget.SessionId}");
                 using var overlay = new RecordingHighlightOverlay(target);
                 overlay.Start();
+                IReadOnlyList<MappedSurfaceHighlightSnapshot> mappedSurfacesForSession = [];
                 if (restoreHighlightsForSession)
                 {
-                    var restoredHighlights = RecordingHighlightHistory.Load(workspace.RecordingPaths());
-                    foreach (var highlight in restoredHighlights)
+                    var mappedSurfaces = RecordingHighlightHistory.LoadMappedSurfaces(workspace.MapPath);
+                    if (mappedSurfaces.Count > 0)
                     {
-                        overlay.AddHistoricalHighlights(
-                            highlight.CapturedRootBounds,
-                            highlight.LayerKey,
-                            [highlight.Bounds],
-                            visibleLayerKey: null);
+                        mappedSurfacesForSession = mappedSurfaces;
+                        overlay.SetMappedHistoricalSurfaces(mappedSurfaces);
+                        Console.WriteLine(
+                            $"Loaded {mappedSurfaces.Sum(surface => surface.RelativeHighlightBounds.Count)} mapped control highlights across {mappedSurfaces.Count} recorded surfaces.");
                     }
-                    if (restoredHighlights.Count > 0)
-                        Console.WriteLine($"Restored {restoredHighlights.Count} previous click highlights in lilac.");
+                    else
+                    {
+                        var restoredHighlights = RecordingHighlightHistory.Load(workspace.RecordingPaths());
+                        foreach (var highlight in restoredHighlights)
+                        {
+                            overlay.AddHistoricalHighlights(
+                                highlight.CapturedRootBounds,
+                                highlight.LayerKey,
+                                [highlight.Bounds],
+                                visibleLayerKey: null);
+                        }
+                        if (restoredHighlights.Count > 0)
+                            Console.WriteLine($"Restored {restoredHighlights.Count} previous click highlights in lilac.");
+                    }
                 }
                 beforeStart?.Invoke();
                 outcome = await RunManualRecording(
                     target, sessionTarget.RecordingPath, panel, overlay, selectedLaunchMode,
-                    workspace, sessionTarget.SessionId, launchOptions).ConfigureAwait(false);
+                    workspace, sessionTarget.SessionId, launchOptions,
+                    mappedSurfacesForSession).ConfigureAwait(false);
             }
             catch (Exception ex) when (IsRecorderWorkflowRecoverable(ex))
             {
@@ -1203,14 +1216,18 @@ internal static class Program
         SessionLaunchMode launchMode,
         RecorderWorkspace workspace,
         string sessionId,
-        RecordingLaunchOptions launchOptions)
+        RecordingLaunchOptions launchOptions,
+        IReadOnlyList<MappedSurfaceHighlightSnapshot>? mappedSurfaces = null)
     {
         // Switch the visible shell before any disk history or provider setup.
         // Those operations are bounded, but the user must never be left looking
         // at the mode chooser after recording has already been requested.
         panel.ShowActiveRecordingState();
         panel.SetAutoPassActive(launchMode == SessionLaunchMode.AutoTabs);
-        panel.SetStatus("Stage 1 of 5: capturing the current screen before scanning controls.");
+        var matchExistingMapOnStart = launchMode == SessionLaunchMode.Manual && mappedSurfaces is { Count: > 0 };
+        panel.SetStatus(matchExistingMapOnStart
+            ? "Matching the current screen to the existing map..."
+            : "Stage 1 of 5: capturing the current screen before scanning controls.");
         await using var session = new ManualRecordingSession(
             target,
             output,
@@ -1529,6 +1546,7 @@ internal static class Program
                     session.AddMarker("manual-mode:armed-before-initial-scan");
                 }
                 QuickSurfaceScanResult initialScan;
+                var matchedExistingMap = false;
                 var initialSurfaceInvalidated = 0;
                 using (var feedbackCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellation.Token))
                 {
@@ -1542,11 +1560,26 @@ internal static class Program
                         feedbackCancellation.Token);
                     try
                     {
-                        initialScan = await overlay.RunHiddenAsync(
-                            () => CaptureAndRegisterInitialSurfaceAsync(
-                                session, panel, workspace, speculative, sessionId, autoMapping?.Snapshot(),
-                                "manual-initial-surface", cancellation.Token, launchOptions.EnableHoverAndFocusDiscovery),
-                            cancellation.Token).ConfigureAwait(false);
+                        var mappedBaseline = matchExistingMapOnStart
+                            ? await TryCaptureMappedResumeSurfaceAsync(
+                                session, target, panel, workspace, sessionId, mappedSurfaces!,
+                                cancellation.Token).ConfigureAwait(false)
+                            : null;
+                        if (mappedBaseline is not null)
+                        {
+                            initialScan = mappedBaseline;
+                            matchedExistingMap = true;
+                        }
+                        else
+                        {
+                            if (matchExistingMapOnStart)
+                                panel.SetStatus("This screen is not in the map yet. Scanning it as a new screen...");
+                            initialScan = await overlay.RunHiddenAsync(
+                                () => CaptureAndRegisterInitialSurfaceAsync(
+                                    session, panel, workspace, speculative, sessionId, autoMapping?.Snapshot(),
+                                    "manual-initial-surface", cancellation.Token, launchOptions.EnableHoverAndFocusDiscovery),
+                                cancellation.Token).ConfigureAwait(false);
+                        }
                     }
                     finally
                     {
@@ -1555,9 +1588,9 @@ internal static class Program
                         catch (OperationCanceledException) when (!cancellation.IsCancellationRequested) { }
                     }
                 }
-                if (Volatile.Read(ref initialSurfaceInvalidated) == 0)
+                if (Volatile.Read(ref initialSurfaceInvalidated) == 0 && !matchedExistingMap)
                     ShowObservedSurfaceHighlights(overlay, initialScan.Frame);
-                else
+                else if (Volatile.Read(ref initialSurfaceInvalidated) != 0)
                     overlay.ClearObservedSurfaceHighlights();
                 var baseline = initialScan.Frame;
                 adaptive = new AdaptiveCaptureCoordinator(session, target, ReportAdaptiveStatus);
@@ -1573,6 +1606,8 @@ internal static class Program
                 }
                 panel.SetStatus(!targetRefocused
                     ? "Recording is ready, but the target app could not be focused. Focus it once to continue."
+                    : matchedExistingMap
+                        ? $"Matched this screen to the existing map. {initialScan.VisibleControlCount} saved controls are shown in lilac; manual capture is active."
                     : initialScan.HasUsableControls
                         ? $"Initial scan saved {initialScan.VisibleControlCount} visible controls ({initialScan.ConfirmedControlCount} confirmed, {initialScan.CoverageGapCount} coverage gaps). Manual capture is active."
                         : "The initial scan found no controls. Manual capture is still active.");
@@ -4194,7 +4229,7 @@ internal static class Program
                 8_000,
                 cancellationToken).ConfigureAwait(false);
             if (observation.Items.Count > 0 &&
-                AutoTabDiscovery.IsBackstageSectionSelected(observation.Items, displayName))
+                AutoTabDiscovery.IsBackstageSectionMaterialized(observation.Items, displayName))
                 return observation;
             if (attempt < 5)
                 await Task.Delay(140, cancellationToken).ConfigureAwait(false);
@@ -4333,6 +4368,132 @@ internal static class Program
             control.Bounds.Width > 0 && control.Bounds.Height > 0 &&
             (control.AutomationId.Equals(requestedId + "_PanelBarScrollViewer", StringComparison.OrdinalIgnoreCase) ||
              control.AutomationId.StartsWith(requestedId + "_Panel", StringComparison.OrdinalIgnoreCase)));
+    }
+
+    private static async Task<QuickSurfaceScanResult?> TryCaptureMappedResumeSurfaceAsync(
+        ManualRecordingSession session,
+        WindowTarget target,
+        RecordingControlPanel panel,
+        RecorderWorkspace workspace,
+        string sessionId,
+        IReadOnlyList<MappedSurfaceHighlightSnapshot> mappedSurfaces,
+        CancellationToken cancellationToken)
+    {
+        if (mappedSurfaces.Count == 0)
+            return null;
+
+        panel.SetStatus("Matching the current screen to the existing map...");
+        Console.WriteLine("Matching the current screen to saved map surfaces without rescanning all controls...");
+        WindowTarget visibleSurface;
+        try
+        {
+            visibleSurface = ResolveVisibleResumeSurfaceTarget(target);
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or
+                                       System.ComponentModel.Win32Exception)
+        {
+            return null;
+        }
+
+        var currentWindow = WindowSnapshotCapture.Observe(visibleSurface);
+        var currentIsPrimarySurface = visibleSurface.Hwnd == target.Hwnd ||
+                                      visibleSurface.Hwnd == target.RootOwnerHwnd;
+        (IReadOnlyList<AutomationObservation> Items, bool TimedOut, string Status) identity;
+        try
+        {
+            identity = currentIsPrimarySurface
+                ? await session.CollectNavigationAutomationAsync(
+                    visibleSurface.Hwnd, TimeSpan.FromMilliseconds(1_500), 512, cancellationToken).ConfigureAwait(false)
+                : await session.CollectWindowAutomationAsync(
+                    visibleSurface.Hwnd, TimeSpan.FromMilliseconds(1_500), 256, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException or
+                                       System.ComponentModel.Win32Exception)
+        {
+            identity = ([], true, "unavailable");
+        }
+
+        var matched = RecordingHighlightHistory.SelectBestMappedSurface(
+            mappedSurfaces, currentWindow, identity.Items, currentIsPrimarySurface);
+        if (matched is null)
+        {
+            Console.WriteLine("The current screen did not match a saved map surface; normal discovery is required.");
+            return null;
+        }
+
+        var projectedControls = RecordingHighlightHistory.ProjectMappedControls(
+            matched, visibleSurface.Bounds, visibleSurface.Hwnd);
+        if (projectedControls.Count == 0)
+            return null;
+
+        var frame = await session.CaptureAsync(
+            "mapped-resume-baseline",
+            cancellationToken,
+            new FrameCaptureOptions(
+                IncludeAutomation: false,
+                CapturePhase: "materialized",
+                ObservationScope: "full-root",
+                ObservedWindowHwnds: [visibleSurface.Hwnd],
+                AutomationOverride: projectedControls,
+                AutomationStatusOverride: "ok",
+                ScreenshotTimeout: TimeSpan.FromMilliseconds(500),
+                AdditionalScopedWindowHwnds: currentIsPrimarySurface ? null : [visibleSurface.Hwnd],
+                PrimaryWindowHwnd: visibleSurface.Hwnd,
+                PreferScreenBoundsScreenshot: true)).ConfigureAwait(false);
+        var scan = QuickSurfaceScanner.Describe(frame);
+        workspace.StageQuickMapSnapshot(new QuickMapSnapshotState(
+            sessionId,
+            scan.SurfaceFingerprint,
+            scan.Status,
+            scan.VisibleControlCount,
+            scan.UnverifiedControlCount,
+            scan.DiagnosticCodes.Append("existing-map-match").Distinct(StringComparer.Ordinal).ToArray(),
+            DateTimeOffset.UtcNow,
+            scan.ConfirmedControlCount,
+            scan.ObservedControlCount,
+            scan.CoverageGapCount,
+            scan.ExtractionStatus?.ToString() ?? ""));
+        session.AddMarker($"resume:matched-existing-surface:{matched.FrameSequence}");
+        Console.WriteLine(
+            $"Matched saved frame {matched.FrameSequence}; reused {scan.VisibleControlCount} mapped controls without a full control scan.");
+        panel.SetStatus(
+            $"Matched the existing map. Showing {scan.VisibleControlCount} saved controls in lilac.");
+        return scan;
+    }
+
+    private static WindowTarget ResolveVisibleResumeSurfaceTarget(WindowTarget target)
+    {
+        try
+        {
+            var foreground = WindowCatalog.GetTopLevelHandle(NativeMethods.GetForegroundWindow()).ToInt64();
+            if (foreground != 0 && WindowCatalog.IsSameProcessWindow(target, foreground))
+            {
+                var resolved = WindowCatalog.Resolve(foreground);
+                if (resolved.Bounds.IsValid)
+                    return resolved;
+            }
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or
+                                       System.ComponentModel.Win32Exception)
+        {
+        }
+
+        try
+        {
+            var owned = WindowCatalog.ListScopedWindows(target)
+                .Where(window => window.Hwnd != target.Hwnd && window.Hwnd != target.RootOwnerHwnd)
+                .Where(window => window.Bounds.IsValid)
+                .OrderBy(window => window.ZOrder)
+                .FirstOrDefault();
+            if (owned is not null)
+                return owned;
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or
+                                       System.ComponentModel.Win32Exception)
+        {
+        }
+
+        return target;
     }
 
     private static async Task<QuickSurfaceScanResult> CaptureAndRegisterInitialSurfaceAsync(
@@ -5463,6 +5624,8 @@ internal sealed class RecordingHighlightOverlay : IDisposable
     private readonly Dictionary<string, List<HighlightAnchor>> _relativeHighlightsByLayer = new(StringComparer.Ordinal);
     private readonly Dictionary<string, List<HighlightAnchor>> _observedRelativeHighlightsByLayer = new(StringComparer.Ordinal);
     private readonly Dictionary<string, List<HighlightAnchor>> _historicalRelativeHighlightsByLayer = new(StringComparer.Ordinal);
+    private IReadOnlyList<MappedSurfaceHighlightSnapshot> _mappedHistoricalSurfaces = [];
+    private string _activeMappedHistoricalSurfaceKey = string.Empty;
     private Thread? _thread;
     private System.Windows.Threading.Dispatcher? _dispatcher;
     private System.Windows.Window? _window;
@@ -5629,6 +5792,20 @@ internal sealed class RecordingHighlightOverlay : IDisposable
             identity: null,
             promoteToConfirmed: false);
 
+    public void SetMappedHistoricalSurfaces(IReadOnlyList<MappedSurfaceHighlightSnapshot> snapshots)
+    {
+        ArgumentNullException.ThrowIfNull(snapshots);
+        if (_dispatcher is null || _dispatcher.HasShutdownStarted) return;
+        var stored = snapshots.ToArray();
+        _dispatcher.BeginInvoke(() =>
+        {
+            _mappedHistoricalSurfaces = stored;
+            _activeMappedHistoricalSurfaceKey = string.Empty;
+            _historicalRelativeHighlightsByLayer.Clear();
+            RenderHighlights();
+        });
+    }
+
     private void AddHighlightsCore(
         Dictionary<string, List<HighlightAnchor>> highlightsByLayer,
         RectI capturedRootBounds,
@@ -5734,6 +5911,8 @@ internal sealed class RecordingHighlightOverlay : IDisposable
             _relativeHighlightsByLayer.Clear();
             _observedRelativeHighlightsByLayer.Clear();
             _historicalRelativeHighlightsByLayer.Clear();
+            _mappedHistoricalSurfaces = [];
+            _activeMappedHistoricalSurfaceKey = string.Empty;
             _visibleLayerKey = TabHighlightLayerResolver.GlobalLayerKey;
             RenderHighlights();
         });
@@ -5993,7 +6172,8 @@ internal sealed class RecordingHighlightOverlay : IDisposable
     {
         var focusOutlineWasActive = HasActiveFocusOutline();
         var clickPulseWasActive = HasActiveClickPulse();
-        if (!HasAnyHighlights() && !focusOutlineWasActive && !clickPulseWasActive) return;
+        if (!HasAnyHighlights() && _mappedHistoricalSurfaces.Count == 0 &&
+            !focusOutlineWasActive && !clickPulseWasActive) return;
         try
         {
             var current = WindowCatalog.Resolve(_target.Hwnd);
@@ -6120,7 +6300,7 @@ internal sealed class RecordingHighlightOverlay : IDisposable
 
     private void RefreshVisibleLayer(WindowTarget current)
     {
-        if (!HasAnchoredHighlights() && !HasTabSpecificLayers())
+        if (!HasAnchoredHighlights() && !HasTabSpecificLayers() && _mappedHistoricalSurfaces.Count == 0)
         {
             _visibleLayerKey = TabHighlightLayerResolver.GlobalLayerKey;
             return;
@@ -6137,6 +6317,7 @@ internal sealed class RecordingHighlightOverlay : IDisposable
         var visibleLayerAtStart = _visibleLayerKey;
         _ = Task.Run(() =>
         {
+            WindowTarget visibleSurface;
             WindowObservation window;
             IReadOnlyList<AutomationObservation> automation;
             try
@@ -6144,8 +6325,9 @@ internal sealed class RecordingHighlightOverlay : IDisposable
                 // UI Automation can take many seconds for dense applications such as
                 // Revit. Never run it on the overlay dispatcher: doing so freezes the
                 // click pulse on the previous control while traversal keeps moving.
-                window = WindowSnapshotCapture.Observe(current);
-                automation = BoundedAutomationCollector.Collect(current.RootOwnerHwnd, 512, 18);
+                visibleSurface = ResolveVisibleSurfaceTarget(current);
+                window = WindowSnapshotCapture.Observe(visibleSurface);
+                automation = BoundedAutomationCollector.Collect(visibleSurface.Hwnd, 512, 18);
             }
             catch
             {
@@ -6167,6 +6349,12 @@ internal sealed class RecordingHighlightOverlay : IDisposable
                     try
                     {
                         var anchorsChanged = RefreshAnchoredHighlights(current.Bounds, automation);
+                        var mappedSurfaceChanged = RefreshMappedHistoricalSurface(
+                            current.Bounds,
+                            visibleSurface.Bounds,
+                            window,
+                            automation,
+                            visibleSurface.Hwnd == _target.Hwnd || visibleSurface.Hwnd == _target.RootOwnerHwnd);
                         var visibleLayerKey = HasTabSpecificLayers()
                             ? TabHighlightLayerResolver.ResolveVisibleLayerKey(window, automation, _visibleLayerKey)
                             : TabHighlightLayerResolver.GlobalLayerKey;
@@ -6179,7 +6367,7 @@ internal sealed class RecordingHighlightOverlay : IDisposable
 
                         if (layerMayBeApplied)
                             _visibleLayerKey = visibleLayerKey;
-                        if (anchorsChanged || layerChanged)
+                        if (anchorsChanged || mappedSurfaceChanged || layerChanged)
                             RenderHighlights();
                     }
                     finally
@@ -6193,6 +6381,80 @@ internal sealed class RecordingHighlightOverlay : IDisposable
                 Interlocked.Exchange(ref _visibleLayerRefreshInFlight, 0);
             }
         });
+    }
+
+    private WindowTarget ResolveVisibleSurfaceTarget(WindowTarget root)
+    {
+        try
+        {
+            var foreground = WindowCatalog.GetTopLevelHandle(NativeMethods.GetForegroundWindow()).ToInt64();
+            if (foreground != 0 && WindowCatalog.IsSameProcessWindow(_target, foreground))
+            {
+                var resolved = WindowCatalog.Resolve(foreground);
+                if (resolved.Bounds.IsValid)
+                    return resolved;
+            }
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or
+                                         System.ComponentModel.Win32Exception)
+        {
+        }
+
+        try
+        {
+            var owned = WindowCatalog.ListScopedWindows(_target)
+                .Where(window => window.Hwnd != _target.Hwnd && window.Hwnd != _target.RootOwnerHwnd)
+                .Where(window => window.Bounds.IsValid)
+                .OrderBy(window => window.ZOrder)
+                .FirstOrDefault();
+            if (owned is not null)
+                return owned;
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or
+                                         System.ComponentModel.Win32Exception)
+        {
+        }
+
+        return root;
+    }
+
+    private bool RefreshMappedHistoricalSurface(
+        RectI currentRootBounds,
+        RectI currentSurfaceBounds,
+        WindowObservation currentWindow,
+        IReadOnlyList<AutomationObservation> currentAutomation,
+        bool currentIsPrimarySurface)
+    {
+        if (_mappedHistoricalSurfaces.Count == 0)
+            return false;
+        var selected = RecordingHighlightHistory.SelectBestMappedSurface(
+            _mappedHistoricalSurfaces,
+            currentWindow,
+            currentAutomation,
+            currentIsPrimarySurface);
+        var selectionKey = selected is null
+            ? "<unmapped>"
+            : string.Join('|', selected.Id,
+                currentRootBounds.X, currentRootBounds.Y, currentRootBounds.Width, currentRootBounds.Height,
+                currentSurfaceBounds.X, currentSurfaceBounds.Y, currentSurfaceBounds.Width, currentSurfaceBounds.Height);
+        if (string.Equals(selectionKey, _activeMappedHistoricalSurfaceKey, StringComparison.Ordinal))
+            return false;
+
+        _activeMappedHistoricalSurfaceKey = selectionKey;
+        _historicalRelativeHighlightsByLayer.Clear();
+        if (selected is null)
+            return true;
+        var projected = RecordingHighlightHistory.ProjectMappedHighlights(
+            selected,
+            currentRootBounds,
+            currentSurfaceBounds);
+        if (projected.Count > 0)
+        {
+            _historicalRelativeHighlightsByLayer[TabHighlightLayerResolver.GlobalLayerKey] = projected
+                .Select(bounds => new HighlightAnchor(bounds, identity: null))
+                .ToList();
+        }
+        return true;
     }
 
     private bool RefreshAnchoredHighlights(
@@ -11210,6 +11472,8 @@ internal sealed class RecordingControlPanel : IDisposable
     internal static string ActiveCaption(string message)
     {
         var lower = message.ToLowerInvariant();
+        if (lower.Contains("matching the current screen to the existing map", StringComparison.Ordinal)) return "MATCHING EXISTING MAP";
+        if (lower.Contains("matched the existing map", StringComparison.Ordinal)) return "EXISTING MAP MATCHED";
         if (lower.Contains("stage 1 of 5", StringComparison.Ordinal)) return "CAPTURING SCREEN";
         if (lower.Contains("stage 2 of 5", StringComparison.Ordinal) || lower.Contains("mapping controls", StringComparison.Ordinal) || lower.Contains("scanning the app", StringComparison.Ordinal)) return "SCANNING CONTROLS";
         if (lower.Contains("stage 3 of 5", StringComparison.Ordinal) || lower.Contains("verifying", StringComparison.Ordinal)) return "VERIFYING CONTROLS";
@@ -11245,6 +11509,10 @@ internal sealed class RecordingControlPanel : IDisposable
     internal static string ActiveBarText(string message)
     {
         var lower = message.ToLowerInvariant();
+        if (lower.Contains("matching the current screen to the existing map", StringComparison.Ordinal))
+            return "Matching existing map...";
+        if (lower.Contains("matched the existing map", StringComparison.Ordinal))
+            return "Ready for next click";
         if (lower.Contains("stage 1 of 5", StringComparison.Ordinal))
             return "Capturing screen...";
         if (lower.Contains("stage 2 of 5", StringComparison.Ordinal) || lower.Contains("mapping controls", StringComparison.Ordinal) || lower.Contains("scanning the app", StringComparison.Ordinal))
@@ -11315,6 +11583,10 @@ internal sealed class RecordingControlPanel : IDisposable
     internal static string ActiveDetailText(string message)
     {
         var lower = message.ToLowerInvariant();
+        if (lower.Contains("matching the current screen to the existing map", StringComparison.Ordinal))
+            return "Comparing the current screen with saved map surfaces; controls are not being rediscovered.";
+        if (lower.Contains("matched the existing map", StringComparison.Ordinal))
+            return "Saved controls are shown in lilac. Only new actions and screens will be recorded.";
         if (lower.Contains("stage 1 of 5", StringComparison.Ordinal))
             return "Stage 1 of 5 · Saving the current screen before control discovery starts.";
         if (lower.Contains("stage 2 of 5", StringComparison.Ordinal) || lower.Contains("mapping controls", StringComparison.Ordinal) || lower.Contains("scanning the app", StringComparison.Ordinal))
