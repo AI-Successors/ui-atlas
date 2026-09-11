@@ -20,6 +20,22 @@ $allowedPackages = @(
 
 $approvedAssetPaths = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
 $ignoredSubtreePattern = '\\(artifacts|bin|obj|dist|\.codex-[^\\]+|\.tmp)\\'
+$imageExtensions = @('.png','.jpg','.jpeg','.gif','.ico','.bmp','.webp','.svg')
+
+$provenancePath = Join-Path $root 'provenance/files.csv'
+if (-not (Test-Path -LiteralPath $provenancePath -PathType Leaf)) {
+  throw 'Provenance ledger is missing.'
+}
+Import-Csv -LiteralPath $provenancePath | ForEach-Object {
+  if ([string]::IsNullOrWhiteSpace($_.target_path)) { return }
+  $resolved = [IO.Path]::GetFullPath((Join-Path $root $_.target_path))
+  if (-not $resolved.StartsWith($root + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
+    throw "Provenance path escapes repository: $($_.target_path)"
+  }
+  if ([IO.Path]::GetExtension($resolved) -in $imageExtensions) {
+    $null = $approvedAssetPaths.Add($resolved)
+  }
+}
 
 function Resolve-ProjectIncludePaths {
   param(
@@ -87,7 +103,7 @@ Get-ChildItem -LiteralPath $root -Filter *.cs -Recurse -File | Where-Object { $_
 }
 
 Get-ChildItem -LiteralPath $root -Recurse -File | Where-Object {
-  $_.FullName -notmatch $ignoredSubtreePattern -and $_.Extension -in '.png','.jpg','.jpeg','.gif','.ico','.bmp','.webp','.svg'
+  $_.FullName -notmatch $ignoredSubtreePattern -and $_.Extension -in $imageExtensions
 } | ForEach-Object {
   if (-not $approvedAssetPaths.Contains($_.FullName)) {
     throw "Unreviewed image asset is forbidden: $($_.FullName)"

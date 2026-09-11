@@ -120,6 +120,9 @@ StyleCopReport.xml
 *.tlh
 *.tmp
 *.tmp_proj
+*.etl
+*.dmp
+*.dump
 *_wpftmp.csproj
 *.log
 *.tlog
