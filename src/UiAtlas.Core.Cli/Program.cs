@@ -598,7 +598,9 @@ internal static class Program
                 return Fail("map quality requires one map ID and optional --strict.");
             catalog.EnsureSafe();
             var graph = new UiGraphReader().Load(catalog.MapPath(args[1]));
-            var report = MapQualityInspector.Inspect(graph, catalog.MatchingRecordingPaths(args[1]));
+            var sessionPath = catalog.MapSessionPath(args[1]);
+            var savedDataGrids = File.Exists(sessionPath) ? LogicalMapSessionStore.Load(sessionPath).DataGrids : null;
+            var report = MapQualityInspector.Inspect(graph, catalog.MatchingRecordingPaths(args[1]), savedDataGrids);
             MapQualityInspector.Print(report);
             return args.Length == 3 && report.NeedsReview ? 4 : 0;
         }
@@ -1018,6 +1020,8 @@ internal static class Program
                 sessionTarget = workspace.CreateNextSession();
                 Console.WriteLine($"Recording session ID: {sessionTarget.SessionId}");
                 using var overlay = new RecordingHighlightOverlay(target);
+                overlay.HideRecorderForExploration = panel.HideForScreenshotAsync;
+                overlay.RestoreRecorderAfterExploration = panel.RestoreAfterScreenshot;
                 overlay.Start();
                 IReadOnlyList<MappedSurfaceHighlightSnapshot> mappedSurfacesForSession = [];
                 if (restoreHighlightsForSession)
@@ -1042,7 +1046,7 @@ internal static class Program
                                 visibleLayerKey: null);
                         }
                         if (restoredHighlights.Count > 0)
-                            Console.WriteLine($"Restored {restoredHighlights.Count} previous click highlights in lilac.");
+                            Console.WriteLine($"Loaded {restoredHighlights.Count} previous click locations; live detection determines overlay colors.");
                     }
                 }
                 beforeStart?.Invoke();
@@ -1113,7 +1117,7 @@ internal static class Program
                     panel.SetStatus("Saving the updated map. Almost done—keep UiAtlas open.");
                     Console.WriteLine("Saving the updated map...");
                     SqliteGraphStore.Save(graph, workspace.MapPath);
-                    var qualityReport = MapQualityInspector.Inspect(graph, mergedRecordingPaths);
+                    var qualityReport = MapQualityInspector.Inspect(graph, mergedRecordingPaths, workspace.DataGrids);
                     try
                     {
                         beforeStart?.Invoke();
@@ -1273,6 +1277,7 @@ internal static class Program
         var autoStopRequested = 0;
         var autoPassGate = new object();
         CancellationTokenSource? activeAutoPassCancellation = null;
+        (Func<CancellationToken, Task<GridImageExplorationResult>> Action, CancellationToken Token, TaskCompletionSource<GridImageExplorationResult> Completion)? pendingGridExploration = null;
         ConsoleCancelEventHandler cancelHandler = (_, eventArgs) => { eventArgs.Cancel = true; cancellation.Cancel(); };
         void PauseInputCapture()
         {
@@ -1330,6 +1335,29 @@ internal static class Program
         panel.PauseRequested += PauseInputCapture;
         panel.CancelRequested += CancelFromPanel;
         panel.AutoPassStopRequested += StopAutoPassFromPanel;
+        overlay.SaveReviewedDataGrid = workspace.SaveDataGrid;
+        overlay.ResumeAfterGridInspector = () =>
+        {
+            if (!cancellation.IsCancellationRequested && Volatile.Read(ref pauseRequested) != 0)
+                panel.RequestResumeAfterGrid();
+        };
+        overlay.ExplorationRunner = async (action, token) =>
+        {
+            PauseInputCapture(); StopAutoPassFromPanel();
+            while (true)
+            {
+                lock (autoPassGate) { if (activeAutoPassCancellation is null) break; }
+                await Task.Delay(50, token).ConfigureAwait(false);
+            }
+            var completion = new TaskCompletionSource<GridImageExplorationResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+            lock (autoPassGate)
+            {
+                if (pendingGridExploration is not null) throw new InvalidOperationException("operation-busy");
+                pendingGridExploration = (action, token, completion);
+            }
+            panel.RequestGridExploration();
+            return await completion.Task.WaitAsync(token).ConfigureAwait(false);
+        };
         try
         {
             var manualClickCursorUtc = DateTimeOffset.UtcNow;
@@ -1563,7 +1591,7 @@ internal static class Program
                         var mappedBaseline = matchExistingMapOnStart
                             ? await TryCaptureMappedResumeSurfaceAsync(
                                 session, target, panel, workspace, sessionId, mappedSurfaces!,
-                                cancellation.Token).ConfigureAwait(false)
+                                overlay, cancellation.Token).ConfigureAwait(false)
                             : null;
                         if (mappedBaseline is not null)
                         {
@@ -1607,7 +1635,7 @@ internal static class Program
                 panel.SetStatus(!targetRefocused
                     ? "Recording is ready, but the target app could not be focused. Focus it once to continue."
                     : matchedExistingMap
-                        ? $"Matched this screen to the existing map. {initialScan.VisibleControlCount} saved controls are shown in lilac; manual capture is active."
+                        ? $"Matched this screen to the existing map. {initialScan.VisibleControlCount} saved controls loaded; manual capture is active."
                     : initialScan.HasUsableControls
                         ? $"Initial scan saved {initialScan.VisibleControlCount} visible controls ({initialScan.ConfirmedControlCount} confirmed, {initialScan.CoverageGapCount} coverage gaps). Manual capture is active."
                         : "The initial scan found no controls. Manual capture is still active.");
@@ -1646,6 +1674,25 @@ internal static class Program
                     try { await clickTask.ConfigureAwait(false); }
                     catch (OperationCanceledException) when (!cancellation.IsCancellationRequested) { }
                     var command = (await commandTask.ConfigureAwait(false)).Trim().ToUpperInvariant();
+                    if (command == "EXPLORE_GRID")
+                    {
+                        PauseInputCapture();
+                        (Func<CancellationToken, Task<GridImageExplorationResult>> Action, CancellationToken Token, TaskCompletionSource<GridImageExplorationResult> Completion)? work;
+                        lock (autoPassGate) { work = pendingGridExploration; pendingGridExploration = null; }
+                        if (work is { } exploration)
+                        {
+                            using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellation.Token, exploration.Token);
+                            try
+                            {
+                                linked.Token.ThrowIfCancellationRequested();
+                                if (adaptive is not null) await adaptive.DrainAsync(TimeSpan.FromSeconds(2), linked.Token).ConfigureAwait(false);
+                                var result = await session.RunGridExplorationAsync(() => exploration.Action(linked.Token), linked.Token).ConfigureAwait(false);
+                                exploration.Completion.TrySetResult(result);
+                            }
+                            catch (Exception ex) { exploration.Completion.TrySetException(ex); }
+                        }
+                        command = "P";
+                    }
                     if (command is "N" or "T")
                     {
                         requestedClicks = command == "T" ? 2 : 1;
@@ -1731,6 +1778,7 @@ internal static class Program
                         Console.WriteLine("Recording paused. Use Resume to continue this session or Finish to build the map.");
                         PrintRecorderPausedConsoleHelp();
                         var pausedCommand = await WaitForPausedRecordingCommandAsync(panel, cancellation.Token).ConfigureAwait(false);
+                        if (pausedCommand == "EXPLORE_GRID") { panel.RequestGridExploration(); continue; }
                         if (pausedCommand == "R")
                         {
                             panel.ShowActiveRecordingState();
@@ -1947,6 +1995,10 @@ internal static class Program
         }
         finally
         {
+            overlay.ExplorationRunner = null;
+            overlay.SaveReviewedDataGrid = null;
+            overlay.ResumeAfterGridInspector = null;
+            lock (autoPassGate) pendingGridExploration?.Completion.TrySetCanceled();
             if (adaptive is not null)
                 await adaptive.DisposeAsync().ConfigureAwait(false);
             panel.CancelRequested -= CancelFromPanel;
@@ -4377,6 +4429,7 @@ internal static class Program
         RecorderWorkspace workspace,
         string sessionId,
         IReadOnlyList<MappedSurfaceHighlightSnapshot> mappedSurfaces,
+        RecordingHighlightOverlay overlay,
         CancellationToken cancellationToken)
     {
         if (mappedSurfaces.Count == 0)
@@ -4457,7 +4510,12 @@ internal static class Program
         Console.WriteLine(
             $"Matched saved frame {matched.FrameSequence}; reused {scan.VisibleControlCount} mapped controls without a full control scan.");
         panel.SetStatus(
-            $"Matched the existing map. Showing {scan.VisibleControlCount} saved controls in lilac.");
+            $"Matched the existing map. Loaded {scan.VisibleControlCount} saved controls.");
+        ShowObservedSurfaceHighlights(overlay, frame with
+        {
+            Automation = identity.Items,
+            Trigger = "mapped-resume-live-identity"
+        });
         return scan;
     }
 
@@ -4547,30 +4605,8 @@ internal static class Program
     {
         ArgumentNullException.ThrowIfNull(overlay);
         ArgumentNullException.ThrowIfNull(frame);
-        const string initialLayerKey = "__initial_surface__";
         var overlayRootBounds = ResolveOverlayRootBounds(overlay, frame);
-        var native = AutomationObservationVisibility.FilterEffectivelyVisible(frame.Automation)
-            .Where(control => control.Bounds.Width > 0 && control.Bounds.Height > 0)
-            .Where(control => !control.FrameworkId.StartsWith("UiAtlas.", StringComparison.OrdinalIgnoreCase));
-        var visual = frame.Automation.Where(control => IsVisualSurfaceHighlight(control, overlayRootBounds));
-        var visible = native.Concat(visual)
-            .GroupBy(control => control.RuntimeId, StringComparer.Ordinal)
-            .Select(group => group.First())
-            .Take(1_500)
-            .ToArray();
-        if (visible.Length == 0) return;
-
-        var visibleLayerKey = TabHighlightLayerResolver.ResolveVisibleLayerKey(
-            frame, [], initialLayerKey);
-        var highlightsByLayer = visible.GroupBy(control =>
-                TabHighlightLayerResolver.ResolveLayerKey(
-                    frame, [control.Bounds], visibleLayerKey),
-                StringComparer.Ordinal)
-            .ToDictionary(
-                group => group.Key,
-                group => (IReadOnlyList<RectI>)group.Select(control => control.Bounds).ToArray(),
-                StringComparer.Ordinal);
-        overlay.ReplaceObservedHighlights(overlayRootBounds, highlightsByLayer, visibleLayerKey);
+        overlay.ReplaceMapperHighlights(overlayRootBounds, frame);
     }
 
     private static RectI ResolveOverlayRootBounds(
@@ -4959,7 +4995,7 @@ internal static class Program
             if (panel.TryDequeueCommand(out var command))
             {
                 command = command.Trim().ToUpperInvariant();
-                if (command is "N" or "T" or "A" or "F" or "C" or "P" or "R" or "SKIP_AUTO" or "CONTINUE_AUTO" or PanelCloseCommand)
+                if (command is "N" or "T" or "A" or "F" or "C" or "P" or "R" or "SKIP_AUTO" or "CONTINUE_AUTO" or "EXPLORE_GRID" or PanelCloseCommand)
                     return command;
             }
             if (TryReadConsoleKey(out var key))
@@ -4999,7 +5035,7 @@ internal static class Program
             if (panel.TryDequeueCommand(out var command))
             {
                 command = command.Trim().ToUpperInvariant();
-                if (command is "R" or "F" or "C" or PanelCloseCommand)
+                if (command is "R" or "F" or "C" or "EXPLORE_GRID" or PanelCloseCommand)
                     return command;
             }
 
@@ -5607,13 +5643,12 @@ internal static class Program
     private static extern nint LocalFree(nint memory);
 }
 
-internal sealed class RecordingHighlightOverlay : IDisposable
+internal sealed partial class RecordingHighlightOverlay : IDisposable
 {
     private const int GwlExStyle = -20;
     private const int WsExTransparent = 0x20;
     private const int WsExToolWindow = 0x80;
     private const int WsExNoActivate = 0x08000000;
-    private const uint WdaExcludeFromCapture = 0x00000011;
     private const int WmNcHitTest = 0x0084;
     private static readonly nint HtTransparent = new(-1);
     private static readonly TimeSpan VisibleLayerRefreshInterval = TimeSpan.FromMilliseconds(250);
@@ -5626,7 +5661,6 @@ internal sealed class RecordingHighlightOverlay : IDisposable
     private readonly Dictionary<string, List<HighlightAnchor>> _historicalRelativeHighlightsByLayer = new(StringComparer.Ordinal);
     private IReadOnlyList<MappedSurfaceHighlightSnapshot> _mappedHistoricalSurfaces = [];
     private string _activeMappedHistoricalSurfaceKey = string.Empty;
-    private Thread? _thread;
     private System.Windows.Threading.Dispatcher? _dispatcher;
     private System.Windows.Window? _window;
     private System.Windows.Controls.Canvas? _canvas;
@@ -5644,6 +5678,14 @@ internal sealed class RecordingHighlightOverlay : IDisposable
     private int _automationTransparencyHolds;
     private int _screenshotVisibilityHolds;
     private int _captureVisibleRequested = 1;
+    private volatile bool _windowClosed;
+
+    private void Post(Action action)
+    {
+        var dispatcher = _dispatcher;
+        if (_windowClosed || dispatcher is null || dispatcher.HasShutdownStarted) return;
+        dispatcher.BeginInvoke(() => { if (!_windowClosed) action(); });
+    }
 
     public RecordingHighlightOverlay(WindowTarget target)
     {
@@ -5653,9 +5695,8 @@ internal sealed class RecordingHighlightOverlay : IDisposable
 
     public void Start()
     {
-        _thread = new Thread(Run) { IsBackground = true, Name = "UiAtlas recording highlight overlay" };
-        _thread.SetApartmentState(ApartmentState.STA);
-        _thread.Start();
+        _dispatcher = RecorderUiDispatcher.Instance;
+        _dispatcher.Invoke(Run);
         if (!_ready.Wait(TimeSpan.FromSeconds(5))) throw new InvalidOperationException("Recording highlight overlay did not become visible.");
     }
 
@@ -5746,7 +5787,7 @@ internal sealed class RecordingHighlightOverlay : IDisposable
         var normalizedVisibleLayerKey = string.IsNullOrWhiteSpace(visibleLayerKey)
             ? null
             : visibleLayerKey;
-        _dispatcher.BeginInvoke(() =>
+        Post(() =>
         {
             _currentRootBounds = capturedRootBounds;
             RefreshObservedSurfaceLayers(
@@ -5797,7 +5838,7 @@ internal sealed class RecordingHighlightOverlay : IDisposable
         ArgumentNullException.ThrowIfNull(snapshots);
         if (_dispatcher is null || _dispatcher.HasShutdownStarted) return;
         var stored = snapshots.ToArray();
-        _dispatcher.BeginInvoke(() =>
+        Post(() =>
         {
             _mappedHistoricalSurfaces = stored;
             _activeMappedHistoricalSurfaceKey = string.Empty;
@@ -5831,7 +5872,7 @@ internal sealed class RecordingHighlightOverlay : IDisposable
             ? null
             : visibleLayerKey;
 
-        _dispatcher.BeginInvoke(() =>
+        Post(() =>
         {
             if (updateCurrentRootBounds)
                 _currentRootBounds = capturedRootBounds;
@@ -5906,12 +5947,13 @@ internal sealed class RecordingHighlightOverlay : IDisposable
     public void ClearSurfaceHighlights()
     {
         if (_dispatcher is null || _dispatcher.HasShutdownStarted) return;
-        _dispatcher.BeginInvoke(() =>
+        Post(() =>
         {
             _relativeHighlightsByLayer.Clear();
             _observedRelativeHighlightsByLayer.Clear();
             _historicalRelativeHighlightsByLayer.Clear();
             _mappedHistoricalSurfaces = [];
+            ClearMapperHighlights();
             _activeMappedHistoricalSurfaceKey = string.Empty;
             _visibleLayerKey = TabHighlightLayerResolver.GlobalLayerKey;
             RenderHighlights();
@@ -5921,9 +5963,10 @@ internal sealed class RecordingHighlightOverlay : IDisposable
     public void ClearObservedSurfaceHighlights()
     {
         if (_dispatcher is null || _dispatcher.HasShutdownStarted) return;
-        _dispatcher.BeginInvoke(() =>
+        Post(() =>
         {
             _observedRelativeHighlightsByLayer.Clear();
+            ClearMapperHighlights();
             RenderHighlights();
         });
     }
@@ -5997,7 +6040,7 @@ internal sealed class RecordingHighlightOverlay : IDisposable
         {
             _dispatcher.Invoke(() =>
             {
-                if (_window is null) return;
+                if (_windowClosed || _window is null) return;
                 if (visible)
                 {
                     RenderHighlights();
@@ -6007,6 +6050,7 @@ internal sealed class RecordingHighlightOverlay : IDisposable
                 {
                     _window.Hide();
                 }
+                UpdateMapperWindowVisibility();
             });
         }
         catch (TaskCanceledException) { }
@@ -6042,9 +6086,10 @@ internal sealed class RecordingHighlightOverlay : IDisposable
         {
             _dispatcher.Invoke(() =>
             {
-                if (_window is null) return;
+                if (_windowClosed || _window is null) return;
                 var handle = new System.Windows.Interop.WindowInteropHelper(_window).Handle;
                 _ = EnableWindow(handle, !transparent);
+                UpdateMapperWindowVisibility();
                 if (!transparent)
                     RenderHighlights();
             });
@@ -6068,7 +6113,7 @@ internal sealed class RecordingHighlightOverlay : IDisposable
         if (_dispatcher is null || _dispatcher.HasShutdownStarted || absoluteBounds.Width <= 0 || absoluteBounds.Height <= 0)
             return;
 
-        _dispatcher.BeginInvoke(() =>
+        Post(() =>
         {
             _currentRootBounds = capturedRootBounds;
             _clickPulseRelativeBounds = new RectI(
@@ -6087,7 +6132,7 @@ internal sealed class RecordingHighlightOverlay : IDisposable
         if (_dispatcher is null || _dispatcher.HasShutdownStarted)
             return;
 
-        _dispatcher.BeginInvoke(() =>
+        Post(() =>
         {
             _clickPulseRelativeBounds = null;
             _clickPulseUntilUtc = DateTimeOffset.MinValue;
@@ -6102,7 +6147,7 @@ internal sealed class RecordingHighlightOverlay : IDisposable
             return;
 
         var outlineDuration = duration ?? FocusOutlineDuration;
-        _dispatcher.BeginInvoke(() =>
+        Post(() =>
         {
             _focusOutlinePersistent = !duration.HasValue;
             _focusOutlineUntilUtc = duration.HasValue
@@ -6117,7 +6162,7 @@ internal sealed class RecordingHighlightOverlay : IDisposable
         if (_dispatcher is null || _dispatcher.HasShutdownStarted)
             return;
 
-        _dispatcher.BeginInvoke(() =>
+        Post(() =>
         {
             _focusOutlinePersistent = false;
             _focusOutlineUntilUtc = DateTimeOffset.MinValue;
@@ -6154,8 +6199,8 @@ internal sealed class RecordingHighlightOverlay : IDisposable
         _window.SourceInitialized += (_, _) => MakeClickThrough();
         _window.Closed += (_, _) =>
         {
+            _windowClosed = true;
             _positionTimer?.Stop();
-            _dispatcher.BeginInvokeShutdown(System.Windows.Threading.DispatcherPriority.Normal);
         };
         _positionTimer = new System.Windows.Threading.DispatcherTimer(
             TimeSpan.FromMilliseconds(150),
@@ -6165,14 +6210,15 @@ internal sealed class RecordingHighlightOverlay : IDisposable
         _positionTimer.Start();
         _window.Show();
         _ready.Set();
-        System.Windows.Threading.Dispatcher.Run();
     }
 
     private void RefreshRootBounds()
     {
+        RefreshMapperTarget();
+        if (!_mapperTargetVisible) return;
         var focusOutlineWasActive = HasActiveFocusOutline();
         var clickPulseWasActive = HasActiveClickPulse();
-        if (!HasAnyHighlights() && _mappedHistoricalSurfaces.Count == 0 &&
+        if (!HasAnyHighlights() && _mappedHistoricalSurfaces.Count == 0 && !_mapperEnabled &&
             !focusOutlineWasActive && !clickPulseWasActive) return;
         try
         {
@@ -6205,6 +6251,8 @@ internal sealed class RecordingHighlightOverlay : IDisposable
     {
         if (_canvas is null || _window is null) return;
         _canvas.Children.Clear();
+        ApplyMapperDrawingClip();
+        if (!_mapperTargetVisible) return;
 
         if (HasActiveFocusOutline() && TryProjectToOverlayRect(_currentRootBounds, out var projectedRoot))
         {
@@ -6231,30 +6279,7 @@ internal sealed class RecordingHighlightOverlay : IDisposable
             _canvas.Children.Add(focusFrame);
         }
 
-        foreach (var highlight in VisibleHighlights())
-        {
-            var relative = highlight.Bounds;
-            var absolute = new RectI(
-                _currentRootBounds.X + relative.X,
-                _currentRootBounds.Y + relative.Y,
-                relative.Width,
-                relative.Height);
-            if (!TryProjectToOverlayRect(absolute, out var projected)) continue;
-
-            var (fill, stroke) = ResolveHighlightColors(highlight.Kind);
-            var shape = new System.Windows.Shapes.Rectangle
-            {
-                Width = projected.Width,
-                Height = projected.Height,
-                Fill = new System.Windows.Media.SolidColorBrush(fill),
-                Stroke = new System.Windows.Media.SolidColorBrush(stroke),
-                StrokeThickness = 2,
-                IsHitTestVisible = false
-            };
-            System.Windows.Controls.Canvas.SetLeft(shape, projected.X);
-            System.Windows.Controls.Canvas.SetTop(shape, projected.Y);
-            _canvas.Children.Add(shape);
-        }
+        RenderMapperHighlights();
 
         if (HasActiveClickPulse() && _clickPulseRelativeBounds is { } pulse)
         {
@@ -6300,14 +6325,16 @@ internal sealed class RecordingHighlightOverlay : IDisposable
 
     private void RefreshVisibleLayer(WindowTarget current)
     {
-        if (!HasAnchoredHighlights() && !HasTabSpecificLayers() && _mappedHistoricalSurfaces.Count == 0)
+        if (_gridExplorationActive) return;
+        if (!HasAnchoredHighlights() && !HasTabSpecificLayers() && _mappedHistoricalSurfaces.Count == 0 && !_mapperEnabled)
         {
             _visibleLayerKey = TabHighlightLayerResolver.GlobalLayerKey;
             return;
         }
 
         var now = DateTimeOffset.UtcNow;
-        if (now - _lastVisibleLayerRefreshUtc < VisibleLayerRefreshInterval)
+        var refreshInterval = _mapperEnabled ? TimeSpan.FromSeconds(1) : VisibleLayerRefreshInterval;
+        if (now - _lastVisibleLayerRefreshUtc < refreshInterval)
             return;
 
         _lastVisibleLayerRefreshUtc = now;
@@ -6315,11 +6342,13 @@ internal sealed class RecordingHighlightOverlay : IDisposable
             return;
 
         var visibleLayerAtStart = _visibleLayerKey;
+        var mapperRevisionAtStart = _mapperRevision;
         _ = Task.Run(() =>
         {
             WindowTarget visibleSurface;
             WindowObservation window;
             IReadOnlyList<AutomationObservation> automation;
+            IReadOnlyList<AutomationObservation> gridHints;
             try
             {
                 // UI Automation can take many seconds for dense applications such as
@@ -6327,7 +6356,8 @@ internal sealed class RecordingHighlightOverlay : IDisposable
                 // click pulse on the previous control while traversal keeps moving.
                 visibleSurface = ResolveVisibleSurfaceTarget(current);
                 window = WindowSnapshotCapture.Observe(visibleSurface);
-                automation = BoundedAutomationCollector.Collect(visibleSurface.Hwnd, 512, 18);
+                automation = BoundedAutomationCollector.CollectExactWindow(visibleSurface.Hwnd, 512, 18);
+                gridHints = NativeGridHostDiscovery.Collect(visibleSurface);
             }
             catch
             {
@@ -6348,6 +6378,7 @@ internal sealed class RecordingHighlightOverlay : IDisposable
                 {
                     try
                     {
+                        if (_windowClosed) return;
                         var anchorsChanged = RefreshAnchoredHighlights(current.Bounds, automation);
                         var mappedSurfaceChanged = RefreshMappedHistoricalSurface(
                             current.Bounds,
@@ -6355,7 +6386,7 @@ internal sealed class RecordingHighlightOverlay : IDisposable
                             window,
                             automation,
                             visibleSurface.Hwnd == _target.Hwnd || visibleSurface.Hwnd == _target.RootOwnerHwnd);
-                        var visibleLayerKey = HasTabSpecificLayers()
+                        var visibleLayerKey = HasTabSpecificLayers() || _mapperEnabled
                             ? TabHighlightLayerResolver.ResolveVisibleLayerKey(window, automation, _visibleLayerKey)
                             : TabHighlightLayerResolver.GlobalLayerKey;
                         var layerMayBeApplied = string.Equals(
@@ -6367,6 +6398,8 @@ internal sealed class RecordingHighlightOverlay : IDisposable
 
                         if (layerMayBeApplied)
                             _visibleLayerKey = visibleLayerKey;
+                        RefreshMapperFromLiveSurface(current, visibleSurface, automation, gridHints,
+                            visibleLayerKey, layerChanged, mapperRevisionAtStart);
                         if (anchorsChanged || mappedSurfaceChanged || layerChanged)
                             RenderHighlights();
                     }
@@ -6391,7 +6424,7 @@ internal sealed class RecordingHighlightOverlay : IDisposable
             if (foreground != 0 && WindowCatalog.IsSameProcessWindow(_target, foreground))
             {
                 var resolved = WindowCatalog.Resolve(foreground);
-                if (resolved.Bounds.IsValid)
+                if (resolved.Bounds.IsValid && resolved.RootOwnerHwnd == _target.RootOwnerHwnd)
                     return resolved;
             }
         }
@@ -6728,7 +6761,8 @@ internal sealed class RecordingHighlightOverlay : IDisposable
         var handle = new System.Windows.Interop.WindowInteropHelper(window).Handle;
         var style = GetWindowLong(handle, GwlExStyle);
         _ = SetWindowLong(handle, GwlExStyle, style | WsExTransparent | WsExToolWindow | WsExNoActivate);
-        _ = SetWindowDisplayAffinity(handle, WdaExcludeFromCapture);
+        // Keep highlights visible in user screenshots and screen sharing.
+        // Recorder evidence excludes them via HideForScreenshotAsync instead.
     }
 
     public void Dispose()
@@ -6738,9 +6772,11 @@ internal sealed class RecordingHighlightOverlay : IDisposable
             {
                 _windowSource?.RemoveHook(HitTestTransparentWindow);
                 _windowSource = null;
+                ClearMapperHighlights();
                 _window?.Close();
             });
-        _thread?.Join(TimeSpan.FromSeconds(5));
+        _windowClosed = true;
+        _dispatcher = null;
         _ready.Dispose();
     }
 
@@ -6749,10 +6785,6 @@ internal sealed class RecordingHighlightOverlay : IDisposable
 
     [DllImport("user32.dll", EntryPoint = "SetWindowLongW")]
     private static extern int SetWindowLong(nint hwnd, int index, int newLong);
-
-    [DllImport("user32.dll")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool SetWindowDisplayAffinity(nint hwnd, uint affinity);
 
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
@@ -6809,8 +6841,9 @@ internal static class WindowActivation
         try
         {
             RestoreWindowIfMinimized(target);
+            var wasTopmost = (NativeMethods.GetWindowLongPtr(target, NativeMethods.GwlExStyle).ToInt64() & NativeMethods.WsExTopmost) != 0;
             SetWindowPos(target, HwndTopMost, 0, 0, 0, 0, SwpNoMove | SwpNoSize | SwpNoOwnerZOrder);
-            SetWindowPos(target, HwndNoTopMost, 0, 0, 0, 0, SwpNoMove | SwpNoSize | SwpNoOwnerZOrder);
+            if (!wasTopmost) SetWindowPos(target, HwndNoTopMost, 0, 0, 0, 0, SwpNoMove | SwpNoSize | SwpNoOwnerZOrder);
             BringWindowToTop(target);
             SetForegroundWindow(target);
             SetActiveWindow(target);
@@ -7244,7 +7277,6 @@ internal sealed class RecordingControlPanel : IDisposable
     private string _mapQuery = string.Empty;
     private bool _recordingControlsLocked;
     private System.Windows.Media.ScaleTransform? _rootScaleTransform;
-    private Thread? _thread;
     private System.Windows.Threading.Dispatcher? _dispatcher;
     private System.Windows.Threading.DispatcherTimer? _elapsedTimer;
     private System.Windows.Window? _window;
@@ -7327,6 +7359,14 @@ internal sealed class RecordingControlPanel : IDisposable
     private volatile bool _enableHoverAndFocusDiscovery = true;
     private volatile bool _captureCustomerData;
     private int _mapRefreshGeneration;
+    private volatile bool _windowClosed;
+
+    private void Post(Action action)
+    {
+        var dispatcher = _dispatcher;
+        if (_windowClosed || dispatcher is null || dispatcher.HasShutdownStarted) return;
+        dispatcher.BeginInvoke(() => { if (!_windowClosed) action(); });
+    }
 
     private enum IdlePopupRequest
     {
@@ -7347,9 +7387,8 @@ internal sealed class RecordingControlPanel : IDisposable
 
     public void Start()
     {
-        _thread = new Thread(Run) { IsBackground = true, Name = "UiAtlas recording control panel" };
-        _thread.SetApartmentState(ApartmentState.STA);
-        _thread.Start();
+        _dispatcher = RecorderUiDispatcher.Instance;
+        _dispatcher.Invoke(Run);
         if (!_ready.Wait(TimeSpan.FromSeconds(5))) throw new InvalidOperationException("Recording panel did not become visible.");
         if (_startupException is not null)
             throw new InvalidOperationException("Recording panel failed to start.", _startupException);
@@ -7421,11 +7460,9 @@ internal sealed class RecordingControlPanel : IDisposable
             {
                 Source = new Uri("pack://application:,,,/PresentationFramework.Fluent;component/Themes/Fluent.Light.xaml")
             });
-            _window.SourceInitialized += (_, _) =>
-            {
-                UpdateWindowScale();
-                ExcludeWindowFromCapture();
-            };
+            // User screenshots include the toolbar; recorder evidence hides it
+            // temporarily through HideForScreenshotAsync.
+            _window.SourceInitialized += (_, _) => UpdateWindowScale();
             _window.Loaded += (_, _) =>
             {
                 UpdateWindowScale();
@@ -7434,14 +7471,15 @@ internal sealed class RecordingControlPanel : IDisposable
             _window.Deactivated += (_, _) => CloseIdleMenus();
             _window.Closed += (_, _) =>
             {
+                _windowClosed = true;
+                _elapsedTimer?.Stop();
                 _closed.Set();
                 _commands.Writer.TryWrite("CLOSE");
-                _dispatcher?.BeginInvokeShutdown(System.Windows.Threading.DispatcherPriority.Normal);
             };
 
             _window.Show();
             _ready.Set();
-            _dispatcher.BeginInvoke(new Action(() =>
+            Post(new Action(() =>
             {
                 try
                 {
@@ -7453,7 +7491,6 @@ internal sealed class RecordingControlPanel : IDisposable
                     UpdateIdleStatus("Recorder Error", BundleSecurity.SafeDiagnostic(ex.Message, 220), StatusTone.Danger);
                 }
             }));
-            System.Windows.Threading.Dispatcher.Run();
         }
         catch (Exception ex)
         {
@@ -7510,7 +7547,7 @@ internal sealed class RecordingControlPanel : IDisposable
     public void PromptTargetSelection()
     {
         if (_dispatcher is null || _dispatcher.HasShutdownStarted) return;
-        _dispatcher.BeginInvoke(() =>
+        Post(() =>
         {
             if (_currentMode != RecordingPanelMode.PreStart) return;
             if (_isCompactCollapsed)
@@ -7534,7 +7571,7 @@ internal sealed class RecordingControlPanel : IDisposable
             _selectedTargetHwnd = selectedTarget?.Hwnd;
         }
         if (_dispatcher is null || _dispatcher.HasShutdownStarted) return;
-        _dispatcher.BeginInvoke(() =>
+        Post(() =>
         {
             if (_window is not null)
                 _window.Title = $"UiAtlas recording - {_recordingId}";
@@ -7549,7 +7586,7 @@ internal sealed class RecordingControlPanel : IDisposable
         _sessionModeChooserOpen = false;
         _sessionModeChooserResumeMode = false;
         if (_dispatcher is null || _dispatcher.HasShutdownStarted) return;
-        _dispatcher.BeginInvoke(() => ApplyMode(RecordingPanelMode.PreStart));
+        Post(() => ApplyMode(RecordingPanelMode.PreStart));
     }
 
     public void ShowActiveRecordingState()
@@ -7557,7 +7594,7 @@ internal sealed class RecordingControlPanel : IDisposable
         _sessionModeChooserOpen = false;
         _sessionModeChooserResumeMode = false;
         if (_dispatcher is null || _dispatcher.HasShutdownStarted) return;
-        _dispatcher.BeginInvoke(() => ApplyMode(RecordingPanelMode.Active));
+        Post(() => ApplyMode(RecordingPanelMode.Active));
     }
 
     public void ShowPausedRecordingState()
@@ -7565,7 +7602,7 @@ internal sealed class RecordingControlPanel : IDisposable
         _sessionModeChooserOpen = false;
         _sessionModeChooserResumeMode = false;
         if (_dispatcher is null || _dispatcher.HasShutdownStarted) return;
-        _dispatcher.BeginInvoke(() => ApplyMode(RecordingPanelMode.Paused));
+        Post(() => ApplyMode(RecordingPanelMode.Paused));
     }
 
     public void ShowSessionModeChooser(bool resumeMode)
@@ -7573,7 +7610,7 @@ internal sealed class RecordingControlPanel : IDisposable
         _sessionModeChooserResumeMode = resumeMode;
         _sessionModeChooserOpen = true;
         if (_dispatcher is null || _dispatcher.HasShutdownStarted) return;
-        _dispatcher.BeginInvoke(() => SetSessionModeChooserVisibility(true, resumeMode));
+        Post(() => SetSessionModeChooserVisibility(true, resumeMode));
     }
 
     public void HideSessionModeChooser()
@@ -7581,20 +7618,20 @@ internal sealed class RecordingControlPanel : IDisposable
         _sessionModeChooserOpen = false;
         _sessionModeChooserResumeMode = false;
         if (_dispatcher is null || _dispatcher.HasShutdownStarted) return;
-        _dispatcher.BeginInvoke(() => SetSessionModeChooserVisibility(false, resumeMode: false));
+        Post(() => SetSessionModeChooserVisibility(false, resumeMode: false));
     }
 
     public void SetAutoPassActive(bool active)
     {
         _autoPassActive = active;
         if (_dispatcher is null || _dispatcher.HasShutdownStarted) return;
-        _dispatcher.BeginInvoke(ApplyAutoPassState);
+        Post(ApplyAutoPassState);
     }
 
     public void SetStatus(string message)
     {
         if (_dispatcher is null || _dispatcher.HasShutdownStarted) return;
-        _dispatcher.BeginInvoke(() => ApplyVisualStatus(message, ResolveTone(message)));
+        Post(() => ApplyVisualStatus(message, ResolveTone(message)));
     }
 
     public void MarkMapReady(string mapPath, string? recordingPath, string defaultExportPath)
@@ -7608,7 +7645,7 @@ internal sealed class RecordingControlPanel : IDisposable
         // Never let a buffered click reopen recording after a long graph build.
         while (_commands.Reader.TryRead(out _)) { }
         if (_dispatcher is null || _dispatcher.HasShutdownStarted) return;
-        _dispatcher.BeginInvoke(() => ApplyMode(RecordingPanelMode.MapReady));
+        Post(() => ApplyMode(RecordingPanelMode.MapReady));
     }
 
     public void BeginMapBuild()
@@ -7616,7 +7653,7 @@ internal sealed class RecordingControlPanel : IDisposable
         _recordingControlsLocked = true;
         _sessionModeChooserOpen = false;
         if (_dispatcher is null || _dispatcher.HasShutdownStarted) return;
-        _dispatcher.BeginInvoke(() =>
+        Post(() =>
         {
             SetSessionModeChooserVisibility(false, resumeMode: false);
             ApplyRecordingControlsLock(locked: true);
@@ -8758,7 +8795,7 @@ internal sealed class RecordingControlPanel : IDisposable
                 if (dispatcher is null || dispatcher.HasShutdownStarted)
                     return;
 
-                dispatcher.BeginInvoke(new Action(() =>
+                Post(new Action(() =>
                 {
                     if (_mapRowsHost is null || refreshGeneration != _mapRefreshGeneration)
                         return;
@@ -9750,7 +9787,7 @@ internal sealed class RecordingControlPanel : IDisposable
             if (dispatcher is null || dispatcher.HasShutdownStarted)
                 return;
 
-            _ = dispatcher.BeginInvoke(new Action(() =>
+            Post(new Action(() =>
             {
                 if (!string.Equals(host.Tag as string, mapId, StringComparison.Ordinal))
                     return;
@@ -10612,6 +10649,9 @@ internal sealed class RecordingControlPanel : IDisposable
         }
     }
 
+    internal void RequestGridExploration() => _commands.Writer.TryWrite("EXPLORE_GRID");
+    internal void RequestResumeAfterGrid() => _commands.Writer.TryWrite("R");
+
     private void QueueCommand(string command, string statusMessage, StatusTone tone)
     {
         if (_recordingControlsLocked)
@@ -11351,7 +11391,7 @@ internal sealed class RecordingControlPanel : IDisposable
             _dispatcher is null || _dispatcher.HasShutdownStarted)
             return;
 
-        _dispatcher.BeginInvoke(() =>
+        Post(() =>
         {
             if (_window is not null && _window.WindowState != System.Windows.WindowState.Minimized)
                 _window.Show();
@@ -11447,16 +11487,6 @@ internal sealed class RecordingControlPanel : IDisposable
         _rootScaleTransform.ScaleX = displayScale;
         _rootScaleTransform.ScaleY = displayScale;
         _window.UpdateLayout();
-    }
-
-    private void ExcludeWindowFromCapture()
-    {
-        if (_window is null)
-            return;
-
-        var handle = new System.Windows.Interop.WindowInteropHelper(_window).Handle;
-        if (handle != 0)
-            _ = SetWindowDisplayAffinity(handle, WdaExcludeFromCapture);
     }
 
     private static string PreStartCaption(string message)
@@ -11586,7 +11616,7 @@ internal sealed class RecordingControlPanel : IDisposable
         if (lower.Contains("matching the current screen to the existing map", StringComparison.Ordinal))
             return "Comparing the current screen with saved map surfaces; controls are not being rediscovered.";
         if (lower.Contains("matched the existing map", StringComparison.Ordinal))
-            return "Saved controls are shown in lilac. Only new actions and screens will be recorded.";
+            return "Saved controls are loaded. Live detection determines highlight colors; only new actions and screens will be recorded.";
         if (lower.Contains("stage 1 of 5", StringComparison.Ordinal))
             return "Stage 1 of 5 · Saving the current screen before control discovery starts.";
         if (lower.Contains("stage 2 of 5", StringComparison.Ordinal) || lower.Contains("mapping controls", StringComparison.Ordinal) || lower.Contains("scanning the app", StringComparison.Ordinal))
@@ -12778,6 +12808,11 @@ internal sealed class RecordingControlPanel : IDisposable
             Orientation = System.Windows.Controls.Orientation.Vertical
         };
         menuStack.Children.Add(PopupMenuButton("Export map", ExportMap));
+        menuStack.Children.Add(PopupMenuButton("Settings", () =>
+        {
+            if (_moreMenu is not null) _moreMenu.IsOpen = false;
+            new RecorderSettingsWindow { Owner = _window }.ShowDialog();
+        }));
         menuStack.Children.Add(PopupMenuButton("Close toolbar", ClosePanel));
 
         return new System.Windows.Controls.Primitives.Popup
@@ -14761,7 +14796,6 @@ internal sealed class RecordingControlPanel : IDisposable
     private const uint AppIconMessageTimeoutMs = 80;
     private const uint ShgfiIcon = 0x000000100;
     private const uint ShgfiSmallIcon = 0x000000001;
-    private const uint WdaExcludeFromCapture = 0x00000011;
 
     private static System.Windows.Media.SolidColorBrush Brush(string hex) =>
         (System.Windows.Media.SolidColorBrush)new System.Windows.Media.BrushConverter().ConvertFromString(hex)!;
@@ -14805,10 +14839,6 @@ internal sealed class RecordingControlPanel : IDisposable
 
     [DllImport("user32.dll")]
     private static extern uint GetDpiForSystem();
-
-    [DllImport("user32.dll")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool SetWindowDisplayAffinity(nint hwnd, uint affinity);
 
     [DllImport("dwmapi.dll")]
     private static extern int DwmFlush();
@@ -14908,8 +14938,8 @@ internal sealed class RecordingControlPanel : IDisposable
     {
         if (_dispatcher is not null && !_dispatcher.HasShutdownStarted)
             _dispatcher.Invoke(() => _window?.Close());
-        _thread?.Join(TimeSpan.FromSeconds(5));
-        _elapsedTimer?.Stop();
+        _windowClosed = true;
+        _dispatcher = null;
         _closed.Dispose();
         _commands.Writer.TryComplete();
         _ready.Dispose();

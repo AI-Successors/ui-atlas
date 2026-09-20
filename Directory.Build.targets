@@ -1,0 +1,8 @@
+<Project>
+  <!-- Rebuild deletes files in CoreClean before reaching PrepareForBuild. -->
+  <Target Name="StopRunningUiAtlasBuildOutput"
+          BeforeTargets="BeforeClean;CoreClean;PrepareForBuild"
+          Condition="'$(OS)' == 'Windows_NT' and '$(DesignTimeBuild)' != 'true' and '$(IsCrossTargetingBuild)' != 'true' and '$(IsTestProject)' != 'true' and ('$(OutputType)' == 'Exe' or '$(OutputType)' == 'WinExe') and '$(StopRunningUiAtlasProcesses)' != 'false' and '$(TargetPath)' != ''">
+    <Exec Command="&quot;$(SystemRoot)\System32\WindowsPowerShell\v1.0\powershell.exe&quot; -NoProfile -NonInteractive -ExecutionPolicy Bypass -File &quot;$(MSBuildThisFileDirectory)tools\Stop-BuildProcesses.ps1&quot; -TargetPath &quot;$(TargetPath)&quot;" />
+  </Target>
+</Project>

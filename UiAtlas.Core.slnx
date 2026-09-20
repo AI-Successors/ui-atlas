@@ -10,6 +10,7 @@
     <Project Path="src/UiAtlas.Core.Migration.Firebird/UiAtlas.Core.Migration.Firebird.csproj" />
     <Project Path="src/UiAtlas.Core.Desktop/UiAtlas.Core.Desktop.csproj" />
     <Project Path="src/UiAtlas.Core.Cli/UiAtlas.Core.Cli.csproj" />
+    <Project Path="src/UiAtlas.Core.Mcp/UiAtlas.Core.Mcp.csproj" />
   </Folder>
   <Folder Name="/samples/">
     <Project Path="samples/UiAtlas.Core.Consumer/UiAtlas.Core.Consumer.csproj" />

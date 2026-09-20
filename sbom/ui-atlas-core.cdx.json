@@ -9,6 +9,10 @@
     "properties": [{ "name": "ui-atlas:scope", "value": "runtime" }]
   },
   "components": [
+    {"bom-ref": "pkg:nuget/ModelContextProtocol.Core@2.2.0", "type": "library", "name": "ModelContextProtocol.Core", "version": "2.2.0", "purl": "pkg:nuget/ModelContextProtocol.Core@2.2.0", "licenses": [{"license": {"id": "Apache-2.0"}}]},
+    {"bom-ref": "pkg:nuget/Microsoft.Extensions.AI.Abstractions@10.8.3", "type": "library", "name": "Microsoft.Extensions.AI.Abstractions", "version": "10.8.3", "purl": "pkg:nuget/Microsoft.Extensions.AI.Abstractions@10.8.3", "licenses": [{"license": {"id": "MIT"}}]},
+    {"bom-ref": "pkg:nuget/Microsoft.Extensions.Logging.Abstractions@10.0.10", "type": "library", "name": "Microsoft.Extensions.Logging.Abstractions", "version": "10.0.10", "purl": "pkg:nuget/Microsoft.Extensions.Logging.Abstractions@10.0.10", "licenses": [{"license": {"id": "MIT"}}]},
+    {"bom-ref": "pkg:nuget/Microsoft.Extensions.DependencyInjection.Abstractions@10.0.10", "type": "library", "name": "Microsoft.Extensions.DependencyInjection.Abstractions", "version": "10.0.10", "purl": "pkg:nuget/Microsoft.Extensions.DependencyInjection.Abstractions@10.0.10", "licenses": [{"license": {"id": "MIT"}}]},
     { "bom-ref": "pkg:nuget/FirebirdSql.Data.FirebirdClient@10.3.4", "type": "library", "name": "FirebirdSql.Data.FirebirdClient", "version": "10.3.4", "purl": "pkg:nuget/FirebirdSql.Data.FirebirdClient@10.3.4", "licenses": [{ "license": { "name": "Initial Developer's Public License 1.0" } }] },
     { "bom-ref": "pkg:nuget/Interop.UIAutomationClient@10.19041.0", "type": "library", "name": "Interop.UIAutomationClient", "version": "10.19041.0", "purl": "pkg:nuget/Interop.UIAutomationClient@10.19041.0", "licenses": [{ "license": { "id": "MIT" } }] },
     { "bom-ref": "pkg:nuget/Microsoft.Data.Sqlite@10.0.10", "type": "library", "name": "Microsoft.Data.Sqlite", "version": "10.0.10", "purl": "pkg:nuget/Microsoft.Data.Sqlite@10.0.10", "licenses": [{ "license": { "id": "MIT" } }] },
@@ -22,7 +26,11 @@
     { "bom-ref": "pkg:nuget/SQLite@3.53.4", "type": "library", "name": "SQLite", "version": "3.53.4", "purl": "pkg:nuget/SQLite@3.53.4", "licenses": [{ "license": { "name": "Public Domain" } }] }
   ],
   "dependencies": [
-    { "ref": "pkg:generic/ui-atlas.core@1.9.0", "dependsOn": ["pkg:nuget/FirebirdSql.Data.FirebirdClient@10.3.4", "pkg:nuget/Interop.UIAutomationClient@10.19041.0", "pkg:nuget/Microsoft.Data.Sqlite@10.0.10", "pkg:nuget/Microsoft.Windows.SDK.NET.Ref@10.0.19041.57", "pkg:nuget/Microsoft.Windows.CsWinRT@2.2.0", "pkg:nuget/SQLitePCLRaw.bundle_e_sqlite3@3.0.5"] },
+    {"ref": "pkg:nuget/ModelContextProtocol.Core@2.2.0", "dependsOn": ["pkg:nuget/Microsoft.Extensions.AI.Abstractions@10.8.3", "pkg:nuget/Microsoft.Extensions.Logging.Abstractions@10.0.10"]},
+    {"ref": "pkg:nuget/Microsoft.Extensions.AI.Abstractions@10.8.3", "dependsOn": []},
+    {"ref": "pkg:nuget/Microsoft.Extensions.Logging.Abstractions@10.0.10", "dependsOn": ["pkg:nuget/Microsoft.Extensions.DependencyInjection.Abstractions@10.0.10"]},
+    {"ref": "pkg:nuget/Microsoft.Extensions.DependencyInjection.Abstractions@10.0.10", "dependsOn": []},
+    {"ref": "pkg:generic/ui-atlas.core@1.9.0", "dependsOn": ["pkg:nuget/FirebirdSql.Data.FirebirdClient@10.3.4", "pkg:nuget/Interop.UIAutomationClient@10.19041.0", "pkg:nuget/Microsoft.Data.Sqlite@10.0.10", "pkg:nuget/Microsoft.Windows.SDK.NET.Ref@10.0.19041.57", "pkg:nuget/Microsoft.Windows.CsWinRT@2.2.0", "pkg:nuget/SQLitePCLRaw.bundle_e_sqlite3@3.0.5", "pkg:nuget/ModelContextProtocol.Core@2.2.0"]},
     { "ref": "pkg:nuget/FirebirdSql.Data.FirebirdClient@10.3.4", "dependsOn": [] },
     { "ref": "pkg:nuget/Interop.UIAutomationClient@10.19041.0", "dependsOn": [] },
     { "ref": "pkg:nuget/Microsoft.Data.Sqlite@10.0.10", "dependsOn": ["pkg:nuget/Microsoft.Data.Sqlite.Core@10.0.10", "pkg:nuget/SQLitePCLRaw.bundle_e_sqlite3@3.0.5", "pkg:nuget/SQLitePCLRaw.core@3.0.5"] },

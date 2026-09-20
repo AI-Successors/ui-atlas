@@ -55,6 +55,8 @@ dotnet build UiAtlas.Core.slnx -c Release --no-restore
 dotnet test UiAtlas.Core.slnx -c Release --no-build --no-restore
 ```
 
+Windows builds, rebuilds, and cleans automatically terminate running processes that use the executable project's exact output paths, including the recorder's UIA workers, desktop explorer, and copied Firebird adapter. This also handles `dotnet`-hosted DLLs and applies in Visual Studio. Finish active recordings before building. Other output configurations, checkouts, and installed copies are left running; design-time builds skip cleanup. To opt out, pass `-p:StopRunningUiAtlasProcesses=false`.
+
 When all locked packages are already available in the local NuGet cache and the machine is intentionally offline, add `-p:NuGetAudit=false` to the restore command. Run the normal restore or the vulnerability command in `docs/release.md` while online to refresh advisory data before release.
 
 ## Record an application
@@ -67,6 +69,8 @@ dotnet run --project src/UiAtlas.Core.Cli -c Release -- list maps
 ```
 
 `recording start` asks for explicit consent and takes one full baseline observation. Each attended click is stored immediately, then UiAtlas persists either a complete resulting screen, an owned popup/dialog, or an explicit failed/unobserved interaction. Pixels, UI Automation, visual geometry, OCR, and bounded native verification use independent lanes where the target permits it; provider delays do not erase the screenshot fallback. Exact visual duplicates are retained as raw evidence but collapsed into one higher-level map state. The recorder shows elapsed time, the active capture/build stage, and a concrete completion or review message. Finish waits up to two seconds for queued popup work; Cancel ends only the current recording and leaves the toolbar available for another session.
+
+To capture the mapper's visible boundaries, control highlights, click indicators, and toolbar, take a desktop or region screenshot (for example, with Windows Snipping Tool). These overlays are included in user screenshots and screen sharing. UiAtlas temporarily hides them while capturing its own recording evidence so they do not become part of the mapped application.
 
 Artifacts are kept under `%LOCALAPPDATA%\UiAtlas\Core`: immutable `.mlrec` recordings, SQLite maps, JSON exports, and a recoverable catalog trash. The recording and generated map share the displayed ID. Deletion commands move an artifact to that trash:
 
@@ -150,6 +154,10 @@ dotnet run --project src/UiAtlas.Core.Cli -c Release -- synthetic-record --out s
 ```
 
 ## Privacy warning
+
+For table schema extraction, Recorder **More → Settings** (also **Header reading settings** in schema review) offers Local OCR or Azure OpenAI **GPT-5.6 Sol · Light**. Azure requires your resource endpoint, deployment name, and API key. **Test connection** checks a synthetic header; **Save settings** applies the provider to the next **Extract schema** action. Schema extraction sends selected header-cell crops, keys are stored in Windows Credential Manager, and names remain editable before saving. Local OCR is the default.
+
+The [app table to Excel workflow](docs/mcp-visual-exploration.md) uses `list_apps` → `list_app_grids` → `start_grid_read` → `get_grid_read` → `export_grid_to_excel`. The local HUD requires approval for full reachable table capture and Azure header/body-cell reading using those saved settings. Excel export writes the retained dataset directly to Downloads without controlling Excel or using Computer Use. [Requirements](docs/specs/datagrid-demo/task-5-orders-excel.requirements.md) and [implementation](docs/specs/datagrid-demo/task-5-orders-excel.implementation.md) define its scope and verification.
 
 Recording can retain pixels, window titles, accessibility labels, window handles, process identity, and input timing. Printable key identities and literal typed text are suppressed by default. The safe JSON export removes screenshot references, application-provided labels/properties, raw stable keys, source linkage, coordinates, build time, and canonical IDs. Generic kinds and topology can still be sensitive. Review every artifact before sharing it. Full-evidence and main UiAtlas compatibility exports each require explicit acknowledgement.
 

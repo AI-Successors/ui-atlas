@@ -16,7 +16,8 @@ public sealed record LogicalMapSessionManifest(
     IReadOnlyList<LogicalMapSessionRecording> Recordings,
     AutoMappingCampaignState? AutoMapping = null,
     IReadOnlyList<QuickMapSnapshotState>? QuickMapSnapshots = null,
-    SpeculativePlanningState? SpeculativePlanning = null);
+    SpeculativePlanningState? SpeculativePlanning = null,
+    IReadOnlyList<UiAtlas.Core.Contracts.SavedDataGridReview>? DataGrids = null);
 
 public enum SpeculativePredictionStatus
 {

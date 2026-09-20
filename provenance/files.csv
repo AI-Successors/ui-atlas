@@ -5,6 +5,9 @@ docs/2026-08-11-uikg-editor-third-review-pr-rollout.md,original,,,repository cop
 docs/2026-08-11-export-recording-followup-pr-rollout.md,original,,,repository copyright holder,MIT,original export and recording follow-up rollout
 docs/2026-08-11-human-readable-map-export-pr-rollout.md,original,,,repository copyright holder,MIT,original hierarchical map export rollout
 Directory.Build.props,original,,,repository copyright holder,MIT,original configuration
+Directory.Build.targets,original,,,repository copyright holder,MIT,original output-scoped process cleanup build hook,live locked build and rebuild checks
+tools/Stop-BuildProcesses.ps1,original,,,repository copyright holder,MIT,original path-scoped build process shutdown,live native and dotnet-hosted process checks
+tools/Test-BuildProcessCleanup.ps1,original,,,repository copyright holder,MIT,original build cleanup integration tests,isolated CLI fixture processes
 Directory.Packages.props,original,,,repository copyright holder,MIT,original configuration
 licenses/Interop.UIAutomationClient-MIT.txt,vendored-license,,,Roman,MIT,redistribution license text from Interop.UIAutomationClient 10.19041.0 NuGet package
 licenses/FirebirdSql.Data.FirebirdClient-IDPL-1.0.txt,vendored-license,,,FirebirdSQL,Initial Developer's Public License 1.0,redistribution license text from FirebirdSql.Data.FirebirdClient 10.3.4 NuGet package
@@ -158,3 +161,95 @@ tools/Test-CleanProfiles.ps1,original,,,repository copyright holder,MIT,original
 samples/UiAtlas.Core.Consumer/README.md,original,,,repository copyright holder,MIT,original autotest and AI-agent integration sample documentation,
 docs/open-source-readiness.md,original,,,repository copyright holder,MIT,original public-beta readiness and evidence checklist,
 docs/demo-capture.md,original,,,repository copyright holder,MIT,original three-application proof-video capture scenario,
+docs/specs/datagrid-demo/requirements.md,original,,,repository copyright holder,MIT,original bounded Abacre DataGrid demo requirements,documentation-only scope review
+docs/specs/datagrid-demo/task-1-mapper.requirements.md,original,,,repository copyright holder,MIT,original mapper and diagnostics requirements,documentation-only scope review
+docs/specs/datagrid-demo/task-1-mapper.implementation.md,original,,,repository copyright holder,MIT,original minimal mapper implementation plan,documentation-only scope review
+docs/specs/datagrid-demo/task-2-acquisition.requirements.md,original,,,repository copyright holder,MIT,original live capture and stitching requirements,documentation-only scope review
+docs/specs/datagrid-demo/task-2-acquisition.implementation.md,original,,,repository copyright holder,MIT,original bounded capture implementation plan,documentation-only scope review
+docs/specs/datagrid-demo/task-3-extraction.requirements.md,original,,,repository copyright holder,MIT,original schema and extraction requirements,documentation-only scope review
+docs/specs/datagrid-demo/task-3-extraction.implementation.md,original,,,repository copyright holder,MIT,original minimal extraction implementation plan,documentation-only scope review
+docs/specs/datagrid-demo/task-4-mcp-verification.requirements.md,original,,,repository copyright holder,MIT,original public MCP and verification requirements,documentation-only scope review
+docs/specs/datagrid-demo/task-4-mcp-verification.implementation.md,original,,,repository copyright holder,MIT,original local MCP and demo integration plan,documentation-only scope review
+docs/specs/datagrid-demo/task-1-mapper.prompt.md,original,,,repository copyright holder,MIT,original Task 1 implementation dispatch prompt,user-authorized task launch
+docs/specs/datagrid-demo/task-2-acquisition.prompt.md,original,,,repository copyright holder,MIT,original Task 2 implementation dispatch prompt,user-authorized task launch
+docs/specs/datagrid-demo/task-3-extraction.prompt.md,original,,,repository copyright holder,MIT,original Task 3 implementation dispatch prompt,user-authorized task launch
+docs/specs/datagrid-demo/task-4-mcp-verification.prompt.md,original,,,repository copyright holder,MIT,original Task 4 implementation dispatch prompt,user-authorized task launch
+src/UiAtlas.Core.Cli/MapperHighlightModel.cs,original,,,repository copyright holder,MIT,original source-aware Mapper grid discovery and inspection,user-approved visual concept and behavioral verification
+src/UiAtlas.Core.Cli/MapperGridInspector.cs,original,,,repository copyright holder,MIT,original source-aware Mapper grid discovery and inspection,user-approved visual concept and behavioral verification
+src/UiAtlas.Core.Cli/RecordingHighlightOverlay.Mapper.cs,original,,,repository copyright holder,MIT,original source-aware Mapper grid discovery and inspection,user-approved visual concept and behavioral verification
+src/UiAtlas.Core.Recording.Windows/NativeGridHostDiscovery.cs,original,,,repository copyright holder,MIT,original source-aware Mapper grid discovery and inspection,user-approved visual concept and behavioral verification
+tests/UiAtlas.Core.Tests/MapperHighlightTests.cs,original,,,repository copyright holder,MIT,original source-aware Mapper grid discovery and inspection,user-approved visual concept and behavioral verification
+tests/UiAtlas.Core.Tests/MapperOverlayWindowTests.cs,original,,,repository copyright holder,MIT,original source-aware Mapper grid discovery and inspection,user-approved visual concept and behavioral verification
+src/UiAtlas.Core.Cli/MapperLegendWindow.cs,original,,,repository copyright holder,MIT,original draggable and collapsible Mapper legend,user-requested exterior legend and UIA visibility correction
+src/UiAtlas.Core.Cli/RecordingHighlightOverlay.Visibility.cs,original,,,repository copyright holder,MIT,original persistent Mapper overlay visibility and occlusion clipping,user-requested recording-session overlay persistence
+src/UiAtlas.Core.Contracts/DataGridExtractionContracts.cs,original,,,repository copyright holder,MIT,original DataGrid viewport and literal extraction outcome contracts,Task 3 public implementation
+src/UiAtlas.Core.Recording.Windows/DataGridNativeProbe.cs,original,,,repository copyright holder,MIT,original bounded native container and descendant capability probe,Task 3 public implementation
+src/UiAtlas.Core.Recording.Windows/TableCellOcrReader.cs,original,,,repository copyright holder,MIT,original literal cell OCR outcomes and conservative blank and clipping checks,Task 3 public implementation
+src/UiAtlas.Core.Recording.Windows/TableGridReader.cs,original,,,repository copyright holder,MIT,original accepted-region extraction with source and row identity validation,Task 3 public implementation
+src/UiAtlas.Core.Recording.Windows/TableViewportDescriber.cs,original,,,repository copyright holder,MIT,original ruled-table physical geometry interpretation,Task 3 public implementation
+tests/UiAtlas.Core.Windows.Tests/DataGridExtractionTests.cs,original,,,repository copyright holder,MIT,original deterministic synthetic extraction and geometry checks,Task 3 public implementation
+src/UiAtlas.Core.Contracts/DataGridMappingContracts.cs,original,,,repository copyright holder,MIT,public Task 1 mapping-contract handoff borrowed unchanged,Task 1 owns definition
+src/UiAtlas.Core.Contracts/DataGridAcquisitionContracts.cs,original,,,repository copyright holder,MIT,public Task 2 capture contract extended with image exploration,Public bounded acquisition and structure-only mode
+docs/datagrid-extraction-handoff.md,original,,,repository copyright holder,MIT,original extraction integration and qualification handoff,Task 3 public implementation
+src/UiAtlas.Core.Contracts/GridImageExplorationContracts.cs,original,,,repository copyright holder,MIT,original table exploration UI and verification,Public task worktree implementation
+src/UiAtlas.Core.Recording.Windows/DataGridAcquisitionCoordinator.cs,original,,,repository copyright holder,MIT,public bounded capture source integrated for image exploration,Public task worktree implementation
+src/UiAtlas.Core.Recording.Windows/DataGridCaptureSession.cs,original,,,repository copyright holder,MIT,public bounded capture source integrated for image exploration,Public task worktree implementation
+src/UiAtlas.Core.Recording.Windows/DataGridEvidenceStore.cs,original,,,repository copyright holder,MIT,public bounded capture source integrated for image exploration,Public task worktree implementation
+src/UiAtlas.Core.Recording.Windows/DataGridOperationGate.cs,original,,,repository copyright holder,MIT,public bounded capture source integrated for image exploration,Public task worktree implementation
+src/UiAtlas.Core.Recording.Windows/DataGridRegistration.cs,original,,,repository copyright holder,MIT,public bounded capture source integrated for image exploration,Public task worktree implementation
+src/UiAtlas.Core.Recording.Windows/DataGridTargetBinding.cs,original,,,repository copyright holder,MIT,public bounded capture source integrated for image exploration,Public task worktree implementation
+src/UiAtlas.Core.Recording.Windows/GridExplorationAutomation.cs,original,,,repository copyright holder,MIT,original table exploration UI and verification,Public task worktree implementation
+src/UiAtlas.Core.Recording.Windows/GridImageAssembler.cs,original,,,repository copyright holder,MIT,original table exploration UI and verification,Public task worktree implementation
+src/UiAtlas.Core.Recording.Windows/GridImageExplorer.cs,original,,,repository copyright holder,MIT,original table exploration UI and verification,Public task worktree implementation
+src/UiAtlas.Core.Recording.Windows/GridImageLayout.cs,original,,,repository copyright holder,MIT,original table exploration UI and verification,Public task worktree implementation
+src/UiAtlas.Core.Recording.Windows/GridHorizontalRegistration.cs,original,,,repository copyright holder,MIT,original horizontal image alignment with fractional raster phase and stationary edge verification,scaled synthetic text and saved capture replay
+tests/UiAtlas.Core.Windows.Tests/GridHorizontalRegistrationTests.cs,original,,,repository copyright holder,MIT,original scaled text and ambiguous horizontal overlap regression tests,synthetic data only
+tests/UiAtlas.Core.Tests/GridExplorerNativeWindowTests.cs,original,,,repository copyright holder,MIT,original table exploration UI and verification,Public task worktree implementation
+tests/UiAtlas.Core.Windows.Tests/DataGridAcquisitionTests.cs,original,,,repository copyright holder,MIT,public bounded capture source integrated for image exploration,Public task worktree implementation
+tests/UiAtlas.Core.Windows.Tests/DataGridNativeBoundaryTests.cs,original,,,repository copyright holder,MIT,public bounded capture source integrated for image exploration,Public task worktree implementation
+tests/UiAtlas.Core.Windows.Tests/DataGridRegistrationTests.cs,original,,,repository copyright holder,MIT,public bounded capture source integrated for image exploration,Public task worktree implementation
+docs/datagrid-acquisition-handoff.md,original,,,repository copyright holder,MIT,original bounded acquisition implementation handoff and qualification limits,Task 2 public worktree
+src/UiAtlas.Core.Contracts/GridSchemaReviewContracts.cs,original,,,repository copyright holder,MIT,original captured-header schema review contract,public schema review implementation
+src/UiAtlas.Core.Recording.Windows/GridSchemaExtractor.cs,original,,,repository copyright holder,MIT,original offline header extraction and schema persistence,public schema review implementation
+src/UiAtlas.Core.Cli/GridSchemaReviewWindow.cs,original,,,repository copyright holder,MIT,original header selection and schema review UI,public schema review implementation
+tests/UiAtlas.Core.Windows.Tests/GridSchemaExtractorTests.cs,original,,,repository copyright holder,MIT,original retained-image schema and coverage verification,synthetic data only
+tests/UiAtlas.Core.Tests/GridSchemaReviewWindowTests.cs,original,,,repository copyright holder,MIT,original actual-window header review and persistence verification,synthetic data only
+src/UiAtlas.Core.Cli/RecorderUiDispatcher.cs,original,,,repository copyright holder,MIT,original shared recorder and mapper dispatcher ownership,system theme refresh correction
+tests/UiAtlas.Core.Tests/RecorderThemeDispatcherTests.cs,original,,,repository copyright holder,MIT,original framework theme refresh and window lifetime regression tests,synthetic windows only
+src/UiAtlas.Core.Recording.Windows/AzureHeaderSettings.cs,original,,,repository copyright holder,MIT,original recorder configuration and Windows credential storage,Azure header reading
+src/UiAtlas.Core.Recording.Windows/AzureOpenAiHeaderReader.cs,original,,,repository copyright holder,MIT,original literal header transcription using documented Azure Responses API,header crops and fixed physical column identities
+src/UiAtlas.Core.Cli/RecorderSettingsWindow.cs,original,,,repository copyright holder,MIT,original provider settings and synthetic connection test UI,Azure header reading
+src/UiAtlas.Core.Recording.Windows/GridVerticalRegistration.cs,original,,,repository copyright holder,MIT,original fractional vertical overlap and bounded selection band handling,saved image replay and synthetic scaled text
+tests/UiAtlas.Core.Windows.Tests/AzureHeaderSettingsTests.cs,original,,,repository copyright holder,MIT,original configuration normalization and secret separation tests,synthetic data only
+tests/UiAtlas.Core.Windows.Tests/AzureHeaderReaderTests.cs,original,,,repository copyright holder,MIT,original Azure HTTP contract and invalid response tests,mocked HTTP only
+tests/UiAtlas.Core.Windows.Tests/GridVerticalRegistrationTests.cs,original,,,repository copyright holder,MIT,original scaled vertical overlap and selection repaint tests,synthetic data only
+tests/UiAtlas.Core.Tests/RecorderSettingsWindowTests.cs,original,,,repository copyright holder,MIT,original actual settings window persistence and cancellation tests,synthetic data only
+src/UiAtlas.Core.Mcp/GridEvidenceLifetime.cs,original,,,repository copyright holder,MIT,public MCP visual exploration integration,stdio and saved-grid tests
+src/UiAtlas.Core.Mcp/GridExplorationConfirmation.cs,original,,,repository copyright holder,MIT,public MCP visual exploration integration,stdio and saved-grid tests
+src/UiAtlas.Core.Mcp/GridExplorationService.cs,original,,,repository copyright holder,MIT,public MCP visual exploration integration,stdio and saved-grid tests
+src/UiAtlas.Core.Mcp/GridMcpTools.cs,original,,,repository copyright holder,MIT,public MCP visual exploration integration,stdio and saved-grid tests
+src/UiAtlas.Core.Mcp/GridOperationRegistry.cs,original,,,repository copyright holder,MIT,public MCP visual exploration integration,stdio and saved-grid tests
+src/UiAtlas.Core.Mcp/packages.lock.json,original,,,repository copyright holder,MIT,public MCP visual exploration integration,stdio and saved-grid tests
+src/UiAtlas.Core.Mcp/Program.cs,original,,,repository copyright holder,MIT,public MCP visual exploration integration,stdio and saved-grid tests
+src/UiAtlas.Core.Mcp/SavedGridCatalog.cs,original,,,repository copyright holder,MIT,public MCP visual exploration integration,stdio and saved-grid tests
+src/UiAtlas.Core.Mcp/AppGridCatalog.cs,original,,,repository copyright holder,MIT,app discovery and saved map matching for MCP,app instance and map catalog tests
+src/UiAtlas.Core.Mcp/UiAtlas.Core.Mcp.csproj,original,,,repository copyright holder,MIT,public MCP visual exploration integration,stdio and saved-grid tests
+src/UiAtlas.Core.Recording.Windows/ApprovedGridWindowScope.cs,original,,,repository copyright holder,MIT,public MCP visual exploration integration,stdio and saved-grid tests
+licenses/Microsoft.Extensions-MIT.txt,redistributed,,https://github.com/dotnet/runtime/blob/main/LICENSE.TXT,Microsoft,MIT,MCP SDK dependency license,public package license
+tests/UiAtlas.Core.Windows.Tests/GridOperationRegistryTests.cs,original,,,repository copyright holder,MIT,public MCP visual exploration integration,stdio and saved-grid tests
+tests/UiAtlas.Core.Windows.Tests/GridMcpProtocolTests.cs,original,,,repository copyright holder,MIT,public MCP visual exploration integration,stdio and saved-grid tests
+tests/UiAtlas.Core.Windows.Tests/SavedGridMcpTests.cs,original,,,repository copyright holder,MIT,public MCP visual exploration integration,stdio and saved-grid tests
+docs/mcp-visual-exploration.md,original,,,repository copyright holder,MIT,public MCP visual exploration integration,stdio and saved-grid tests
+tools/Invoke-GridMcpExplore.ps1,original,,,repository copyright holder,MIT,public MCP visual exploration rehearsal client,real stdio protocol and image hash checks
+src/UiAtlas.Core.Mcp/AssemblyInfo.cs,original,,,repository copyright holder,MIT,floating capsule UI test visibility,focused Windows tests
+src/UiAtlas.Core.Mcp/FloatingCapsuleWindow.cs,original,,,repository copyright holder,MIT,floating capsule approval and desktop control HUD,native focus and occlusion checks with visual QA
+src/UiAtlas.Core.Mcp/GridExplorationPresentation.cs,original,,,repository copyright holder,MIT,attended capsule lifetime and cancellation,approval expiry and host cancellation tests
+tests/UiAtlas.Core.Windows.Tests/FloatingCapsuleTests.cs,original,,,repository copyright holder,MIT,floating capsule Windows verification,synthetic native windows and rendered visual QA
+src/UiAtlas.Core.Mcp/GridReadService.cs,original,,,repository copyright holder,MIT,app table extraction and Excel export,contract tests and attended MCP verification
+src/UiAtlas.Core.Mcp/GridExcelExporter.cs,original,,,repository copyright holder,MIT,app table extraction and Excel export,contract tests and attended MCP verification
+src/UiAtlas.Core.Recording.Windows/AzureOpenAiTableReader.cs,original,,,repository copyright holder,MIT,app table extraction and Excel export,contract tests and attended MCP verification
+tests/UiAtlas.Core.Windows.Tests/GridOrdersExportTests.cs,original,,,repository copyright holder,MIT,app table extraction and Excel export,contract tests and attended MCP verification
+docs/specs/datagrid-demo/task-5-orders-excel.requirements.md,original,,,repository copyright holder,MIT,app table extraction and Excel export,contract tests and attended MCP verification
+docs/specs/datagrid-demo/task-5-orders-excel.implementation.md,original,,,repository copyright holder,MIT,app table extraction and Excel export,contract tests and attended MCP verification
+.agents/skills/ui-atlas-grid-export/SKILL.md,original,,,repository copyright holder,MIT,app table extraction and Excel export,contract tests and attended MCP verification
+.agents/skills/ui-atlas-grid-export/agents/openai.yaml,original,,,repository copyright holder,MIT,app table extraction and Excel export,contract tests and attended MCP verification

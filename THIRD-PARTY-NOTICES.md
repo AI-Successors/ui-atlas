@@ -4,6 +4,10 @@ This inventory is derived from the committed package lock files. Runtime redistr
 
 | Component | Version | Author/vendor | License | Use |
 | --- | --- | --- | --- | --- |
+| ModelContextProtocol.Core | 2.2.0 | Model Context Protocol a Series of LF Projects, LLC | Apache-2.0 | local stdio MCP protocol and bounded tool dispatch |
+| Microsoft.Extensions.AI.Abstractions | 10.8.3 | Microsoft | MIT | MCP SDK function metadata dependency; no model provider configured |
+| Microsoft.Extensions.Logging.Abstractions | 10.0.10 | Microsoft | MIT | MCP SDK logging abstraction |
+| Microsoft.Extensions.DependencyInjection.Abstractions | 10.0.10 | Microsoft | MIT | MCP SDK dependency metadata |
 | FirebirdSql.Data.FirebirdClient | 10.3.4 | FirebirdSQL | Initial Developer's Public License 1.0 | isolated legacy Firebird migration source adapter |
 | Microsoft.Data.Sqlite | 10.0.10 | Microsoft | MIT | managed SQLite API |
 | Microsoft.Data.Sqlite.Core | 10.0.10 | Microsoft | MIT | managed SQLite implementation |
@@ -21,3 +25,5 @@ Test-only dependencies are not shipped in the runtime archive: Microsoft.NET.Tes
 Package metadata, lock files, and the SDK-generated runtime manifest are the version authority. Redistribution texts and notices are committed under `licenses/` and included in release archives: `Apache-2.0.txt`, `CsWinRT-MIT.txt`, `FirebirdSql.Data.FirebirdClient-IDPL-1.0.txt`, `Microsoft-Windows-SDK-NET-NOTICE.txt`, `Microsoft.Data.Sqlite-MIT.txt`, `Interop.UIAutomationClient-MIT.txt`, and `SQLite-public-domain.txt`. `Microsoft.Windows.SDK.NET.dll` is governed by Microsoft's Windows SDK license linked in its notice; it is not relicensed as MIT. The native Firebird engine is not bundled or downloaded by UiAtlas. No third-party application source code or graphical asset is copied into this repository.
 
 The repository `.gitignore` is adapted from the CC0-1.0 GitHub Visual Studio template identified in `provenance/files.csv`. It is repository configuration and is not included in the runtime archive.
+
+The optional local MCP executable uses the SDK stdio transport only. Its Apache-2.0 license is included in `licenses/Apache-2.0.txt`; Microsoft Extensions licenses are in `licenses/Microsoft.Extensions-MIT.txt`.

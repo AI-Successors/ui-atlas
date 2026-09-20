@@ -24,7 +24,7 @@ public sealed partial class RepositoryBoundaryTests
     }
 
     [Fact]
-    public void SourceContainsNoAbsoluteMachinePathsOrNetworkApis()
+    public void SourceContainsNoAbsoluteMachinePathsAndRestrictsNetworkApisToAzureHeaders()
     {
         var root = FindRoot();
         var files = Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories)
@@ -36,7 +36,10 @@ public sealed partial class RepositoryBoundaryTests
         {
             var text = File.ReadAllText(file);
             Assert.DoesNotMatch(AbsolutePathRegex(), text);
-            Assert.DoesNotContain("Http" + "Client", text, StringComparison.Ordinal);
+            var relative = System.IO.Path.GetRelativePath(root, file).Replace('\\', '/');
+            if (relative is not ("src/UiAtlas.Core.Recording.Windows/AzureOpenAiHeaderReader.cs" or
+                "tests/UiAtlas.Core.Windows.Tests/AzureHeaderReaderTests.cs"))
+                Assert.DoesNotContain("Http" + "Client", text, StringComparison.Ordinal);
             Assert.DoesNotContain("System.Net." + "Sockets", text, StringComparison.Ordinal);
         }
     }

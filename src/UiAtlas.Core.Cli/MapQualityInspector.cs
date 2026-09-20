@@ -24,7 +24,8 @@ internal sealed record MapQualityReport(
     int SuccessfulInteractionCount,
     int InteractionWithoutResultCount,
     int CriticalCaptureIssueCount,
-    IReadOnlyList<string> ReviewReasons)
+    IReadOnlyList<string> ReviewReasons,
+    SavedDataGridCounts DataGrids)
 {
     public bool NeedsReview => ReviewReasons.Count > 0;
 
@@ -32,7 +33,8 @@ internal sealed record MapQualityReport(
     {
         var summary = $"Map ready: {ScreenCount} screen{Plural(ScreenCount)}, " +
                       $"{SemanticControlCount} control{Plural(SemanticControlCount)}, " +
-                      $"{TableCellCount} table cell{Plural(TableCellCount)}.";
+                      $"{TableCellCount} table cell{Plural(TableCellCount)}. " +
+                      $"Saved data grids: {DataGrids.Total} ({DataGrids.UiaNative} UIA-native, {DataGrids.NonUiaNative} non-UIA-native).";
         return NeedsReview
             ? summary + " Review needed: " + string.Join("; ", ReviewReasons.Take(2)) + "."
             : summary + (InteractionCount == 0
@@ -59,7 +61,8 @@ internal static class MapQualityInspector
 
     public static MapQualityReport Inspect(
         UiKnowledgeGraph graph,
-        IEnumerable<string> recordingPaths)
+        IEnumerable<string> recordingPaths,
+        IReadOnlyList<SavedDataGridReview>? savedDataGrids = null)
     {
         ArgumentNullException.ThrowIfNull(graph);
         ArgumentNullException.ThrowIfNull(recordingPaths);
@@ -92,10 +95,11 @@ internal static class MapQualityInspector
             health.AddRange(ReadJsonLines<CaptureHealthEvent>(bundle, "raw/capture-health.jsonl"));
         }
 
-        return Evaluate(graph, new(frames, interactions, health));
+        return Evaluate(graph, new(frames, interactions, health), savedDataGrids);
     }
 
-    internal static MapQualityReport Evaluate(UiKnowledgeGraph graph, MapQualityEvidence evidence)
+    internal static MapQualityReport Evaluate(UiKnowledgeGraph graph, MapQualityEvidence evidence,
+        IReadOnlyList<SavedDataGridReview>? savedDataGrids = null)
     {
         ArgumentNullException.ThrowIfNull(graph);
         ArgumentNullException.ThrowIfNull(evidence);
@@ -159,7 +163,8 @@ internal static class MapQualityInspector
             successfulInteractions,
             interactionsWithoutResult,
             criticalIssues,
-            reasons.Distinct(StringComparer.Ordinal).ToArray());
+            reasons.Distinct(StringComparer.Ordinal).ToArray(),
+            SavedDataGridCounts.From(graph, savedDataGrids ?? []));
     }
 
     public static void Print(MapQualityReport report)
@@ -169,6 +174,9 @@ internal static class MapQualityInspector
         Console.WriteLine($"SCREENS\t{report.ScreenCount}");
         Console.WriteLine($"SEMANTIC SURFACES\t{report.SemanticSurfaceCount}");
         Console.WriteLine($"CONTROLS\t{report.SemanticControlCount}");
+        Console.WriteLine($"SAVED DATA GRIDS\t{report.DataGrids.Total}");
+        Console.WriteLine($"UIA-NATIVE DATA GRIDS\t{report.DataGrids.UiaNative}");
+        Console.WriteLine($"NON-UIA-NATIVE DATA GRIDS\t{report.DataGrids.NonUiaNative}");
         Console.WriteLine($"TABLE CELLS\t{report.TableCellCount}");
         Console.WriteLine($"SCREENSHOTS\t{report.ScreenshotFrameCount}");
         Console.WriteLine($"EXACT DUPLICATE SCREENSHOTS\t{report.DuplicateScreenshotCount}");

@@ -1,0 +1,6 @@
+interface:
+  display_name: "UI Atlas table export"
+  short_description: "Extract application tables to Excel through UI Atlas MCP"
+  default_prompt: "Use $ui-atlas-grid-export to extract the requested application table and save it to Excel in Downloads."
+policy:
+  allow_implicit_invocation: true

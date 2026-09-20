@@ -12,6 +12,7 @@ $solution.SelectNodes('//Project') | ForEach-Object {
 }
 
 $allowedPackages = @(
+  'ModelContextProtocol.Core','Microsoft.Extensions.AI.Abstractions','Microsoft.Extensions.Logging.Abstractions','Microsoft.Extensions.DependencyInjection.Abstractions',
   'FirebirdSql.Data.FirebirdClient','Interop.UIAutomationClient','Microsoft.Data.Sqlite','Microsoft.Data.Sqlite.Core','SQLite','SQLitePCLRaw.bundle_e_sqlite3','SQLitePCLRaw.config.e_sqlite3',
   'SQLitePCLRaw.core','SQLitePCLRaw.provider.e_sqlite3','Microsoft.NET.Test.Sdk','Microsoft.CodeCoverage',
   'Microsoft.TestPlatform.ObjectModel','Microsoft.TestPlatform.TestHost','Newtonsoft.Json','xunit','xunit.abstractions',
@@ -91,7 +92,14 @@ Get-ChildItem -LiteralPath $root -Filter *.csproj -Recurse -File | Where-Object 
 
 Get-ChildItem -LiteralPath $root -Recurse -File | Where-Object { $_.FullName -notmatch $ignoredSubtreePattern -and $_.Extension -in '.props','.targets' } | ForEach-Object {
   [xml]$buildFile = Get-Content -LiteralPath $_.FullName
-  if ($buildFile.SelectNodes('//Import|//UsingTask|//Exec').Count -ne 0) { throw "Repository build hook is forbidden: $($_.FullName)" }
+  $buildHooks = @($buildFile.SelectNodes('//Import|//UsingTask|//Exec'))
+  # Only the exact repository-owned process cleanup command is allowed.
+  $cleanupCommand = '"$(SystemRoot)\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$(MSBuildThisFileDirectory)tools\Stop-BuildProcesses.ps1" -TargetPath "$(TargetPath)"'
+  $isCleanupHook = $_.FullName -eq (Join-Path $root 'Directory.Build.targets') -and
+    $buildHooks.Count -eq 1 -and $buildHooks[0].Name -eq 'Exec' -and
+    $buildHooks[0].ParentNode.GetAttribute('Name') -eq 'StopRunningUiAtlasBuildOutput' -and
+    $buildHooks[0].Attributes.Count -eq 1 -and $buildHooks[0].Command -ceq $cleanupCommand
+  if ($buildHooks.Count -ne 0 -and -not $isCleanupHook) { throw "Repository build hook is forbidden: $($_.FullName)" }
 }
 
 $excludedNamespaceFragments = @('.Workflow', '.Execution', '.Broker', '.Scenario', '.Emulation')
@@ -128,9 +136,16 @@ $networkReferences = @(
   ('Http' + 'Client'), ('Web' + 'Request'), ('Web' + 'Client'), ('System.Net.' + 'Sockets'),
   ('Tcp' + 'Client'), ('Udp' + 'Client'), ('Dns' + '.GetHost')
 )
+# The user-configured Azure header reader is the sole runtime networking exception.
+$azureHeaderNetworkFiles = @(
+  'src/UiAtlas.Core.Recording.Windows/AzureOpenAiHeaderReader.cs',
+  'tests/UiAtlas.Core.Windows.Tests/AzureHeaderReaderTests.cs'
+)
 Get-ChildItem -LiteralPath $root -Filter *.cs -Recurse -File | Where-Object { $_.FullName -notmatch $ignoredSubtreePattern } | ForEach-Object {
   $text = Get-Content -LiteralPath $_.FullName -Raw
+  $relative = $_.FullName.Substring($root.Length + 1).Replace('\', '/')
   foreach ($reference in $networkReferences) {
+    if ($reference -eq ('Http' + 'Client') -and $relative -cin $azureHeaderNetworkFiles) { continue }
     if ($text.Contains($reference)) { throw "Network API reference: $($_.FullName.Substring($root.Length + 1))" }
   }
 }

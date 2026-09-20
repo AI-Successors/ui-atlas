@@ -41,6 +41,7 @@ public sealed class ManualRecordingSession : IAsyncDisposable
     private bool _startedCapture;
     private bool _finalized;
     private bool _hasPartialCapture;
+    private DataGridOperationGate? _gridOperationLease;
     private long _reportedDroppedEvents;
     private int _inputCapturePaused;
     private nint _controllerWindow;
@@ -74,7 +75,10 @@ public sealed class ManualRecordingSession : IAsyncDisposable
     public void Start(bool explicitConsent)
     {
         if (!explicitConsent) throw new InvalidOperationException("Explicit recording consent is required.");
+        if (_startedCapture) throw new InvalidOperationException("Recording has already started.");
         RevalidateTarget();
+        _gridOperationLease = DataGridOperationGate.TryAcquire() ??
+            throw new InvalidOperationException("Another recording or grid acquisition is active.");
         _startedCapture = true;
         try
         {
@@ -1089,6 +1093,30 @@ public sealed class ManualRecordingSession : IAsyncDisposable
         _input.SetInputCapturePaused(paused);
     }
 
+    /// <summary>Called by the recorder command loop after pausing and draining its work.</summary>
+    public async Task<T> RunGridExplorationAsync<T>(Func<Task<T>> action, CancellationToken cancellation)
+    {
+        if (!_startedCapture || _finalized || !IsInputCapturePaused)
+            throw new InvalidOperationException("recorder-must-be-paused");
+        await _captureGate.WaitAsync(cancellation).ConfigureAwait(false);
+        try
+        {
+            await _automationGate.WaitAsync(cancellation).ConfigureAwait(false);
+            try
+            {
+                Interlocked.Exchange(ref _gridOperationLease, null)?.Dispose();
+                try { return await action().ConfigureAwait(false); }
+                finally
+                {
+                    if (!_finalized) _gridOperationLease = DataGridOperationGate.TryAcquire() ??
+                        throw new InvalidOperationException("recording-operation-lease-lost");
+                }
+            }
+            finally { _automationGate.Release(); }
+        }
+        finally { _captureGate.Release(); }
+    }
+
     public void DismissTransientPopup()
     {
         if (!_startedCapture || _finalized) return;
@@ -1886,6 +1914,12 @@ public sealed class ManualRecordingSession : IAsyncDisposable
 
     private void Finalize(RecordingOutcome outcome, bool retainOnCancel)
     {
+        try { FinalizeCore(outcome, retainOnCancel); }
+        finally { Interlocked.Exchange(ref _gridOperationLease, null)?.Dispose(); }
+    }
+
+    private void FinalizeCore(RecordingOutcome outcome, bool retainOnCancel)
+    {
         _input.Dispose();
         lock (_stateGate)
         {
@@ -2138,11 +2172,15 @@ public sealed class ManualRecordingSession : IAsyncDisposable
 
     public ValueTask DisposeAsync()
     {
-        if (!_finalized && _startedCapture) Fail();
-        _input.Dispose();
-        _captureGate.Dispose();
-        _automationGate.Dispose();
-        _writer.Dispose();
+        try
+        {
+            if (!_finalized && _startedCapture) Fail();
+            _input.Dispose();
+            _captureGate.Dispose();
+            _automationGate.Dispose();
+            _writer.Dispose();
+        }
+        finally { Interlocked.Exchange(ref _gridOperationLease, null)?.Dispose(); }
         return ValueTask.CompletedTask;
     }
 

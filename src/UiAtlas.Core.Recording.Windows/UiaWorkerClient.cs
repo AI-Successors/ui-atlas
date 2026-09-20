@@ -12,10 +12,89 @@ public sealed class UiaWorkerClient
 {
     private readonly Func<WindowTarget, long, int, string, ProcessStartInfo> _startInfoFactory;
 
-    public UiaWorkerClient() : this(CreateStartInfo) { }
+    public UiaWorkerClient() : this((t, h, n, m) => CreateStartInfo(t, h, n, m, null)) { }
+
+    public UiaWorkerClient(string workerExecutable) : this((t, h, n, m) => CreateStartInfo(t, h, n, m, workerExecutable))
+    {
+        if (!Path.IsPathFullyQualified(workerExecutable) || !File.Exists(workerExecutable))
+            throw new ArgumentException("A deployed UIA worker executable is required.", nameof(workerExecutable));
+    }
 
     internal UiaWorkerClient(Func<WindowTarget, long, int, string, ProcessStartInfo> startInfoFactory) =>
         _startInfoFactory = startInfoFactory ?? throw new ArgumentNullException(nameof(startInfoFactory));
+
+    public async Task<GridNativeProbeResult> ProbeGridAsync(
+        WindowTarget target, long hostHwnd, TimeSpan timeout, CancellationToken cancellationToken)
+    {
+        if (timeout <= TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(timeout));
+        var start = _startInfoFactory(target, hostHwnd, 256, "datagrid-probe");
+        using var process = Process.Start(start) ?? throw new InvalidOperationException("Could not start isolated grid probe.");
+        using var reads = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var outputTask = ReadBoundedAsync(process.StandardOutput, 64 * 1024, reads.Token);
+        var errorTask = ReadBoundedAsync(process.StandardError, 4 * 1024, reads.Token);
+        try
+        {
+            await process.WaitForExitAsync(cancellationToken).WaitAsync(timeout, cancellationToken).ConfigureAwait(false);
+            var output = await outputTask.ConfigureAwait(false);
+            var error = await errorTask.ConfigureAwait(false);
+            if (output.Exceeded || error.Exceeded) return UnavailableGridProbe("response-limit");
+            if (process.ExitCode != 0) return UnavailableGridProbe(FailureStatus(process.ExitCode, error.Text));
+            try
+            {
+                return JsonSerializer.Deserialize<GridNativeProbeResult>(output.Text, JsonDefaults.Options) ??
+                       UnavailableGridProbe("invalid-response");
+            }
+            catch (JsonException) { return UnavailableGridProbe("invalid-response"); }
+        }
+        catch (TimeoutException)
+        {
+            TryKill(process);
+            await WaitAfterKill(process).ConfigureAwait(false);
+            return UnavailableGridProbe("native-probe-timeout");
+        }
+        catch (OperationCanceledException)
+        {
+            TryKill(process);
+            await WaitAfterKill(process).ConfigureAwait(false);
+            throw;
+        }
+        finally
+        {
+            reads.Cancel();
+            try { await Task.WhenAll(outputTask, errorTask).ConfigureAwait(false); }
+            catch (OperationCanceledException) { }
+        }
+    }
+
+    private static GridNativeProbeResult UnavailableGridProbe(string reason) =>
+        new(new(false, false, null, null, 0, false, false, false, false, false, false, reason), null, []);
+
+    internal async Task<GridExplorationAutomationResult> ExploreGridAsync(WindowTarget target, long host,
+        GridExplorationAutomationRequest request, CancellationToken cancellation)
+    {
+        var mode = "grid-explore:" + Convert.ToBase64String(JsonSerializer.SerializeToUtf8Bytes(request, JsonDefaults.Options));
+        using var process = Process.Start(_startInfoFactory(target, host, 256, mode)) ??
+            throw new InvalidOperationException("grid-worker-start-failed");
+        using var reads = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
+        var output = ReadBoundedAsync(process.StandardOutput, 64 * 1024, reads.Token);
+        var errors = ReadBoundedAsync(process.StandardError, 4 * 1024, reads.Token);
+        try
+        {
+            await process.WaitForExitAsync(cancellation).WaitAsync(TimeSpan.FromSeconds(3), cancellation).ConfigureAwait(false);
+            var text = await output.ConfigureAwait(false);
+            var error = await errors.ConfigureAwait(false);
+            if (process.ExitCode != 0 || text.Exceeded || error.Exceeded)
+                throw new InvalidOperationException("grid-automation-unavailable");
+            return JsonSerializer.Deserialize<GridExplorationAutomationResult>(text.Text, JsonDefaults.Options) ??
+                throw new InvalidOperationException("grid-worker-invalid-result");
+        }
+        catch (Exception) { TryKill(process); await WaitAfterKill(process).ConfigureAwait(false); throw; }
+        finally
+        {
+            reads.Cancel();
+            try { await Task.WhenAll(output, errors).ConfigureAwait(false); } catch (OperationCanceledException) { }
+        }
+    }
 
     public async Task<(IReadOnlyList<AutomationObservation> Items, bool TimedOut, string Status)> CollectAsync(
         WindowTarget target, TimeSpan timeout, int maxNodes, CancellationToken cancellationToken, long? scopeHwnd = null)
@@ -192,19 +271,19 @@ public sealed class UiaWorkerClient
         return string.IsNullOrWhiteSpace(detail) ? "collector-failed" : $"collector-failed:{detail}";
     }
 
-    private static ProcessStartInfo CreateStartInfo(WindowTarget target, long scopeHwnd, int maxNodes, string mode)
+    private static ProcessStartInfo CreateStartInfo(WindowTarget target, long scopeHwnd, int maxNodes, string mode, string? workerExecutable)
     {
         var processPath = Environment.ProcessPath ?? throw new InvalidOperationException("Entry process path is unavailable.");
         var assembly = Assembly.GetEntryAssembly()?.Location ?? throw new InvalidOperationException("Entry assembly path is unavailable.");
         var isMuxer = string.Equals(Path.GetFileNameWithoutExtension(processPath), "dotnet", StringComparison.OrdinalIgnoreCase);
-        var info = new ProcessStartInfo(processPath)
+        var info = new ProcessStartInfo(workerExecutable ?? processPath)
         {
             UseShellExecute = false,
             CreateNoWindow = true,
             RedirectStandardOutput = true,
             RedirectStandardError = true
         };
-        if (isMuxer) info.ArgumentList.Add(assembly);
+        if (isMuxer && workerExecutable is null) info.ArgumentList.Add(assembly);
         info.ArgumentList.Add("__uia-worker");
         info.ArgumentList.Add(target.RootOwnerHwnd.ToString(System.Globalization.CultureInfo.InvariantCulture));
         info.ArgumentList.Add(maxNodes.ToString(System.Globalization.CultureInfo.InvariantCulture));

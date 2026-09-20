@@ -12,6 +12,7 @@ internal sealed class RecorderWorkspace
     private AutoMappingCampaignState? _autoMapping;
     private readonly List<QuickMapSnapshotState> _quickMapSnapshots = [];
     private SpeculativePlanningState? _speculativePlanning;
+    private IReadOnlyList<SavedDataGridReview> _dataGrids = [];
 
     public RecorderWorkspace(
         string logicalMapId,
@@ -46,6 +47,17 @@ internal sealed class RecorderWorkspace
     public AutoMappingCampaignState? AutoMapping => _autoMapping;
     public IReadOnlyList<QuickMapSnapshotState> QuickMapSnapshots => _quickMapSnapshots;
     public SpeculativePlanningState? SpeculativePlanning => _speculativePlanning;
+    public IReadOnlyList<SavedDataGridReview> DataGrids => _dataGrids;
+
+    public void SaveDataGrid(string name, DataGridReviewContext context, GridSchemaReview review)
+    {
+        if (string.IsNullOrWhiteSpace(name) || name.Trim().Length > 200 || review.ReviewedUtc is null || review.Schema.Columns.Count == 0)
+            throw new ArgumentException("A name and reviewed schema are required.");
+        var updated = _dataGrids.Where(grid => grid.GridId != review.GridId)
+            .Append(new SavedDataGridReview(review.GridId, name.Trim(), context, review, DateTimeOffset.UtcNow)).ToArray();
+        LogicalMapSessionStore.Save(SessionManifestPath, CurrentManifest() with { DataGrids = updated });
+        _dataGrids = updated;
+    }
 
     public RecorderSessionTarget CreateNextSession()
     {
@@ -224,6 +236,7 @@ internal sealed class RecorderWorkspace
             manifest.QuickMapSnapshots,
             manifest.SpeculativePlanning);
         workspace._recordings.AddRange(manifest.Recordings);
+        workspace._dataGrids = manifest.DataGrids ?? [];
         return workspace;
     }
 
@@ -237,7 +250,8 @@ internal sealed class RecorderWorkspace
             _recordings.ToArray(),
             _autoMapping,
             _quickMapSnapshots.ToArray(),
-            _speculativePlanning);
+            _speculativePlanning,
+            _dataGrids);
 
     private static string SafeId(string rawBaseName, string processName)
     {

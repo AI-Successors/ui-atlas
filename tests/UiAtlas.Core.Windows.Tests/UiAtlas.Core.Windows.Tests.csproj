@@ -6,6 +6,7 @@
     <IsPackable>false</IsPackable><IsTestProject>true</IsTestProject>
   </PropertyGroup>
   <ItemGroup>
+    <ProjectReference Include="../../src/UiAtlas.Core.Mcp/UiAtlas.Core.Mcp.csproj" />
     <ProjectReference Include="../../src/UiAtlas.Core.Recording.Windows/UiAtlas.Core.Recording.Windows.csproj" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
     <PackageReference Include="xunit" />

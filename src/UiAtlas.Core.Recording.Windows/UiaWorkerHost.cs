@@ -28,6 +28,10 @@ public static class UiaWorkerHost
 
         try
         {
+            // The standalone MCP entry point may not initialize Win32 DPI awareness.
+            // Grid rectangles must share physical pixel coordinates with the screen capture.
+            if (args.Length == 6 && args[5] == "datagrid-probe")
+                _ = NativeMethods.SetProcessDpiAwarenessContext((nint)(-4));
             var expectedStart = new DateTimeOffset(startedTicks, TimeSpan.Zero);
             var before = WindowCatalog.Resolve(rootOwnerHwnd);
             if (before.RootOwnerHwnd != rootOwnerHwnd ||
@@ -45,6 +49,26 @@ public static class UiaWorkerHost
                                                mode.StartsWith("native-", StringComparison.Ordinal);
             if (!sameProcessScope || (!sameRootScope && !detachedProcessScopeAllowed))
                 return 66;
+
+            if (mode == "datagrid-probe")
+            {
+                if (maxNodes > 256) return 64;
+                var probe = RunCollection(() => DataGridNativeProbe.Collect(scopeHwnd, maxNodes));
+                var currentHost = WindowCatalog.Resolve(scopeHwnd);
+                if (currentHost.RootOwnerHwnd != rootOwnerHwnd || currentHost.ProcessId != processId ||
+                    currentHost.ProcessStartedUtc != expectedStart) return 66;
+                Console.Write(JsonSerializer.Serialize(probe, JsonLineOptions));
+                return 0;
+            }
+
+            if (mode.StartsWith("grid-explore:", StringComparison.Ordinal))
+            {
+                var request = JsonSerializer.Deserialize<GridExplorationAutomationRequest>(
+                    Convert.FromBase64String(mode[13..]), JsonLineOptions) ?? throw new ArgumentException("Invalid grid request.");
+                var result = RunCollection(() => GridExplorationAutomation.Run(request, processId));
+                Console.Write(JsonSerializer.Serialize(result, JsonLineOptions));
+                return 0;
+            }
 
             var values = RunCollection(() => mode switch
             {

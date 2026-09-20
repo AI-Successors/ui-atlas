@@ -8,8 +8,72 @@ namespace UiAtlas.Core.Recording.Windows;
 
 internal sealed record VisualTextObservation(string Text, RectI Bounds, int LineIndex);
 
+internal sealed record LiteralOcrObservation(bool Succeeded, string? Text, string? FailureReason);
+
 internal static class WindowsOcrTextRecognizer
 {
+    // Table values need failure information and literal repetitions. This deliberately
+    // bypasses label normalization, word deduplication and automatic downscaling.
+    internal static async Task<LiteralOcrObservation> RecognizeLiteralAsync(
+        OpaqueSurfaceScanner.PixelFrame frame,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (frame.Width <= 0 || frame.Height <= 0 ||
+            frame.Pixels.LongLength != (long)frame.Width * frame.Height * 4)
+            return new(false, null, "invalid-pixel-buffer");
+
+        try
+        {
+            var maximum = (int)OcrEngine.MaxImageDimension;
+            if (Math.Max(frame.Width, frame.Height) + 16 > maximum)
+                return new(false, null, "ocr-region-too-large");
+            var engine = OcrEngine.TryCreateFromLanguage(new Language("en-US")) ??
+                         OcrEngine.TryCreateFromUserProfileLanguages();
+            if (engine is null) return new(false, null, "ocr-language-unavailable");
+            // Small legacy-table fonts need readable OCR input height. Enlarge each
+            // original cell independently; source evidence remains original pixels.
+            // Never shrink a mosaic or reconstruct missing glyphs.
+            var scale = Math.Min(4, (maximum - 16) / Math.Max(frame.Width, frame.Height));
+            var width = frame.Width * scale + 16;
+            var height = frame.Height * scale + 16;
+            var pixels = Enumerable.Repeat((byte)255, checked(width * height * 4)).ToArray();
+            for (var y = 0; y < frame.Height * scale; y++)
+            for (var x = 0; x < frame.Width * scale; x++)
+            {
+                // Bilinear enlargement retains small antialiased punctuation more
+                // faithfully than replicating each pixel as a solid square.
+                var sourceX = Math.Clamp((x + .5) / scale - .5, 0, frame.Width - 1);
+                var sourceY = Math.Clamp((y + .5) / scale - .5, 0, frame.Height - 1);
+                var left = (int)sourceX;
+                var top = (int)sourceY;
+                var right = Math.Min(left + 1, frame.Width - 1);
+                var bottom = Math.Min(top + 1, frame.Height - 1);
+                var fractionX = sourceX - left;
+                var fractionY = sourceY - top;
+                for (var channel = 0; channel < 4; channel++)
+                {
+                    var value = (1 - fractionX) * (1 - fractionY) * frame.Pixels[(top * frame.Width + left) * 4 + channel] +
+                        fractionX * (1 - fractionY) * frame.Pixels[(top * frame.Width + right) * 4 + channel] +
+                        (1 - fractionX) * fractionY * frame.Pixels[(bottom * frame.Width + left) * 4 + channel] +
+                        fractionX * fractionY * frame.Pixels[(bottom * frame.Width + right) * 4 + channel];
+                    pixels[((y + 8) * width + x + 8) * 4 + channel] = (byte)Math.Round(value);
+                }
+            }
+            var buffer = CryptographicBuffer.CreateFromByteArray(pixels);
+            using var bitmap = SoftwareBitmap.CreateCopyFromBuffer(buffer,
+                BitmapPixelFormat.Bgra8, width, height, BitmapAlphaMode.Premultiplied);
+            var result = await engine.RecognizeAsync(bitmap).AsTask(cancellationToken).ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
+            return new(true, string.Join('\n', result.Lines.Select(line => line.Text)), null);
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception exception)
+        {
+            return new(false, null, $"ocr-failed:{exception.GetType().Name}:{exception.HResult:X8}");
+        }
+    }
+
     public static async Task<IReadOnlyDictionary<int, string>> RecognizeRegionsAsync(
         OpaqueSurfaceScanner.PixelFrame frame,
         IReadOnlyList<RectI> regions,

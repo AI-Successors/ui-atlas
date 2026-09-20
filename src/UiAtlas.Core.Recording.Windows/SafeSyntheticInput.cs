@@ -78,6 +78,8 @@ internal sealed class UserInputCancellationMonitor : IDisposable
     private uint _threadId;
     private int _userInputDetected;
     private int _startupFailed;
+    private string? _eventKind;
+    public string? EventKind => Volatile.Read(ref _eventKind);
 
     public UserInputCancellationMonitor()
     {
@@ -120,6 +122,7 @@ internal sealed class UserInputCancellationMonitor : IDisposable
             var data = Marshal.PtrToStructure<NativeMethods.MouseHook>(lParam);
             if (data.ExtraInfo != SafeSyntheticInput.Marker)
             {
+                Interlocked.CompareExchange(ref _eventKind, $"mouse-message-{wParam.ToInt64():x}-flags-{data.Flags:x}", null);
                 Volatile.Write(ref _userInputDetected, 1);
                 CancelSafely(Volatile.Read(ref _cancellation));
             }
@@ -134,6 +137,7 @@ internal sealed class UserInputCancellationMonitor : IDisposable
             var data = Marshal.PtrToStructure<NativeMethods.KeyboardHook>(lParam);
             if (data.ExtraInfo != SafeSyntheticInput.Marker)
             {
+                Interlocked.CompareExchange(ref _eventKind, $"keyboard-message-{wParam.ToInt64():x}-flags-{data.Flags:x}", null);
                 Volatile.Write(ref _userInputDetected, 1);
                 CancelSafely(Volatile.Read(ref _cancellation));
             }
