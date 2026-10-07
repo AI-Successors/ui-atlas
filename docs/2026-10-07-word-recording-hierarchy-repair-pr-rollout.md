@@ -10,7 +10,8 @@ The detailed interaction and acceptance criteria are in [AppMap observed-variant
 
 - [x] Implement the card strip in AppMap and preserve selection synchronization.
 - [x] Compile and review the changed code; the isolated Release build passed with 0 warnings/errors under SDK 10.0.401. Tests were not run for this UI-only amendment.
-- [ ] Update the PR description with the amendment and implementation record.
+- [x] Commit and push the amendment to the existing PR branch (`f240f65`).
+- [ ] Update the PR description: both GitHub API update routes returned HTTP 403, so the PR body remains unchanged; this rollout and the UX design note are committed on the PR branch.
 
 ## Problem and proven regression
 
