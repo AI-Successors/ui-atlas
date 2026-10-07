@@ -684,7 +684,7 @@ internal static class Program
             .ToArray();
         var repaired = await OfflineRecordingEnricher.RepairAsync(
             bundle, observations, cancellationToken).ConfigureAwait(false);
-        return new(manifest, repaired, interactions);
+        return new(manifest, repaired, interactions, observations);
     }
 
     private static int ExportJsonFromCatalog(string[] args)

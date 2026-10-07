@@ -58,15 +58,21 @@ public sealed class RecordingGraphBuilder
         var appId = StableIdentity.Create("app", appKey);
         var app = GetNode(nodes, appId, GraphNodeKind.Application, "", appId, primaryManifest.Target.ProcessName);
         app.AddProperty("layer", "shared");
+        var prepared = inputs.Select(input => SuppressRecordedVisualDuplicates(
+            CarryForwardStableNativeChrome(CarryForwardExcelBottomChrome(
+                SuppressDuplicateNativeCaptionButtons(input.Observations), input.Manifest.Target)))).ToArray();
+        var ambiguousSignatures = FindAmbiguousControlSignatures(prepared.SelectMany(frames => frames));
+        var inputIndex = 0;
         foreach (var input in inputs)
         {
             var manifest = input.Manifest;
             var rawSurfaceByNativeWindow = new Dictionary<long, RawSurfaceInfo>();
-            var curatedObservations = SuppressRecordedVisualDuplicates(
-                CarryForwardStableNativeChrome(
-                    CarryForwardExcelBottomChrome(
-                        SuppressDuplicateNativeCaptionButtons(input.Observations),
-                        manifest.Target)));
+            var curatedObservations = prepared[inputIndex++];
+            var recordedBySequence = (input.RecordedObservations ?? input.Observations).ToDictionary(frame => frame.Sequence);
+            var derivedBySequence = input.Observations.ToDictionary(frame => frame.Sequence);
+            // Curation preserves observation object references. Update only from
+            // direct input, never from a carried copy of an earlier frame.
+            var sourceFrames = new Dictionary<AutomationObservation, FrameObservation>(ReferenceEqualityComparer.Instance);
             app.AddProperty("processName", manifest.Target.ProcessName, sensitive: true);
             app.AddProperty("productVersion", manifest.Target.ProductVersion);
             app.AddProperty("originalFilename", manifest.Target.OriginalFilename, sensitive: true);
@@ -75,6 +81,8 @@ public sealed class RecordingGraphBuilder
 
             foreach (var frame in curatedObservations)
             {
+                foreach (var control in derivedBySequence[frame.Sequence].Automation)
+                    sourceFrames[control] = derivedBySequence[frame.Sequence];
                 var screenVariantFrame = IsScreenVariantFrame(frame);
                 var windows = (frame.ScopedWindows is { Count: > 0 } ? frame.ScopedWindows : [frame.Window])
                     .OrderBy(window => window.ZOrder)
@@ -118,8 +126,13 @@ public sealed class RecordingGraphBuilder
                                      window.RootOwnerHwnd == frame.Window.RootOwnerHwnd ||
                                      IsExplicitDialogCapture(frame, window))
                     .ToArray();
+                var recordedFrame = recordedBySequence[frame.Sequence];
+                var recordedWindows = (recordedFrame.ScopedWindows ?? [recordedFrame.Window])
+                    .Where(window => recordedFrame.ObservedWindowHwnds is not { Count: > 0 } ||
+                                     recordedFrame.ObservedWindowHwnds.Contains(window.Hwnd) ||
+                                     recordedFrame.Automation.Any(control => control.WindowHwnd == window.Hwnd)).ToArray();
                 var rawDataStreamFrame = MaterializeRawDataStreamFrame(
-                    manifest, frame, observedWindows, frame.Automation, appId, nodes, edges);
+                    manifest, recordedFrame, recordedWindows, recordedFrame.Automation, appId, nodes, edges);
                 var rawStreamSurfaceByWindow = rawDataStreamFrame.SurfaceByWindow;
                 var surfaceByWindow = new Dictionary<long, RawSurfaceInfo>();
                 var effectiveControlsByWindow = AssignEffectiveRawControlOwners(frame, windows, promotedAutomation);
@@ -241,8 +254,8 @@ public sealed class RecordingGraphBuilder
                     var window = windows.First(candidate => candidate.Hwnd == pair.Key);
                     var controls = effectiveControlsByWindow.GetValueOrDefault(window.Hwnd) ?? [];
                     var frameControls = MaterializeControls(
-                        manifest, frame, window, pair.Value, controls, nodes, edges, rawControls);
-                    foreach (var control in frameControls)
+                        manifest, frame, window, pair.Value, controls, nodes, edges, rawControls, sourceFrames, ambiguousSignatures);
+                    foreach (var control in frameControls.Where(control => control.IsCurrent))
                     {
                         var lookupWindow = control.Observation.WindowHwnd != 0 ? control.Observation.WindowHwnd : frame.Window.RootOwnerHwnd;
                         if (!string.IsNullOrWhiteSpace(control.Observation.RuntimeId) &&
@@ -251,7 +264,7 @@ public sealed class RecordingGraphBuilder
                             nodes[rawStreamControlId].AddProperty("stableControlKey", control.Id);
                     }
                     var visibleControls = frameControls
-                        .Where(control => IsStateVisible(control.Observation))
+                        .Where(control => control.IsCurrent && IsStateVisible(control.Observation))
                         .OrderBy(control => control.Id, StringComparer.Ordinal)
                         .ToArray();
                     var contentSignature = StableIdentity.Create("shape", pair.Value.Id,
@@ -270,6 +283,7 @@ public sealed class RecordingGraphBuilder
                     if (!string.IsNullOrWhiteSpace(contextLabel))
                         variant.AddProperty("contextLabel", contextLabel, sensitive: true);
                     variant.AddProperty("controlCount", visibleControls.Length.ToString(CultureInfo.InvariantCulture));
+                    variant.AddProperty("retainedControlCount", frameControls.Count(control => !control.IsCurrent).ToString(CultureInfo.InvariantCulture));
                     AddContains(edges, pair.Value.Id, variantId, variantEvidence);
                     pair.Value.VariantIds.Add(variantId);
                     rawStateByFrameSurface[FrameSurfaceKey(manifest.SessionId, frame.Sequence, pair.Value.Id)] = variantId;
@@ -505,7 +519,7 @@ public sealed class RecordingGraphBuilder
         foreach (var window in windows)
         {
             var windowRole = NativeRole(frame, window);
-            var id = StableIdentity.Create("rds-surface", appId,
+            var id = StableIdentity.Create("rds-surface", appId, manifest.SessionId, window.Hwnd.ToString(CultureInfo.InvariantCulture),
                 frame.Sequence.ToString(CultureInfo.InvariantCulture), windowRole,
                 window.ClassName, window.ZOrder.ToString(CultureInfo.InvariantCulture));
             var label = string.IsNullOrWhiteSpace(window.Title)
@@ -725,25 +739,36 @@ public sealed class RecordingGraphBuilder
         if (observations.Count < 2) return observations;
 
         var knownByWindow = new Dictionary<long, IReadOnlyList<AutomationObservation>>();
+        var boundsByWindow = new Dictionary<long, RectI>();
         var result = new List<FrameObservation>(observations.Count);
         foreach (var frame in observations.OrderBy(item => item.Sequence))
         {
             var controls = frame.Automation.ToList();
-            var incomplete = string.Equals(frame.ObservationScope, "control-delta", StringComparison.Ordinal) ||
+            var incomplete = !string.Equals(frame.ObservationScope, "full-root", StringComparison.Ordinal) ||
                              frame.AutomationTimedOut ||
-                             frame.AutomationStatus is "partial" or "timeout" or "visual-only";
+                             frame.AutomationStatus != "ok";
+            var windows = (frame.ScopedWindows is { Count: > 0 } ? frame.ScopedWindows : [frame.Window]);
+            var observed = frame.ObservedWindowHwnds is { Count: > 0 }
+                ? frame.ObservedWindowHwnds.ToHashSet()
+                : windows.Select(window => window.Hwnd).ToHashSet();
+            foreach (var window in windows)
+            {
+                if (boundsByWindow.TryGetValue(window.Hwnd, out var bounds) && bounds != window.Bounds)
+                    knownByWindow.Remove(window.Hwnd);
+                boundsByWindow[window.Hwnd] = window.Bounds;
+            }
             if (incomplete)
             {
-                var scopedWindowHwnds = (frame.ScopedWindows is { Count: > 0 }
-                        ? frame.ScopedWindows
-                        : [frame.Window])
-                    .Where(window => window.IsVisible && !window.IsCloaked && !window.IsMinimized &&
+                var scopedWindowHwnds = windows
+                    .Where(window => observed.Contains(window.Hwnd) && window.IsVisible && !window.IsCloaked && !window.IsMinimized &&
                                      window.Bounds.Width > 0 && window.Bounds.Height > 0)
                     .Select(window => window.Hwnd)
                     .ToHashSet();
                 foreach (var windowHwnd in scopedWindowHwnds)
                 {
                     if (!knownByWindow.TryGetValue(windowHwnd, out var known)) continue;
+                    known = known.Where(control => !HasConflictingChromeAncestor(control, known, frame.Automation)).ToArray();
+                    knownByWindow[windowHwnd] = known;
                     foreach (var control in known)
                     {
                         if (controls.Any(current => SameNativeControlIdentity(current, control))) continue;
@@ -759,16 +784,31 @@ public sealed class RecordingGraphBuilder
 
             if (!incomplete)
             {
-                foreach (var windowHwnd in (frame.ScopedWindows is { Count: > 0 }
-                             ? frame.ScopedWindows
-                             : [frame.Window]).Select(window => window.Hwnd))
+                foreach (var windowHwnd in observed)
                     knownByWindow.Remove(windowHwnd);
             }
-            foreach (var group in StableNativeChromeClosure(enriched.Automation)
+            foreach (var group in enriched.Automation.GroupBy(control => control.WindowHwnd)
+                         .SelectMany(group => StableNativeChromeClosure(group.ToArray()))
                          .GroupBy(control => control.WindowHwnd))
                 knownByWindow[group.Key] = group.ToArray();
         }
         return result;
+    }
+
+    private static bool HasConflictingChromeAncestor(AutomationObservation control,
+        IReadOnlyList<AutomationObservation> known, IReadOnlyList<AutomationObservation> current)
+    {
+        var visited = new HashSet<string>(StringComparer.Ordinal);
+        for (var ancestor = control; ancestor is not null && visited.Add(ancestor.RuntimeId);
+             ancestor = known.FirstOrDefault(item => item.RuntimeId == ancestor.ParentRuntimeId))
+        {
+            var replacement = current.FirstOrDefault(item => item.WindowHwnd == ancestor.WindowHwnd &&
+                item.RuntimeId == ancestor.RuntimeId);
+            if (replacement is not null && (replacement.ParentRuntimeId != ancestor.ParentRuntimeId ||
+                replacement.ClassName != ancestor.ClassName || replacement.ControlType != ancestor.ControlType ||
+                NormalizeControlType(ancestor) != "Window" && replacement.Name != ancestor.Name)) return true;
+        }
+        return false;
     }
 
     private static IReadOnlyList<FrameObservation> CarryForwardExcelBottomChrome(
@@ -861,17 +901,31 @@ public sealed class RecordingGraphBuilder
             .GroupBy(control => control.WindowHwnd)
             .ToDictionary(group => group.Key, group => group.OrderByDescending(control =>
                 (long)control.Bounds.Width * control.Bounds.Height).First().Bounds);
-        var retainedRuntimeIds = native.Where(control =>
-                IsStableNativeChromeForCarry(control,
-                    windowBounds.GetValueOrDefault(control.WindowHwnd) ?? new RectI(0, 0, 0, 0)))
-            .Select(control => control.RuntimeId)
-            .Where(id => !string.IsNullOrWhiteSpace(id))
-            .ToHashSet(StringComparer.Ordinal);
-        if (retainedRuntimeIds.Count == 0) return [];
-
         var byRuntimeId = native.Where(control => !string.IsNullOrWhiteSpace(control.RuntimeId))
             .GroupBy(control => control.RuntimeId, StringComparer.Ordinal)
             .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
+        bool HasPersistentAncestry(AutomationObservation control)
+        {
+            var menuItem = NormalizeControlType(control) == "MenuItem";
+            var foundMenuBar = false;
+            var visited = new HashSet<string>(StringComparer.Ordinal);
+            var current = control;
+            while (!string.IsNullOrWhiteSpace(current.ParentRuntimeId))
+            {
+                if (!visited.Add(current.RuntimeId) || !byRuntimeId.TryGetValue(current.ParentRuntimeId, out var parent))
+                    return false;
+                var type = NormalizeControlType(parent);
+                if (type is "Group" or "Tab" or "TabItem" or "Document" ||
+                    parent.ClassName.Equals("FullpageUIHost", StringComparison.OrdinalIgnoreCase)) return false;
+                foundMenuBar |= type == "MenuBar";
+                current = parent;
+            }
+            return !menuItem || foundMenuBar;
+        }
+        var retainedRuntimeIds = native.Where(control =>
+                IsStableNativeChromeForCarry(control,
+                    windowBounds.GetValueOrDefault(control.WindowHwnd) ?? new RectI(0, 0, 0, 0)) && HasPersistentAncestry(control))
+            .Select(control => control.RuntimeId).Where(id => !string.IsNullOrWhiteSpace(id)).ToHashSet(StringComparer.Ordinal);
         var pending = retainedRuntimeIds.ToArray();
         foreach (var runtimeId in pending)
         {
@@ -1430,6 +1484,24 @@ public sealed class RecordingGraphBuilder
                Math.Abs((long)control.Bounds.Height - surface.Height) <= toleranceY * 2L;
     }
 
+    private static HashSet<string> FindAmbiguousControlSignatures(IEnumerable<FrameObservation> frames)
+    {
+        var result = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var frame in frames)
+        foreach (var window in frame.ScopedWindows ?? [frame.Window])
+        {
+            var controls = frame.Automation.Where(control => EffectiveControlWindowHwnd(frame, control) == window.Hwnd);
+            foreach (var group in controls.GroupBy(control => string.Join('|',
+                         IsSurfaceRootedStableControl(control) ? "" : control.ParentRuntimeId,
+                         BaseControlSignature(control, window.Bounds)), StringComparer.Ordinal).Where(group => group.Count() > 1))
+                result.Add(AmbiguityKey(window, group.First()));
+        }
+        return result;
+    }
+
+    private static string AmbiguityKey(WindowObservation window, AutomationObservation control) =>
+        string.Join('|', window.ClassName, BaseControlSignature(control, window.Bounds));
+
     private static IReadOnlyList<FrameControl> MaterializeControls(
         RecordingManifest manifest,
         FrameObservation frame,
@@ -1438,9 +1510,13 @@ public sealed class RecordingGraphBuilder
         IReadOnlyList<AutomationObservation> controls,
         IDictionary<string, MutableNode> nodes,
         IDictionary<string, MutableEdge> edges,
-        IDictionary<string, RawControlInfo> rawControls)
+        IDictionary<string, RawControlInfo> rawControls,
+        IReadOnlyDictionary<AutomationObservation, FrameObservation> sourceFrames,
+        IReadOnlySet<string> ambiguousSignatures)
     {
-        var effectivelyVisible = AutomationObservationVisibility.FilterEffectivelyVisible(controls).ToHashSet();
+        var visibleBySource = controls.Select(control => sourceFrames[control]).DistinctBy(source => source.Sequence)
+            .ToDictionary(source => source.Sequence,
+                source => AutomationObservationVisibility.FilterEffectivelyVisible(source.Automation).ToHashSet());
         var ordered = controls
             .OrderBy(control => control.Bounds.Y)
             .ThenBy(control => control.Bounds.X)
@@ -1448,16 +1524,20 @@ public sealed class RecordingGraphBuilder
             .ThenBy(control => control.RuntimeId, StringComparer.Ordinal)
             .Select((control, ordinal) => new IndexedControl(control, $"item-{ordinal:D6}"))
             .ToArray();
-        var byRuntime = ordered
+        var runtimeGroups = ordered
             .Where(item => !string.IsNullOrWhiteSpace(item.Observation.RuntimeId))
             .GroupBy(item => item.Observation.RuntimeId, StringComparer.Ordinal)
-            .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
-        var basePaths = new Dictionary<string, string>(StringComparer.Ordinal);
-        string ResolveBasePath(IndexedControl item, HashSet<string>? visiting = null)
+            .ToArray();
+        var byRuntime = runtimeGroups.Where(group => group.Count() == 1)
+            .ToDictionary(group => group.Key, group => group.Single(), StringComparer.Ordinal);
+        var ambiguousRuntimeIds = runtimeGroups.Where(group => group.Count() > 1).Select(group => group.Key).ToHashSet(StringComparer.Ordinal);
+        var finalPathByInstance = new Dictionary<string, string>(StringComparer.Ordinal);
+        string ResolvePath(IndexedControl item, HashSet<string>? visiting = null)
         {
-            if (basePaths.TryGetValue(item.InstanceKey, out var cached)) return cached;
+            if (finalPathByInstance.TryGetValue(item.InstanceKey, out var cached)) return cached;
             visiting ??= new(StringComparer.Ordinal);
-            if (!visiting.Add(item.InstanceKey)) return BaseControlSignature(item.Observation, window.Bounds);
+            if (!visiting.Add(item.InstanceKey))
+                throw new InvalidDataException("Control observation contains a cyclic parent hierarchy.");
             // Legacy toolbar button parent panes are frequently re-reported with
             // different cached runtime paths even though the stable automation ID
             // and native class remain unchanged. Keep that chrome identity rooted
@@ -1465,34 +1545,36 @@ public sealed class RecordingGraphBuilder
             var parentPath = !IsSurfaceRootedStableControl(item.Observation) &&
                              !string.IsNullOrWhiteSpace(item.Observation.ParentRuntimeId) &&
                              byRuntime.TryGetValue(item.Observation.ParentRuntimeId, out var parent)
-                ? ResolveBasePath(parent, visiting)
+                ? ResolvePath(parent, visiting)
                 : string.Empty;
             visiting.Remove(item.InstanceKey);
+            var signature = BaseControlSignature(item.Observation, window.Bounds);
+            var ambiguousParent = ambiguousRuntimeIds.Contains(item.Observation.ParentRuntimeId);
+            if (ambiguousParent || ambiguousSignatures.Contains(AmbiguityKey(window, item.Observation)))
+            {
+                // Session runtime identity survives sibling disappearance and
+                // enumeration changes. Without a unique runtime, keep evidence
+                // separate instead of inventing a cross-frame correspondence.
+                var runtime = item.Observation.RuntimeId;
+                var identity = !ambiguousParent && !string.IsNullOrWhiteSpace(runtime) && byRuntime.ContainsKey(runtime)
+                    ? runtime
+                    : string.Join('|', sourceFrames[item.Observation].Sequence, item.InstanceKey);
+                signature += ":instance:" + StableIdentity.Create("instance", manifest.SessionId, identity);
+            }
             var path = string.IsNullOrEmpty(parentPath)
-                ? BaseControlSignature(item.Observation, window.Bounds)
-                : $"{parentPath}/{BaseControlSignature(item.Observation, window.Bounds)}";
-            basePaths[item.InstanceKey] = path;
+                ? signature
+                : $"{parentPath}/{signature}";
+            finalPathByInstance[item.InstanceKey] = path;
             return path;
         }
 
-        foreach (var item in ordered) ResolveBasePath(item);
-        var finalPathByInstance = new Dictionary<string, string>(StringComparer.Ordinal);
-        foreach (var group in ordered.GroupBy(item => basePaths[item.InstanceKey], StringComparer.Ordinal))
-        {
-            var members = group.OrderBy(item => item.Observation.Bounds.Y).ThenBy(item => item.Observation.Bounds.X)
-                .ThenBy(item => item.Observation.RuntimeId, StringComparer.Ordinal).ThenBy(item => item.InstanceKey, StringComparer.Ordinal).ToArray();
-            for (var index = 0; index < members.Length; index++)
-                finalPathByInstance[members[index].InstanceKey] = index == 0 ? group.Key : $"{group.Key}#{index + 1}";
-        }
+        foreach (var item in ordered) ResolvePath(item);
 
         var idByInstance = finalPathByInstance.ToDictionary(
             pair => pair.Key,
             pair => StableIdentity.Create("control", RawLayer, surface.Id, pair.Value),
             StringComparer.Ordinal);
-        var idByRuntime = ordered
-            .Where(item => !string.IsNullOrWhiteSpace(item.Observation.RuntimeId))
-            .GroupBy(item => item.Observation.RuntimeId, StringComparer.Ordinal)
-            .ToDictionary(group => group.Key, group => idByInstance[group.First().InstanceKey], StringComparer.Ordinal);
+        var idByRuntime = byRuntime.ToDictionary(pair => pair.Key, pair => idByInstance[pair.Value.InstanceKey], StringComparer.Ordinal);
         var result = new List<FrameControl>(ordered.Length);
         foreach (var item in ordered)
         {
@@ -1504,13 +1586,17 @@ public sealed class RecordingGraphBuilder
                            idByRuntime.TryGetValue(control.ParentRuntimeId, out var resolvedParent)
                 ? resolvedParent
                 : surface.Id;
-            var evidence = Evidence(manifest, frame, control.Bounds);
+            var sourceFrame = sourceFrames[control];
+            var isCurrent = sourceFrame.Sequence == frame.Sequence;
+            var wasVisible = visibleBySource[sourceFrame.Sequence].Contains(control);
+            var evidence = Evidence(manifest, sourceFrame, control.Bounds);
             var label = StableDisplay(control);
             var node = GetNode(nodes, id, GraphNodeKind.Control, parentId, id, label);
             node.AddEvidence(evidence);
             node.AddProperty("layer", RawLayer);
             node.AddProperty("rawSurfaceId", surface.Id);
             node.AddProperty("controlPath", path);
+            if (ambiguousRuntimeIds.Contains(control.ParentRuntimeId)) node.AddProperty("hierarchyStatus", "ambiguous-parent");
             node.AddProperty("automationId", control.AutomationId);
             node.AddProperty("name", control.Name, sensitive: true);
             node.AddProperty("controlType", NormalizeControlType(control));
@@ -1525,23 +1611,23 @@ public sealed class RecordingGraphBuilder
             node.AddProperty("expandCollapseState", control.ExpandCollapseState);
             foreach (var pattern in control.SupportedPatterns ?? []) node.AddProperty("supportedPattern", pattern);
             foreach (var selector in StableSelectors(control)) node.AddProperty("stableSelector", selector);
-            AddExtractionControlProperties(node, frame, control);
+            AddExtractionControlProperties(node, sourceFrame, control);
             AddVisualIdentityProperties(node, control);
             AddContains(edges, parentId, id, evidence);
 
             if (!rawControls.TryGetValue(id, out var info))
             {
                 info = new(id, surface.Id, parentId == surface.Id ? null : parentId, path, control,
-                    effectivelyVisible.Contains(control));
+                    wasVisible);
                 rawControls.Add(id, info);
             }
             else
             {
-                info.Observe(control, effectivelyVisible.Contains(control));
+                info.Observe(control, wasVisible);
             }
-            info.ObserveExtraction(ResolveExtractionCandidate(frame, control));
+            info.ObserveExtraction(ResolveExtractionCandidate(sourceFrame, control));
             info.Evidence.Add(evidence);
-            result.Add(new(id, control));
+            result.Add(new(id, control, isCurrent));
         }
         return result;
     }
@@ -1781,6 +1867,10 @@ public sealed class RecordingGraphBuilder
         if (IsShadowControl(control) && automation.Length > 0)
             return $"shadow-region:aid:{automation}:class:{className}";
         if (automation.Length > 0) return $"{type}:aid:{automation}:class:{className}";
+        // Ribbon pages can occupy exactly the same slot. Their names distinguish
+        // content context; hash them so the identity path does not expose labels.
+        if (type is "Group" or "TabItem" && StableToken(control.Name) is { Length: > 0 } name)
+            return $"{type}:class:{className}:name:{StableIdentity.Create("label", name)}:slot:{RelativeGeometryToken(control.Bounds, windowBounds)}";
         return $"{type}:class:{className}:slot:{RelativeGeometryToken(control.Bounds, windowBounds)}";
     }
 
@@ -1980,7 +2070,12 @@ public sealed class RecordingGraphBuilder
         string stableKey,
         string label)
     {
-        if (nodes.TryGetValue(id, out var existing)) return existing;
+        if (nodes.TryGetValue(id, out var existing))
+        {
+            if (existing.ParentId != parentId)
+                throw new InvalidDataException($"Graph identity {id} resolved to conflicting parents.");
+            return existing;
+        }
         var created = new MutableNode(id, kind, parentId, stableKey, label);
         nodes.Add(id, created);
         return created;
@@ -2132,7 +2227,7 @@ public sealed class RecordingGraphBuilder
         }
     }
 
-    private sealed record FrameControl(string Id, AutomationObservation Observation);
+    private sealed record FrameControl(string Id, AutomationObservation Observation, bool IsCurrent);
     private sealed record IndexedControl(AutomationObservation Observation, string InstanceKey);
     private sealed record RawDataStreamFrameInfo(
         IReadOnlyDictionary<long, string> SurfaceByWindow,
