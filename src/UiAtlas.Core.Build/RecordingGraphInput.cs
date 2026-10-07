@@ -7,11 +7,14 @@ namespace UiAtlas.Core.Build;
 /// canonical graph builder. Durable recording authority remains the sealed
 /// recording bundle; this input supports live projections without a second
 /// Raw/Raw/Semantic implementation.
+/// RecordedObservations preserves the capture layer when Observations contains
+/// offline enrichment. It must cover the same frame identities.
 /// </summary>
 public sealed record RecordingGraphInput(
     RecordingManifest Manifest,
     IReadOnlyList<FrameObservation> Observations,
-    IReadOnlyList<InteractionObservation> Interactions);
+    IReadOnlyList<InteractionObservation> Interactions,
+    IReadOnlyList<FrameObservation>? RecordedObservations = null);
 
 public static class RecordingGraphInputValidator
 {
@@ -22,6 +25,22 @@ public static class RecordingGraphInputValidator
         var manifest = input.Manifest;
         var observations = input.Observations;
         var interactions = input.Interactions;
+
+        // Offline enrichment may replace controls, but must preserve the sealed
+        // observations used by the raw-data-streams layer.
+        if (input.RecordedObservations is { } recorded)
+        {
+            var recordedValidation = Validate(input with { Observations = recorded, RecordedObservations = null });
+            issues.AddRange(recordedValidation.Issues);
+            if (observations is not null && !observations.Select(frame => frame?.Sequence)
+                    .SequenceEqual(recorded.Select(frame => frame?.Sequence)))
+                issues.Add(new("live.recorded", "error", "recordedObservations", "Recorded and derived frame sequences must match."));
+            else if (observations is not null && observations.Zip(recorded).Any(pair =>
+                         pair.First is not null && pair.Second is not null &&
+                         (pair.First.TimestampUtc != pair.Second.TimestampUtc || pair.First.Window != pair.Second.Window ||
+                          pair.First.FrameEntry != pair.Second.FrameEntry)))
+                issues.Add(new("live.recorded", "error", "recordedObservations", "Enrichment cannot replace a frame's capture identity."));
+        }
 
         if (manifest is null || observations is null || interactions is null)
             return Invalid("live.required", "input", "Manifest, observations, and interactions are required.");

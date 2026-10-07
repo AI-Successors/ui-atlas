@@ -62,7 +62,6 @@ public sealed class ExplorerWindow : Window
     private readonly Grid _appMapViewport = new() { Background = Brush("#F4F5F9"), ClipToBounds = true };
     private readonly ContentControl _traceBannerHost = new() { Visibility = Visibility.Collapsed };
     private readonly ScaleTransform _appMapZoomTransform = new(1, 1);
-    private readonly ComboBox _variantPicker = new();
     private readonly TextBlock _variantPosition = Text(string.Empty, 10, FontWeights.SemiBold, Muted);
     private readonly StackPanel _properties = new() { Margin = new Thickness(18) };
     private readonly TextBlock _title = Text("UI Knowledge Graph Editor", 16, FontWeights.SemiBold, Ink);
@@ -89,6 +88,8 @@ public sealed class ExplorerWindow : Window
     private readonly Dictionary<UiUnderstandingLevel, TextBlock> _levelButtonLabels = new();
     private readonly Dictionary<string, Button> _viewModeButtons = new(StringComparer.Ordinal);
     private readonly Dictionary<string, Border> _topologyShapes = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, Button> _variantCardButtons = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, TextBlock> _variantCardSummaries = new(StringComparer.Ordinal);
     private readonly Dictionary<string, TreeViewItem> _hierarchyItems = new(StringComparer.Ordinal);
     private readonly HashSet<string> _curatingControlIds = new(StringComparer.Ordinal);
     private readonly ColumnDefinition _hierarchyColumn = new() { Width = new GridLength(HierarchyPanelWidth) };
@@ -97,8 +98,8 @@ public sealed class ExplorerWindow : Window
     private Grid? _centerPanel;
     private UIElement? _hierarchyCard;
     private UIElement? _propertiesCard;
-    private Button? _previousVariantButton;
-    private Button? _nextVariantButton;
+    private StackPanel? _variantCardsPanel;
+    private ScrollViewer? _variantStripScroller;
     private UIElement? _topologyCard;
     private UIElement? _appMapCard;
     private GridSplitter? _centerSplitter;
@@ -120,7 +121,7 @@ public sealed class ExplorerWindow : Window
     private bool _sideBySideLayout = true;
     private bool _synchronizing;
     private bool _refreshingFilters;
-    private bool _refreshingVariantPicker;
+    private bool _graphLoading;
     private ScrollViewer? _activePanScrollViewer;
     private Point _panStartPoint;
     private double _panStartHorizontalOffset;
@@ -705,56 +706,37 @@ public sealed class ExplorerWindow : Window
 
     private Border BuildVariantNavigator()
     {
-        _previousVariantButton = VariantNavigationButton("‹", "Previous frame", -1);
-        _nextVariantButton = VariantNavigationButton("›", "Next frame", 1);
+        var label = Text("Observed variants", 11, FontWeights.SemiBold, Ink,
+            verticalAlignment: VerticalAlignment.Center);
+        label.Margin = new Thickness(3, 0, 11, 0);
+        System.Windows.Automation.AutomationProperties.SetName(label, "Observed variants");
 
-        _variantPicker.Width = double.NaN;
-        _variantPicker.MinWidth = 150;
-        _variantPicker.Height = 34;
-        _variantPicker.Padding = new Thickness(8, 4, 8, 4);
-        _variantPicker.IsEditable = true;
-        _variantPicker.IsTextSearchEnabled = true;
-        _variantPicker.IsTextSearchCaseSensitive = false;
-        _variantPicker.StaysOpenOnEdit = true;
-        _variantPicker.MaxDropDownHeight = 420;
-        _variantPicker.ToolTip = "Choose a frame or type its number";
-        System.Windows.Automation.AutomationProperties.SetName(_variantPicker, "Frame selector");
-        _variantPicker.DisplayMemberPath = nameof(VariantOption.Label);
-        TextSearch.SetTextPath(_variantPicker, nameof(VariantOption.Label));
-        _variantPicker.SelectionChanged += (_, _) =>
+        _variantCardsPanel = new StackPanel { Orientation = Orientation.Horizontal };
+        _variantStripScroller = new ScrollViewer
         {
-            if (_refreshingVariantPicker || _variantPicker.SelectedItem is not VariantOption option) return;
-            _variantPicker.Text = option.Label;
-            SelectVariant(option.Variant);
+            Content = _variantCardsPanel,
+            Height = 94,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            CanContentScroll = false,
+            PanningMode = PanningMode.HorizontalOnly,
+            ToolTip = "Scroll horizontally to browse observed variants"
         };
-        _variantPicker.DropDownOpened += (_, _) => RestoreVariantPickerText();
-        _variantPicker.LostKeyboardFocus += (_, _) => RestoreVariantPickerText();
-        _variantPicker.PreviewKeyDown += (_, args) =>
-        {
-            if (args.Key != Key.Enter) return;
-            var match = System.Text.RegularExpressions.Regex.Match(_variantPicker.Text ?? string.Empty, @"\d+");
-            if (!match.Success || !long.TryParse(match.Value, out var requestedFrame)) return;
-            var index = _visibleVariants.ToList().FindIndex(variant => variant.FrameSequence == requestedFrame);
-            if (index < 0) return;
-            _variantPicker.SelectedIndex = index;
-            RestoreVariantPickerText();
-            args.Handled = true;
-        };
+        System.Windows.Automation.AutomationProperties.SetName(_variantStripScroller, "Observed variant cards");
 
         var row = new Grid();
         row.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
         row.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
         row.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
-        row.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
-        row.Children.Add(_previousVariantButton);
-        var picker = RoundedField(_variantPicker);
-        picker.Margin = new Thickness(6, 0, 6, 0);
-        Grid.SetColumn(picker, 1);
-        row.Children.Add(picker);
-        Grid.SetColumn(_nextVariantButton, 2);
-        row.Children.Add(_nextVariantButton);
-        _variantPosition.Margin = new Thickness(10, 8, 0, 0);
-        Grid.SetColumn(_variantPosition, 3);
+        row.Children.Add(label);
+        Grid.SetColumn(_variantStripScroller, 1);
+        row.Children.Add(_variantStripScroller);
+        _variantPosition.Margin = new Thickness(10, 0, 3, 0);
+        _variantPosition.VerticalAlignment = VerticalAlignment.Center;
+        _variantPosition.MinWidth = 52;
+        _variantPosition.TextAlignment = TextAlignment.Right;
+        System.Windows.Automation.AutomationProperties.SetName(_variantPosition, "Variant position");
+        Grid.SetColumn(_variantPosition, 2);
         row.Children.Add(_variantPosition);
 
         return new Border
@@ -762,31 +744,9 @@ public sealed class ExplorerWindow : Window
             BorderBrush = UiBorder,
             BorderThickness = new Thickness(0, 1, 0, 1),
             Background = Brush("#FAFAFD"),
-            Padding = new Thickness(8, 6, 8, 6),
+            Padding = new Thickness(8, 4, 8, 4),
             Child = row
         };
-    }
-
-    private Button VariantNavigationButton(string glyph, string toolTip, int offset)
-    {
-        var button = new Button
-        {
-            Content = CreateChevronIcon(offset > 0),
-            Width = 32,
-            Height = 34,
-            Padding = new Thickness(0),
-            Background = Brushes.White,
-            BorderBrush = UiBorder,
-            Foreground = Ink,
-            Cursor = Cursors.Hand,
-            ToolTip = toolTip,
-            Focusable = false,
-            Template = RoundedButtonTemplate(8)
-        };
-        AttachModernIconButtonFeedback(button);
-        button.Click += (_, _) => NavigateVariant(offset);
-        System.Windows.Automation.AutomationProperties.SetName(button, toolTip);
-        return button;
     }
 
     private static FrameworkElement CreateChevronIcon(bool pointsRight)
@@ -2000,22 +1960,14 @@ public sealed class ExplorerWindow : Window
 
     private void SetGraphLoadingState(bool isLoading, string? statusText)
     {
+        _graphLoading = isLoading;
         Cursor = isLoading ? Cursors.Wait : null;
         _search.IsEnabled = !isLoading;
         _surfaceKindFilter.IsEnabled = !isLoading && _surfaceKindFilter.Items.Count > 0;
         _hierarchy.IsEnabled = !isLoading;
         _topologyCanvas.IsEnabled = !isLoading;
         _appMapViewport.IsEnabled = !isLoading;
-        if (isLoading)
-        {
-            _variantPicker.IsEnabled = false;
-            if (_previousVariantButton is not null) _previousVariantButton.IsEnabled = false;
-            if (_nextVariantButton is not null) _nextVariantButton.IsEnabled = false;
-        }
-        else
-        {
-            UpdateVariantNavigatorState();
-        }
+        UpdateVariantNavigatorState();
         _properties.IsEnabled = !isLoading;
         _loadingOverlay.Visibility = isLoading ? Visibility.Visible : Visibility.Collapsed;
         _loadingTitle.Text = isLoading ? "Please wait, map is loading..." : string.Empty;
@@ -3238,38 +3190,133 @@ public sealed class ExplorerWindow : Window
                 .FirstOrDefault();
         _selectedSurface = ResolveSurfaceForVariant(_selectedVariant) ?? _selectedSurface ?? surface;
 
-        _refreshingVariantPicker = true;
-        _variantPicker.Items.Clear();
-        foreach (var variant in variants)
-            _variantPicker.Items.Add(new VariantOption(variant,
-                $"Frame {variant.FrameSequence}  •  {variant.ControlCount} controls"));
-        _variantPicker.SelectedIndex = _selectedVariant is null
-            ? -1
-            : variants.ToList().FindIndex(variant => variant == _selectedVariant);
-        _variantPicker.Text = _variantPicker.SelectedItem is VariantOption selected
-            ? selected.Label
-            : "No observed frames";
-        _refreshingVariantPicker = false;
+        BuildVariantCards(variants);
         UpdateVariantNavigatorState();
+        BringVariantIntoView(_selectedVariant);
     }
 
-    private void RestoreVariantPickerText()
+    private void BuildVariantCards(IReadOnlyList<UiMapVariantView> variants)
     {
-        if (_variantPicker.SelectedItem is VariantOption selected)
-            _variantPicker.Text = selected.Label;
-        else if (_visibleVariants.Count == 0)
-            _variantPicker.Text = "No observed frames";
+        if (_variantCardsPanel is null) return;
+        _variantCardsPanel.Children.Clear();
+        _variantCardButtons.Clear();
+        _variantCardSummaries.Clear();
+
+        if (variants.Count == 0)
+        {
+            var empty = Text("No observed variants", 11, FontWeights.Normal, Muted,
+                verticalAlignment: VerticalAlignment.Center);
+            empty.Margin = new Thickness(6, 0, 6, 0);
+            _variantCardsPanel.Children.Add(empty);
+            return;
+        }
+
+        foreach (var variant in variants)
+        {
+            var title = Text(VariantCardTitle(variant), 11, FontWeights.SemiBold, Ink);
+            title.TextTrimming = TextTrimming.CharacterEllipsis;
+            var summary = Text(VariantCardSummary(variant), 9, FontWeights.Normal, Muted);
+            summary.TextTrimming = TextTrimming.CharacterEllipsis;
+            var capture = Text($"Capture {ShortBundleId(variant.BundleId)}", 9, FontWeights.Normal, Muted);
+            capture.TextTrimming = TextTrimming.CharacterEllipsis;
+            var content = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+            content.Children.Add(title);
+            content.Children.Add(summary);
+            content.Children.Add(capture);
+
+            var button = new Button
+            {
+                Content = content,
+                Width = 174,
+                Height = 68,
+                Margin = new Thickness(3, 2, 3, 2),
+                Padding = new Thickness(8, 4, 8, 4),
+                Background = Brushes.White,
+                BorderBrush = UiBorder,
+                BorderThickness = new Thickness(1),
+                Foreground = Ink,
+                HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                VerticalContentAlignment = VerticalAlignment.Center,
+                Cursor = Cursors.Hand,
+                Focusable = true,
+                Tag = variant.Id,
+                Template = RoundedButtonTemplate(8)
+            };
+            var accessibleName = VariantCardAccessibleName(variant);
+            button.ToolTip = VariantCardToolTip(variant);
+            System.Windows.Automation.AutomationProperties.SetName(button, accessibleName);
+            System.Windows.Automation.AutomationProperties.SetHelpText(button,
+                "Select this observed variant. Use Left and Right to move between cards, or Home and End for the first and last card.");
+            button.Click += (_, _) => SelectVariant(variant);
+            button.PreviewKeyDown += (_, args) =>
+            {
+                var offset = args.Key switch
+                {
+                    Key.Left => -1,
+                    Key.Right => 1,
+                    Key.Home => int.MinValue,
+                    Key.End => int.MaxValue,
+                    _ => 0
+                };
+                if (offset == 0) return;
+                NavigateVariant(offset, focusTarget: true);
+                args.Handled = true;
+            };
+
+            _variantCardButtons[variant.Id] = button;
+            _variantCardSummaries[variant.Id] = summary;
+            _variantCardsPanel.Children.Add(button);
+        }
     }
 
-    private void NavigateVariant(int offset)
+    private static string VariantCardTitle(UiMapVariantView variant) =>
+        string.IsNullOrWhiteSpace(variant.DisplayName)
+            ? $"Observed frame {variant.FrameSequence}"
+            : variant.DisplayName;
+
+    private static string VariantCardSummary(UiMapVariantView variant)
+    {
+        var parts = new List<string>
+        {
+            $"Frame {variant.FrameSequence}",
+            $"{variant.ControlCount} {(variant.ControlCount == 1 ? "control" : "controls")}"
+        };
+        if (variant.Evidence?.Bounds is { Width: > 0, Height: > 0 } bounds)
+            parts.Add($"{bounds.Width} × {bounds.Height}");
+        return string.Join("  •  ", parts);
+    }
+
+    private static string ShortBundleId(string bundleId) =>
+        string.IsNullOrWhiteSpace(bundleId)
+            ? "unknown"
+            : bundleId[^Math.Min(8, bundleId.Length)..];
+
+    private static string VariantCardAccessibleName(UiMapVariantView variant, string? summary = null) =>
+        $"{VariantCardTitle(variant)}, {summary ?? VariantCardSummary(variant)}, capture {variant.BundleId}" +
+        (variant.Evidence?.Bounds is { Width: > 0, Height: > 0 } bounds
+            ? $", evidence {bounds.Width} by {bounds.Height} pixels"
+            : string.Empty);
+
+    private static string VariantCardToolTip(UiMapVariantView variant) =>
+        $"{VariantCardAccessibleName(variant)}\nSelect to show this observation in AppMap.";
+
+    private void NavigateVariant(int offset, bool focusTarget = false)
     {
         if (_visibleVariants.Count == 0) return;
         var currentIndex = _selectedVariant is null
             ? -1
             : _visibleVariants.ToList().FindIndex(variant => variant == _selectedVariant);
-        var targetIndex = Math.Clamp(currentIndex + offset, 0, _visibleVariants.Count - 1);
+        var targetIndex = offset switch
+        {
+            int.MinValue => 0,
+            int.MaxValue => _visibleVariants.Count - 1,
+            _ => Math.Clamp(currentIndex + offset, 0, _visibleVariants.Count - 1)
+        };
         if (targetIndex == currentIndex) return;
-        _variantPicker.SelectedIndex = targetIndex;
+        var target = _visibleVariants[targetIndex];
+        SelectVariant(target);
+        if (focusTarget && _variantCardButtons.TryGetValue(target.Id, out var button))
+            button.Focus();
     }
 
     private void SelectVariant(UiMapVariantView variant)
@@ -3287,6 +3334,7 @@ public sealed class ExplorerWindow : Window
         if (_selectedSurface is not null)
             ShowProperties(_selectedSurface.Source, _selectedSurface.ControlCount, _visibleVariants.Count);
         UpdateVariantNavigatorState();
+        BringVariantIntoView(variant);
     }
 
     private void UpdateVariantNavigatorState()
@@ -3295,12 +3343,52 @@ public sealed class ExplorerWindow : Window
             ? -1
             : _visibleVariants.ToList().FindIndex(variant => variant == _selectedVariant);
         var hasSelection = index >= 0;
-        _variantPicker.IsEnabled = _visibleVariants.Count > 0;
-        if (_previousVariantButton is not null)
-            _previousVariantButton.IsEnabled = hasSelection && index > 0;
-        if (_nextVariantButton is not null)
-            _nextVariantButton.IsEnabled = hasSelection && index < _visibleVariants.Count - 1;
-        _variantPosition.Text = hasSelection ? $"{index + 1} of {_visibleVariants.Count}" : "0 frames";
+        _variantPosition.Text = hasSelection ? $"{index + 1} of {_visibleVariants.Count}" : "0 variants";
+        foreach (var pair in _variantCardButtons)
+        {
+            var selected = _selectedVariant?.Id == pair.Key;
+            pair.Value.IsEnabled = !_graphLoading && _visibleVariants.Count > 0;
+            pair.Value.Background = selected ? Brush("#F4EEFF") : Brushes.White;
+            pair.Value.BorderBrush = selected ? Violet : UiBorder;
+            pair.Value.BorderThickness = new Thickness(selected ? 2 : 1);
+            var variant = _visibleVariants.FirstOrDefault(candidate => candidate.Id == pair.Key);
+            if (variant is not null)
+            {
+                var summary = _variantCardSummaries.GetValueOrDefault(pair.Key)?.Text;
+                System.Windows.Automation.AutomationProperties.SetName(pair.Value,
+                    VariantCardAccessibleName(variant, summary) + (selected ? ", selected" : string.Empty));
+                System.Windows.Automation.AutomationProperties.SetItemStatus(pair.Value,
+                    selected ? "Selected" : string.Empty);
+            }
+        }
+    }
+
+    private void BringVariantIntoView(UiMapVariantView? variant)
+    {
+        var scroller = _variantStripScroller;
+        if (variant is null || scroller is null ||
+            !_variantCardButtons.TryGetValue(variant.Id, out var card)) return;
+
+        scroller.Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() =>
+        {
+            if (!ReferenceEquals(_variantStripScroller, scroller) ||
+                !_variantCardButtons.TryGetValue(variant.Id, out var currentCard) ||
+                !ReferenceEquals(currentCard, card) || card.ActualWidth <= 0 || card.ActualHeight <= 0) return;
+            try
+            {
+                var bounds = card.TransformToAncestor(scroller)
+                    .TransformBounds(new Rect(new Point(), card.RenderSize));
+                var viewportWidth = scroller.ViewportWidth;
+                if (bounds.Left < 0)
+                    scroller.ScrollToHorizontalOffset(scroller.HorizontalOffset + bounds.Left);
+                else if (bounds.Right > viewportWidth)
+                    scroller.ScrollToHorizontalOffset(scroller.HorizontalOffset + bounds.Right - viewportWidth);
+            }
+            catch (InvalidOperationException)
+            {
+                // The card may have been rebuilt before its deferred layout callback ran.
+            }
+        }));
     }
 
     private void RenderAppMap()
@@ -3628,22 +3716,22 @@ public sealed class ExplorerWindow : Window
 
     private void UpdateSelectedVariantRepairLabel(LegacyGridEvidenceRepair repair)
     {
-        if (_selectedVariant is null || _variantPicker.SelectedIndex < 0 ||
-            _variantPicker.SelectedItem is not VariantOption current) return;
+        if (_selectedVariant is null || !_variantCardSummaries.TryGetValue(_selectedVariant.Id, out var summary)) return;
         var gridCount = repair.Controls.Count(control => control.ControlType == "ControlType.Table");
         var cellCount = repair.Controls.Count(control => control.ControlType == "ControlType.DataItem");
         var label = gridCount > 0
             ? $"Frame {_selectedVariant.FrameSequence}  •  {gridCount} grid  •  {cellCount} cells"
             : $"Frame {_selectedVariant.FrameSequence}  •  " +
               $"{Math.Max(0, _selectedVariant.ControlCount - repair.ReplacedControlCount + repair.Controls.Count)} controls  •  controls repaired";
-        if (string.Equals(current.Label, label, StringComparison.Ordinal)) return;
-
-        var index = _variantPicker.SelectedIndex;
-        _refreshingVariantPicker = true;
-        _variantPicker.Items[index] = new VariantOption(current.Variant, label);
-        _variantPicker.SelectedIndex = index;
-        _variantPicker.Text = label;
-        _refreshingVariantPicker = false;
+        if (string.Equals(summary.Text, label, StringComparison.Ordinal)) return;
+        summary.Text = label;
+        var accessibleName = VariantCardAccessibleName(_selectedVariant, label) + ", controls repaired";
+        if (_variantCardButtons.TryGetValue(_selectedVariant.Id, out var button))
+        {
+            System.Windows.Automation.AutomationProperties.SetName(button, accessibleName);
+            button.ToolTip = accessibleName + "\nSelect to show this observation in AppMap.";
+        }
+        UpdateVariantNavigatorState();
     }
 
     private UiMapSurfaceView? ResolveSurfaceForVariant(UiMapVariantView? variant)
@@ -4392,10 +4480,7 @@ public sealed class ExplorerWindow : Window
         _selectedControl = null;
         _selectedVariant = null;
         _visibleVariants = [];
-        _refreshingVariantPicker = true;
-        _variantPicker.Items.Clear();
-        _variantPicker.Text = "No observed frames";
-        _refreshingVariantPicker = false;
+        BuildVariantCards([]);
         UpdateVariantNavigatorState();
         _traceBannerHost.Content = null;
         _traceBannerHost.Visibility = Visibility.Collapsed;
@@ -5208,7 +5293,6 @@ public sealed class ExplorerWindow : Window
     }
 
     private sealed record SelectionRef(string? SurfaceId, string? ControlId, string? InteractionId = null);
-    private sealed record VariantOption(UiMapVariantView Variant, string Label);
     private sealed record CatalogImportResult(string MapId, string MapPath, int ImportedRecordingCount, int SkippedRecordingCount);
 }
 

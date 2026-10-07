@@ -175,7 +175,8 @@ public sealed class GraphPipelineTests
         Assert.DoesNotContain(graph.Nodes, node =>
             node.Kind == GraphNodeKind.Control &&
             node.Properties.Any(property => property is
-                { Name: "className", Value: "UiAtlas.VisualControlRegion" }));
+                { Name: "className", Value: "UiAtlas.VisualControlRegion" }) &&
+            !node.Properties.Any(property => property is { Name: "layer", Value: "raw-data-streams" }));
         Assert.True(GraphValidator.Validate(graph).IsValid);
     }
 
@@ -287,18 +288,19 @@ public sealed class GraphPipelineTests
         var button = Assert.Single(graph.Nodes, node =>
             node.Kind == GraphNodeKind.Control && node.Label == "Reservations..." &&
             node.Properties.Any(property => property is { Name: "layer", Value: "raw-world" }));
-        Assert.Equal([1L, 2L], button.Evidence.Select(evidence => evidence.FrameSequence).Distinct().Order().ToArray());
+        Assert.Equal([1L], button.Evidence.Select(evidence => evidence.FrameSequence).Distinct().Order().ToArray());
         var item = Assert.Single(graph.Nodes, node =>
             node.Kind == GraphNodeKind.Control && node.Label == "Item 1" &&
             node.Properties.Any(property => property is { Name: "controlType", Value: "MenuItem" }) &&
             node.Properties.Any(property => property is { Name: "layer", Value: "raw-world" }));
-        Assert.Equal([1L, 2L], item.Evidence.Select(evidence => evidence.FrameSequence).Distinct().Order().ToArray());
+        Assert.Equal([1L], item.Evidence.Select(evidence => evidence.FrameSequence).Distinct().Order().ToArray());
         var edit = Assert.Single(graph.Nodes, node =>
             node.Kind == GraphNodeKind.Control && node.Label == "Search" &&
             node.Properties.Any(property => property is { Name: "layer", Value: "raw-world" }));
         Assert.Equal([1L], edit.Evidence.Select(evidence => evidence.FrameSequence).Distinct().ToArray());
         Assert.DoesNotContain(graph.Nodes, node =>
             node.Kind == GraphNodeKind.Control &&
+            node.Properties.Any(property => property is { Name: "layer", Value: "raw-world" }) &&
             node.Properties.Any(property => property is { Name: "className", Value: "UiAtlas.VisualControlRegion" }));
         Assert.True(GraphValidator.Validate(graph).IsValid);
     }
@@ -338,7 +340,7 @@ public sealed class GraphPipelineTests
         var carried = Assert.Single(graph.Nodes, node =>
             node.Kind == GraphNodeKind.Control && node.Label == "Reservations..." &&
             node.Properties.Any(property => property is { Name: "layer", Value: "raw-world" }));
-        Assert.Contains(carried.Evidence, evidence => evidence.FrameSequence == 2);
+        Assert.DoesNotContain(carried.Evidence, evidence => evidence.FrameSequence == 2);
         var clicked = Assert.Single(graph.Nodes, node =>
             node.Kind == GraphNodeKind.Control && node.Label == "Stays..." &&
             node.Properties.Any(property => property is { Name: "layer", Value: "raw-world" }));
@@ -472,7 +474,10 @@ public sealed class GraphPipelineTests
 
         Assert.Contains(graph.Nodes, node => node.Kind == GraphNodeKind.Control && node.Label == "Visual table");
         Assert.Contains(graph.Nodes, node => node.Kind == GraphNodeKind.Control && node.Label == "Cell 8,1");
-        Assert.DoesNotContain(graph.Nodes, node => node.Kind == GraphNodeKind.Control && node.Label == "203 204");
+        Assert.DoesNotContain(graph.Nodes, node => node.Kind == GraphNodeKind.Control && node.Label == "203 204" &&
+            !node.Properties.Any(property => property is { Name: "layer", Value: "raw-data-streams" }));
+        Assert.Contains(graph.Nodes, node => node.Label == "203 204" &&
+            node.Properties.Any(property => property is { Name: "layer", Value: "raw-data-streams" }));
         Assert.True(GraphValidator.Validate(graph).IsValid);
     }
 
@@ -532,7 +537,8 @@ public sealed class GraphPipelineTests
             node.Properties.Any(property => property is { Name: "className", Value: "TAbacreGridHeader" }));
         Assert.DoesNotContain(graph.Nodes, node => node.Kind == GraphNodeKind.Control &&
             node.Properties.Any(property => property is
-                { Name: "className", Value: "UiAtlas.VisualControlRegion" }));
+                { Name: "className", Value: "UiAtlas.VisualControlRegion" }) &&
+            !node.Properties.Any(property => property is { Name: "layer", Value: "raw-data-streams" }));
         Assert.True(GraphValidator.Validate(graph).IsValid);
     }
 
@@ -1212,7 +1218,7 @@ public sealed class GraphPipelineTests
             var control = Assert.Single(graph.Nodes, node =>
                 node.Kind == GraphNodeKind.Control && node.Label == label &&
                 node.Properties.Any(property => property is { Name: "layer", Value: "raw-world" }));
-            Assert.Contains(control.Evidence, evidence => evidence.FrameSequence == 2);
+            Assert.Equal([1L], control.Evidence.Select(evidence => evidence.FrameSequence));
             Assert.DoesNotContain(control.Evidence, evidence => evidence.FrameSequence == 3);
         }
         var worksheetCell = Assert.Single(graph.Nodes, node =>
