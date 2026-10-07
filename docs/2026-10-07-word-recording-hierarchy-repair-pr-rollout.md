@@ -2,6 +2,16 @@
 
 Status: implemented and qualified with the limitations below; ready for PR review. Execution authorized on 2026-10-07.
 
+## PR amendment: AppMap observed-variant navigation
+
+The same PR now includes an AppMap UX improvement requested during review. Replace the editable frame selector row with a labeled, horizontal strip of observed-variant cards above the canvas. Cards expose the observed frame, control count, available evidence dimensions, and enough capture identity to distinguish equal frame numbers across recordings. Preserve current variant selection and synchronization with the rendered evidence, controls, hierarchy, and properties. The strip supports horizontal overflow, keyboard navigation, selected-card visibility, and an explicit empty state.
+
+The detailed interaction and acceptance criteria are in [AppMap observed-variant strip](2026-10-07-appmap-observed-variants-ux.md). This amendment does not change graph identity, evidence provenance, persisted maps, or the recording repair's qualification claims.
+
+- [x] Implement the card strip in AppMap and preserve selection synchronization.
+- [x] Compile and review the changed code; the isolated Release build passed with 0 warnings/errors under SDK 10.0.401. Tests were not run for this UI-only amendment.
+- [ ] Update the PR description with the amendment and implementation record.
+
 ## Problem and proven regression
 
 A retained Word recording fails final graph validation after Draw/Home ribbon observations, a Styles dialog capture, and another Home/Font observation. The original bundle is valid. A four-observation reproduction establishes the failure without OCR or live desktop interaction.
