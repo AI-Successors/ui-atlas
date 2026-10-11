@@ -133,6 +133,7 @@ public sealed class RawStreamParityTests
         var variants = model.VariantsFor(model.ResolvePipelineSurfaces(family));
         Assert.Equal(2, variants.Count);
         Assert.Equal(2, variants.Select(variant => variant.SurfaceId).Distinct().Count());
+        Assert.Equal(2, variants.Select(variant => variant.DisplayName).Distinct().Count());
         Assert.All(variants, variant => Assert.Equal(1, variant.FrameSequence));
     }
 

@@ -1013,8 +1013,10 @@ public sealed class UiMappingReadModel
                     var visibleFrameControls = frameControls.ToArray();
                     return new UiMapVariantView(
                         $"{node.Id}:frame:{group.Key.BundleId}:{group.Key.FrameSequence}",
-                        level == UiUnderstandingLevel.RawDataStreams && Property(node, "recordKind") == "supplementary"
-                            ? $"Supplementary capture {group.Key.FrameSequence}" : sourceState?.Label ?? $"Observed frame {group.Key.FrameSequence}",
+                        level == UiUnderstandingLevel.RawDataStreams
+                            ? $"{node.Label} • {(Property(node, "recordKind") == "supplementary" ? "supplementary" : "frame")} {group.Key.FrameSequence}" +
+                                (Property(node, "hwnd") is { Length: > 0 } hwnd ? $" ({hwnd})" : "")
+                            : sourceState?.Label ?? $"Observed frame {group.Key.FrameSequence}",
                         group.Key.BundleId,
                         group.Key.FrameSequence,
                         visibleFrameControls.Length,
