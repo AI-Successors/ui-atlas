@@ -1666,7 +1666,10 @@ internal static class Program
                 var commandTask = WaitForRecordingCommandAsync(panel, commandCancellation.Token);
                 if (Volatile.Read(ref pauseRequested) == 0)
                 {
-                    panel.SetStatus(requestedClicks == 1
+                    panel.SetStatus(requestedClicks == 1 && session.FullRawObservations &&
+                        adaptive?.LatestFullFrame.Acquisition?.Status is "partial" or "interrupted"
+                        ? "Observation saved with incomplete evidence. Ready for the next single click."
+                        : requestedClicks == 1
                         ? "Ready for the next single click."
                         : "Double-click capture is armed.");
                 }
