@@ -57,17 +57,35 @@ internal static class MsaaDialogCollector
                     windowRect, result, maxNodes, maxDepth, ref sequence);
         }
 
-        var compact = result
-            .GroupBy(item => string.IsNullOrWhiteSpace(item.ParentRuntimeId)
-                ? item.RuntimeId
-                : $"{item.ControlType}|{item.Name}|{item.Bounds.X},{item.Bounds.Y},{item.Bounds.Width},{item.Bounds.Height}",
-                StringComparer.Ordinal)
-            .Select(group => group.First())
-            .Take(maxNodes)
-            .ToList();
+        var compact = CompactTree(result).ToList();
         AppendKnownOfficeTabs(hwnd, windowRect, runtimeRoot, maxNodes, compact);
         AppendInferredListScrollBars(hwnd, maxNodes, compact);
         return compact;
+    }
+
+    internal static IReadOnlyList<AutomationObservation> CompactTree(
+        IReadOnlyList<AutomationObservation> controls)
+    {
+        // Office can expose nested containers with identical names and bounds.
+        // Removing one by appearance leaves its descendants pointing to a missing
+        // parent and makes otherwise valid native popup content look disconnected.
+        // Collection visits parents before children. Choose the first equivalent
+        // node and redirect every reference to it, including references from
+        // another MSAA root. Never invent an edge for an already missing parent.
+        var groups = controls.GroupBy(item => new
+        {
+            StructuralIdentity = string.IsNullOrWhiteSpace(item.ParentRuntimeId) ? item.RuntimeId : "",
+            item.WindowHwnd, item.ControlType, item.ClassName,
+            item.Name, item.Bounds, item.IsEnabled, item.IsOffscreen, item.IsSelected,
+            item.HasKeyboardFocus, item.FrameworkId,
+            Patterns = string.Join('\n', item.SupportedPatterns ?? [])
+        }).ToArray();
+        var canonicalIds = groups.SelectMany(group => group.Select(item => (item.RuntimeId, Canonical: group.First().RuntimeId)))
+            .ToDictionary(item => item.RuntimeId, item => item.Canonical, StringComparer.Ordinal);
+        return groups.Select(group => group.First()).Select(item => item with
+        {
+            ParentRuntimeId = canonicalIds.GetValueOrDefault(item.ParentRuntimeId, item.ParentRuntimeId)
+        }).ToArray();
     }
 
     public static IReadOnlyList<AutomationObservation> CollectPoints(

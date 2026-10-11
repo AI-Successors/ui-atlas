@@ -65,6 +65,7 @@ public sealed class AdaptiveCaptureCoordinator : IAsyncDisposable
     private Task? _popupWorker;
     private AutoTabCandidate[] _knownTabs = [];
     private long _baselineSequence;
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<long, long> _windowBaselines = new();
     private FrameObservation? _latestFullFrame;
     private int _pendingRoot;
     private long _rootRequestSequence;
@@ -117,6 +118,8 @@ public sealed class AdaptiveCaptureCoordinator : IAsyncDisposable
         ArgumentNullException.ThrowIfNull(baseline);
         if (_worker is not null) throw new InvalidOperationException("Adaptive capture is already active.");
         _baselineSequence = baseline.Sequence;
+        foreach (var window in baseline.ScopedWindows ?? [baseline.Window])
+            _windowBaselines[window.Hwnd] = baseline.Sequence;
         _latestFullFrame = baseline;
         UpdateTabs(baseline, recordSelected: true);
         _worker = Task.Run(ProcessAsync);
@@ -563,7 +566,8 @@ public sealed class AdaptiveCaptureCoordinator : IAsyncDisposable
             if (_controlFingerprints.Contains(fingerprint)) return true;
 
         await _session.CaptureAutomationDeltaAsync(
-            "adaptive-control", capturedItems, cancellationToken, _baselineSequence,
+            "adaptive-control", capturedItems, cancellationToken,
+            _windowBaselines.GetValueOrDefault(clickScopeHwnd, _baselineSequence),
             clickScopeHwnd == 0 ? null : clickScopeHwnd).ConfigureAwait(false);
         lock (_controlFingerprints) _controlFingerprints.Add(fingerprint);
         _status?.Invoke("Clicked control state captured.");
@@ -856,6 +860,13 @@ public sealed class AdaptiveCaptureCoordinator : IAsyncDisposable
     public void RegisterFullFrame(FrameObservation frame)
     {
         _latestFullFrame = frame;
+        if (!string.IsNullOrEmpty(frame.FrameEntry))
+        {
+            foreach (var hwnd in frame.ObservedWindowHwnds ?? [frame.Window.Hwnd])
+                _windowBaselines[hwnd] = frame.Sequence;
+            if (frame.ObservedWindowHwnds is null || frame.ObservedWindowHwnds.Contains(_target.RootOwnerHwnd))
+                Interlocked.Exchange(ref _baselineSequence, frame.Sequence);
+        }
         UpdateTabs(frame, recordSelected: true);
         try
         {
@@ -1303,6 +1314,7 @@ public sealed class AdaptiveCaptureCoordinator : IAsyncDisposable
                     var frame = await _session.PersistPreparedPopupDeltaAsync(
                         prepared, cancellationToken, source, request.InteractionId).ConfigureAwait(false);
                     _recentPopupFrames[hwnd] = frame.Sequence;
+                    _windowBaselines[hwnd] = frame.Sequence;
                 }
                 catch
                 {
@@ -1331,8 +1343,9 @@ public sealed class AdaptiveCaptureCoordinator : IAsyncDisposable
                 {
                     _popupSources.TryGetValue(request.InteractionId, out var source);
                     var frame = await _session.PersistPreparedPopupDeltaAsync(
-                        fallback, cancellationToken, source, request.InteractionId).ConfigureAwait(false);
+                        fallback with { AutomationTimedOut = accessibilityTimedOutCalls > 0 }, cancellationToken, source, request.InteractionId).ConfigureAwait(false);
                     _recentPopupFrames[hwnd] = frame.Sequence;
+                    _windowBaselines[hwnd] = frame.Sequence;
                 }
                 catch
                 {
@@ -1405,8 +1418,9 @@ public sealed class AdaptiveCaptureCoordinator : IAsyncDisposable
                               IsInsidePopup(control.Bounds, popup.Bounds) &&
                               !IsWorksheetContamination(control))
             .ToArray();
+        var candidateIds = candidates.Select(control => control.RuntimeId).ToHashSet(StringComparer.Ordinal);
         var root = candidates.FirstOrDefault(control =>
-            string.IsNullOrWhiteSpace(control.ParentRuntimeId) &&
+            (string.IsNullOrWhiteSpace(control.ParentRuntimeId) || !candidateIds.Contains(control.ParentRuntimeId)) &&
             IsPopupSurfaceRoot(control) && PopupSurfaceCoverage(control.Bounds, popup.Bounds) >= 0.72);
         if (root is null) return [];
 
@@ -1427,7 +1441,8 @@ public sealed class AdaptiveCaptureCoordinator : IAsyncDisposable
         }
 
         var result = DeduplicatePopupControls(
-            candidates.Where(control => accepted.Contains(control.RuntimeId)).ToArray());
+            candidates.Where(control => accepted.Contains(control.RuntimeId))
+                .Select(control => control.RuntimeId == root.RuntimeId ? control with { ParentRuntimeId = "" } : control).ToArray());
         return HasPopupContent(result) ? result : [];
     }
 

@@ -240,6 +240,26 @@ public static class RecordingBundleValidator
                      (x.StreamsSettledUtc.HasValue && x.ActionObservedUtc.HasValue && x.StreamsSettledUtc < x.ActionObservedUtc)))
             issues.Add(new("bundle.statebook", "error", "derived/statebook.json", "Derived statebook episode timing or capture status is invalid."));
 
+        var providerEntries = bundle.Entries.Where(entry => entry.StartsWith("raw/providers/", StringComparison.Ordinal)).ToArray();
+        if (providerEntries.Length > RecordingContractLimits.MaxProviderObservations ||
+            (manifest.Files ?? []).Where(file => file.Path.StartsWith("raw/providers/", StringComparison.Ordinal)).Sum(file => file.Length) > RecordingContractLimits.MaxProviderBytes)
+            issues.Add(new("bundle.provider-limit", "error", "raw/providers", "Provider evidence exceeds retention limits."));
+        foreach (var entry in providerEntries)
+        {
+            var attempt = bundle.ReadJson<ProviderObservation>(entry);
+            if (attempt.Sequence <= 0 || entry != $"raw/providers/attempt-{attempt.Sequence:D6}.json" ||
+                attempt.StartedUtc > attempt.CompletedUtc || attempt.BaseFrameSequence <= 0 ||
+                attempt.TargetWindow is null || !ValidWindow(attempt.TargetWindow) ||
+                attempt.TargetWindow.ProcessId != manifest.Target.ProcessId ||
+                attempt.Provider is null or { Length: > 128 } || attempt.Status is null or { Length: > 512 } ||
+                attempt.NormalizationStatus is null or { Length: > 128 } ||
+                attempt.Controls is null or { Count: > RecordingContractLimits.MaxProviderControls } ||
+                attempt.Controls.Any(control => control is null || !ValidAutomation(control)) ||
+                attempt.ReturnedControlCount < attempt.Controls.Count || attempt.AcceptedControlCount < 0 ||
+                attempt.AcceptedControlCount > attempt.ReturnedControlCount)
+                issues.Add(new("bundle.provider", "error", entry, "Provider observation is invalid."));
+        }
+
         var referencedFrames = new HashSet<string>(StringComparer.Ordinal);
         var observedFrameSequences = new HashSet<long>();
         foreach (var entry in bundle.Entries.Where(x => x.StartsWith("raw/observations/frame-", StringComparison.Ordinal) && x.EndsWith(".json", StringComparison.Ordinal)))

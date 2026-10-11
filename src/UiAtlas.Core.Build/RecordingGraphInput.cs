@@ -18,7 +18,9 @@ public sealed record RecordingGraphInput(
 
 public static class RecordingGraphInputValidator
 {
-    public static ValidationReport Validate(RecordingGraphInput input)
+    public static ValidationReport Validate(RecordingGraphInput input) => Validate(input, false);
+
+    private static ValidationReport Validate(RecordingGraphInput input, bool allowUnresolvedReportedOwners)
     {
         ArgumentNullException.ThrowIfNull(input);
         var issues = new List<ValidationIssue>();
@@ -30,7 +32,7 @@ public static class RecordingGraphInputValidator
         // observations used by the raw-data-streams layer.
         if (input.RecordedObservations is { } recorded)
         {
-            var recordedValidation = Validate(input with { Observations = recorded, RecordedObservations = null });
+            var recordedValidation = Validate(input with { Observations = recorded, RecordedObservations = null }, true);
             issues.AddRange(recordedValidation.Issues);
             if (observations is not null && !observations.Select(frame => frame?.Sequence)
                     .SequenceEqual(recorded.Select(frame => frame?.Sequence)))
@@ -111,7 +113,7 @@ public static class RecordingGraphInputValidator
             if (frame.Automation is not null)
             foreach (var automation in frame.Automation)
                 if (automation is null || !ValidAutomation(automation) ||
-                    automation.WindowHwnd != 0 && !scopedHwnds.Contains(automation.WindowHwnd))
+                    !allowUnresolvedReportedOwners && automation.WindowHwnd != 0 && !scopedHwnds.Contains(automation.WindowHwnd))
                     Add("live.automation", path, "UI Automation evidence is invalid or outside the captured family.");
             if (frame.Extraction is not null && !ValidExtraction(frame.Extraction, scopedHwnds))
                 Add("live.extraction", path, "Adaptive extraction evidence is invalid or outside the captured family.");

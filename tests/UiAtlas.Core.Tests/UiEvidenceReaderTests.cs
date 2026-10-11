@@ -53,18 +53,15 @@ public sealed class UiEvidenceReaderTests
     }
 
     [Fact]
-    public void ControlDeltaInheritsScreenshotFromItsBaseFrame()
+    public void ControlDeltaRejectsInheritedScreenshotAfterWindowResize()
     {
         using var directory = new TempDirectory();
         var path = SyntheticBundleFactory.Create(directory.Path, includeScreenshot: true, controlDelta: true);
         using var reader = UiEvidenceReader.Open(path);
 
-        var image = Assert.IsType<UiEvidenceImage>(reader.Read(new EvidenceRef(
+        Assert.Null(reader.Read(new EvidenceRef(
             "golden", 2, "raw/observations/frame-000002.json",
             new RectI(165, 15, 120, 36), null)));
 
-        Assert.Equal("raw/frames/frame-000001.png", image.Entry);
-        Assert.Equal(new RectI(165, 15, 120, 36), image.Highlight);
-        Assert.Equal(new RectI(0, 0, 800, 600), image.ScreenshotBounds);
     }
 }

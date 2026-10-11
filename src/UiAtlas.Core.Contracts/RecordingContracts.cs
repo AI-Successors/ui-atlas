@@ -9,6 +9,9 @@ public static class RecordingContractLimits
     public const int MaxControlsPerFrame = 100_000;
     public const int MaxScopedWindows = 32;
     public const int MaxBundleEntries = 100_000;
+    public const int MaxProviderObservations = 2_000;
+    public const int MaxProviderControls = 4_096;
+    public const long MaxProviderBytes = 32 * 1024 * 1024;
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter<RecordingOutcome>))]
@@ -237,7 +240,24 @@ public sealed record FrameObservation(
     long? BaseFrameSequence = null,
     AutomationObservation? InteractionSource = null,
     string? InteractionId = null,
-    AdaptiveExtractionSnapshot? Extraction = null);
+    AdaptiveExtractionSnapshot? Extraction = null,
+    string? Derivation = null);
+
+/// <summary>A bounded, redacted provider response retained before popup normalization.</summary>
+public sealed record ProviderObservation(
+    long Sequence,
+    DateTimeOffset StartedUtc,
+    DateTimeOffset CompletedUtc,
+    WindowObservation TargetWindow,
+    long BaseFrameSequence,
+    string Provider,
+    string Status,
+    bool TimedOut,
+    int ReturnedControlCount,
+    IReadOnlyList<AutomationObservation> Controls,
+    int AcceptedControlCount,
+    string NormalizationStatus,
+    bool Truncated);
 
 public sealed record CaptureHealthEvent(
     DateTimeOffset TimestampUtc,

@@ -10,7 +10,12 @@ public sealed record UiEvidenceImage(
     RectI ScreenshotBounds,
     AutomationObservation? InteractionSource,
     InteractionObservation? Interaction,
-    FrameObservation Observation);
+    FrameObservation Observation,
+    long ScreenshotFrameSequence = 0,
+    DateTimeOffset? ScreenshotTimestampUtc = null)
+{
+    public bool InheritedPixels => ScreenshotFrameSequence != 0 && ScreenshotFrameSequence != Observation.Sequence;
+}
 
 public sealed class UiEvidenceReader : IDisposable
 {
@@ -85,19 +90,13 @@ public sealed class UiEvidenceReader : IDisposable
 
         if (string.IsNullOrEmpty(screenshotEntry))
         {
-            var seen = new HashSet<long> { frame.Sequence };
-            for (var depth = 0; depth < 64 && string.IsNullOrEmpty(screenshotFrame.FrameEntry); depth++)
+            var resolved = ObservationSceneReducer.ResolveScreenshot(frame, sequence =>
             {
-                if (screenshotFrame.BaseFrameSequence is not { } baseSequence || baseSequence <= 0 ||
-                    baseSequence >= screenshotFrame.Sequence || !seen.Add(baseSequence))
-                    return null;
-                var baseObservationEntry = $"raw/observations/frame-{baseSequence:D6}.json";
-                if (!bundle.Entries.Contains(baseObservationEntry))
-                    throw new InvalidDataException("Delta evidence references a missing base frame.");
-                screenshotFrame = bundle.ReadJson<FrameObservation>(baseObservationEntry);
-                if (screenshotFrame.Sequence != baseSequence)
-                    throw new InvalidDataException("Delta evidence base frame is not canonical.");
-            }
+                var entry = $"raw/observations/frame-{sequence:D6}.json";
+                return bundle.Entries.Contains(entry) ? bundle.ReadJson<FrameObservation>(entry) : null;
+            });
+            if (resolved is null) return null;
+            screenshotFrame = resolved;
             screenshotEntry = screenshotFrame.FrameEntry;
         }
 
@@ -125,7 +124,32 @@ public sealed class UiEvidenceReader : IDisposable
         }
         return new(bundle.ReadBytes(screenshotEntry, 16 * 1024 * 1024), relative,
             screenshotEntry, screenshotBounds,
-            frame.InteractionSource ?? interaction?.SourceControl, interaction, frame);
+            frame.InteractionSource ?? interaction?.SourceControl, interaction, frame, screenshotFrame.Sequence, screenshotFrame.TimestampUtc);
+    }
+
+    public FrameObservation ReadObservation(string bundleId, long frameSequence)
+    {
+        if (!_bundles.TryGetValue(bundleId, out var bundle) || frameSequence <= 0)
+            throw new InvalidDataException("Unknown observation.");
+        return bundle.ReadJson<FrameObservation>($"raw/observations/frame-{frameSequence:D6}.json");
+    }
+
+    public ObservationScene ReadScene(string bundleId, long frameSequence)
+    {
+        if (!_bundles.TryGetValue(bundleId, out var bundle)) throw new InvalidDataException("Unknown recording.");
+        var reducer = new ObservationSceneReducer();
+        ObservationScene? result = null;
+        foreach (var frame in bundle.Entries.Where(entry => entry.StartsWith("raw/observations/frame-", StringComparison.Ordinal))
+            .Select(bundle.ReadJson<FrameObservation>).Where(frame => frame.Sequence <= frameSequence).OrderBy(frame => frame.Sequence))
+            result = reducer.Reduce(frame);
+        return result?.FrameSequence == frameSequence ? result : throw new InvalidDataException("Unknown observation.");
+    }
+
+    public IReadOnlyList<ProviderObservation> ReadProviderObservations(string bundleId)
+    {
+        if (!_bundles.TryGetValue(bundleId, out var bundle)) throw new InvalidDataException("Unknown recording.");
+        return bundle.Entries.Where(entry => entry.StartsWith("raw/providers/attempt-", StringComparison.Ordinal))
+            .OrderBy(entry => entry, StringComparer.Ordinal).Select(bundle.ReadJson<ProviderObservation>).ToArray();
     }
 
     public void Dispose()

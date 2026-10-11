@@ -152,12 +152,6 @@ public sealed class ExplorerWindow : Window
     private int _graphLoadVersion;
     private string? _graphPath;
     private IReadOnlyList<string> _attachedEvidencePaths = [];
-    private readonly Dictionary<string, LegacyGridEvidenceRepair?> _legacyGridRepairCache = new(StringComparer.Ordinal);
-    private readonly HashSet<(int AttachmentVersion, string RepairKey)> _legacyGridRepairInFlight = [];
-    private readonly SemaphoreSlim _legacyGridRepairGate = new(1, 1);
-    private CancellationTokenSource _legacyGridRepairCancellation = new();
-    private int _evidenceAttachmentVersion;
-    private string? _activeLegacyGridRepairKey;
     private IReadOnlyList<AutoMappingWorkItemState> _manualReviewItems = [];
     private readonly TextBlock _statusLevel = Text("Semantic World", 11, FontWeights.SemiBold, Ink);
 
@@ -200,8 +194,6 @@ public sealed class ExplorerWindow : Window
         };
         Closed += (_, _) =>
         {
-            _legacyGridRepairCancellation.Cancel();
-            _legacyGridRepairCancellation.Dispose();
             _evidence?.Dispose();
         };
         Loaded += async (_, _) =>
@@ -282,7 +274,7 @@ public sealed class ExplorerWindow : Window
             VerticalAlignment = VerticalAlignment.Center,
             Margin = new Thickness(12, 0, 12, 0)
         };
-        levelStatus.Children.Add(Text("Level:", 11, FontWeights.Normal, Muted, verticalAlignment: VerticalAlignment.Center));
+        levelStatus.Children.Add(Text("Inspecting:", 11, FontWeights.Normal, Muted, verticalAlignment: VerticalAlignment.Center));
         _statusLevel.Margin = new Thickness(5, 0, 0, 0);
         _statusLevel.VerticalAlignment = VerticalAlignment.Center;
         levelStatus.Children.Add(_statusLevel);
@@ -359,7 +351,7 @@ public sealed class ExplorerWindow : Window
             Margin = new Thickness(30, 0, 24, 8)
         };
         levels.Children.Add(Text(
-            "Level (Understanding)",
+            "Pipeline depth",
             11,
             FontWeights.SemiBold,
             Ink,
@@ -706,10 +698,10 @@ public sealed class ExplorerWindow : Window
 
     private Border BuildVariantNavigator()
     {
-        var label = Text("Observed variants", 11, FontWeights.SemiBold, Ink,
+        var label = Text("Observations", 11, FontWeights.SemiBold, Ink,
             verticalAlignment: VerticalAlignment.Center);
         label.Margin = new Thickness(3, 0, 11, 0);
-        System.Windows.Automation.AutomationProperties.SetName(label, "Observed variants");
+        System.Windows.Automation.AutomationProperties.SetName(label, "Observations");
 
         _variantCardsPanel = new StackPanel { Orientation = Orientation.Horizontal };
         _variantStripScroller = new ScrollViewer
@@ -1900,7 +1892,7 @@ public sealed class ExplorerWindow : Window
     private void SetLevel(UiUnderstandingLevel level)
     {
         _level = level;
-        _statusLevel.Text = level.DisplayName();
+        _statusLevel.Text = _inspectionLevel.DisplayName();
         foreach (var pair in _levelButtons)
         {
             var color = LevelBrush(pair.Key);
@@ -2049,11 +2041,6 @@ public sealed class ExplorerWindow : Window
             _evidence?.Dispose();
             _evidence = evidence;
             _attachedEvidencePaths = resolvedPaths;
-            _legacyGridRepairCancellation.Cancel();
-            _legacyGridRepairCancellation.Dispose();
-            _legacyGridRepairCancellation = new CancellationTokenSource();
-            _evidenceAttachmentVersion++;
-            _legacyGridRepairCache.Clear();
             _status.Text = evidence.SessionIds.Count == 1
                 ? $"Evidence attached: {IOPath.GetFileName(resolvedPaths[0])}"
                 : $"Evidence attached: {evidence.SessionIds.Count} bundles";
@@ -2965,6 +2952,7 @@ public sealed class ExplorerWindow : Window
     {
         if (_model is null) return;
         _inspectionLevel = surface.Level;
+        _statusLevel.Text = _inspectionLevel.DisplayName();
         _selectedSurface = surface;
         _selectedSurfaceScope = scope is { Count: > 0 } ? scope : [surface];
         _selectedControl = null;
@@ -2989,6 +2977,7 @@ public sealed class ExplorerWindow : Window
         var surface = _model.LayerFor(control.Level).Surfaces.FirstOrDefault(candidate => candidate.Id == control.OwnerSurfaceId);
         if (surface is null) return;
         _inspectionLevel = surface.Level;
+        _statusLevel.Text = _inspectionLevel.DisplayName();
         _selectedSurface = surface;
         _selectedSurfaceScope = [surface];
         _selectedControl = control;
@@ -3402,7 +3391,6 @@ public sealed class ExplorerWindow : Window
         _appMapOverlay.Children.Clear();
         _traceBannerHost.Content = null;
         _traceBannerHost.Visibility = Visibility.Collapsed;
-        _activeLegacyGridRepairKey = null;
         if (_selectedSurface is null || _model is null) return;
         var evidence = ResolveSelectedEvidence();
         UiEvidenceImage? evidenceImage = null;
@@ -3460,26 +3448,6 @@ public sealed class ExplorerWindow : Window
         _appMapOverlay.Width = width;
         _appMapOverlay.Height = height;
         var projection = UiMapPresentation.PolicyFor(projectionMode);
-        LegacyGridEvidenceRepair? legacyGridRepair = null;
-        if (projection.ShowsControlGeometry && evidenceImage is not null)
-        {
-            try
-            {
-                var repairKey = string.Join('|',
-                    _selectedVariant?.BundleId ?? string.Empty,
-                    evidenceImage.Observation.Sequence,
-                    evidenceImage.Entry);
-                _activeLegacyGridRepairKey = repairKey;
-                if (!_legacyGridRepairCache.TryGetValue(repairKey, out legacyGridRepair))
-                    QueueLegacyGridEvidenceRepair(repairKey, evidenceImage);
-            }
-            catch (Exception ex) when (ex is ArgumentException or InvalidDataException or InvalidOperationException or
-                                           FileFormatException or System.Runtime.InteropServices.COMException)
-            {
-                // A compatibility repair is optional. Invalid legacy pixels must
-                // never prevent the original evidence frame from opening.
-            }
-        }
         _appMapImage.Visibility = projection.ShowsScene ? Visibility.Visible : Visibility.Collapsed;
         _appMapImage.Opacity = projection.SceneOpacity;
         if (bitmap is null && projection.ShowsScene)
@@ -3501,6 +3469,7 @@ public sealed class ExplorerWindow : Window
             .ToDictionary(surface => surface.Id, StringComparer.Ordinal);
         var scopedControls = _model.LayerFor(_inspectionLevel).Controls
             .Where(control => activeSurfaceIds.Contains(control.OwnerSurfaceId))
+            .Select(control => UiMapPresentation.ForObservation(control, frameBundleId, frameSequence))
             .ToArray();
         var controls = scopedControls
             .Where(control => frameSequence is null || control.Evidence.Any(item =>
@@ -3531,8 +3500,6 @@ public sealed class ExplorerWindow : Window
                 item.Surface!,
                 projectionMode,
                 item.Control.Id == _selectedControl?.Id))
-            .Where(item => item.Control.Id == _selectedControl?.Id ||
-                           legacyGridRepair is null || !legacyGridRepair.ContainsCenter(item.Bounds))
             .OrderBy(item => item.Control.Id == _selectedControl?.Id ? 1 : 0)
             .ThenBy(item => UiMapPresentation.ControlRenderPriority(item.Control, item.Surface!))
             .ThenByDescending(item => (long)item.Bounds.Width * item.Bounds.Height)
@@ -3543,11 +3510,6 @@ public sealed class ExplorerWindow : Window
         _renderedViewportBounds = viewportBounds;
         if (projection.ShowsControlGeometry)
         {
-            var selectedBounds = _selectedControl is null ||
-                                 !controls.Any(item => item.Control.Id == _selectedControl.Id)
-                ? null
-                : UiMapPresentation.ResolveControlBounds(
-                    _selectedControl, frameSequence, frameBundleId, scopedControls);
             foreach (var item in controls)
             {
                 var control = item.Control;
@@ -3601,7 +3563,10 @@ public sealed class ExplorerWindow : Window
                     args.Handled = true;
                 };
                 Canvas.SetLeft(rectangle, local.X); Canvas.SetTop(rectangle, local.Y); _appMapOverlay.Children.Add(rectangle);
-                if (projection.ShowsControlLabels || projection.ShowsControlCrops && controlCrop is null)
+                if ((projection.ShowsControlLabels || projection.ShowsControlCrops && controlCrop is null) &&
+                    !(ownerSurface.SurfaceKind.Contains("Popup", StringComparison.OrdinalIgnoreCase) &&
+                      (control.CanonicalKind is "Window" or "Menu" or "Pane" or "List" ||
+                       control.CanonicalKind == "Group" && string.IsNullOrWhiteSpace(PropertyValue(control.Source, "name")))))
                 {
                     var label = Text(control.DisplayName, 9, FontWeights.Normal, Ink, textTrimming: TextTrimming.CharacterEllipsis);
                     label.MaxWidth = Math.Max(30, local.Width - 4);
@@ -3617,43 +3582,18 @@ public sealed class ExplorerWindow : Window
                 }
             }
 
-            if (legacyGridRepair is not null)
-            {
-                foreach (var repaired in legacyGridRepair.Controls
-                             .OrderByDescending(control => (long)control.Bounds.Width * control.Bounds.Height)
-                             .ThenBy(control => control.TableRow)
-                             .ThenBy(control => control.TableColumn))
-                {
-                    if (selectedBounds is { } selected && IntersectionOverUnion(selected, repaired.Bounds) >= .55)
-                        continue;
-                    var local = UiMapPresentation.ProjectToSurface(repaired.Bounds, viewportBounds);
-                    if (local is null) continue;
-                    var rectangle = new Rectangle
-                    {
-                        Width = Math.Max(1, local.Width),
-                        Height = Math.Max(1, local.Height),
-                        Stroke = LevelBrush(_inspectionLevel),
-                        StrokeThickness = repaired.ControlType == "ControlType.Table" ? 1.8 : 1.2,
-                        Fill = repaired.ControlType == "ControlType.Table"
-                            ? Brushes.Transparent
-                            : Brush("#1000A779")
-                    };
-                    Canvas.SetLeft(rectangle, local.X);
-                    Canvas.SetTop(rectangle, local.Y);
-                    _appMapOverlay.Children.Add(rectangle);
-                    if (projection.ShowsControlLabels && repaired.ControlType == "ControlType.HeaderItem")
-                    {
-                        var label = Text(repaired.Name, 9, FontWeights.Normal, Ink,
-                            textTrimming: TextTrimming.CharacterEllipsis);
-                        label.MaxWidth = Math.Max(30, local.Width - 4);
-                        label.IsHitTestVisible = false;
-                        Canvas.SetLeft(label, local.X + 2);
-                        Canvas.SetTop(label, local.Y + 1);
-                        _appMapOverlay.Children.Add(label);
-                    }
-                }
-                UpdateSelectedVariantRepairLabel(legacyGridRepair);
-            }
+        }
+        if (projectionMode is not (UiMapProjectionMode.Trace or UiMapProjectionMode.Routes))
+        {
+            var pixelStatus = evidenceImage is null ? "No compatible screenshot" : evidenceImage.InheritedPixels
+                ? $"Pixels inherited from frame {evidenceImage.ScreenshotFrameSequence} ({evidenceImage.ScreenshotTimestampUtc:HH:mm:ss.fff})"
+                : $"Pixels captured with frame {evidenceImage.Observation.Sequence}";
+            var coverage = evidenceImage?.Observation is { } observation
+                ? $"{observation.ObservationScope} • {observation.AutomationStatus}"
+                : _selectedVariant?.ObservationScope ?? "unknown coverage";
+            _traceBannerHost.Content = Text($"{coverage} • {controls.Length} displayed controls • {pixelStatus}. Blank areas are unobserved.",
+                11, FontWeights.Normal, Muted, textWrapping: TextWrapping.Wrap);
+            _traceBannerHost.Visibility = Visibility.Visible;
         }
         if (projectionMode == UiMapProjectionMode.Trace)
             RenderInteractionTrace(evidenceImage, viewportBounds);
@@ -3662,76 +3602,6 @@ public sealed class ExplorerWindow : Window
 
         QueueAppMapZoomBoundsUpdate(resetToFit: _resetAppMapZoomOnNextRender);
         _resetAppMapZoomOnNextRender = false;
-    }
-
-    private void QueueLegacyGridEvidenceRepair(string repairKey, UiEvidenceImage evidenceImage)
-    {
-        var attachmentVersion = _evidenceAttachmentVersion;
-        var workKey = (attachmentVersion, repairKey);
-        if (!_legacyGridRepairInFlight.Add(workKey)) return;
-        var cancellationToken = _legacyGridRepairCancellation.Token;
-        _ = CompleteLegacyGridEvidenceRepairAsync(
-            repairKey, evidenceImage, attachmentVersion, cancellationToken);
-    }
-
-    private async Task CompleteLegacyGridEvidenceRepairAsync(
-        string repairKey,
-        UiEvidenceImage evidenceImage,
-        int attachmentVersion,
-        CancellationToken cancellationToken)
-    {
-        var enteredGate = false;
-        try
-        {
-            await _legacyGridRepairGate.WaitAsync(cancellationToken);
-            enteredGate = true;
-            var repair = await Task.Run(
-                () => LegacyGridEvidenceRepair.TryCreateAsync(evidenceImage, cancellationToken),
-                cancellationToken);
-            if (cancellationToken.IsCancellationRequested || attachmentVersion != _evidenceAttachmentVersion)
-                return;
-
-            _legacyGridRepairCache[repairKey] = repair;
-            if (string.Equals(_activeLegacyGridRepairKey, repairKey, StringComparison.Ordinal) &&
-                !_drawingManualButton && _manualButtonEditor is null &&
-                _resizingAnnotationId is null && _resizingControlId is null)
-                RenderAppMap();
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            // Evidence changed or the window closed while optional repair was running.
-        }
-        catch (Exception ex) when (ex is ArgumentException or InvalidDataException or InvalidOperationException or
-                                       FileFormatException or System.Runtime.InteropServices.COMException)
-        {
-            if (attachmentVersion == _evidenceAttachmentVersion)
-                _legacyGridRepairCache[repairKey] = null;
-        }
-        finally
-        {
-            if (enteredGate) _legacyGridRepairGate.Release();
-            _legacyGridRepairInFlight.Remove((attachmentVersion, repairKey));
-        }
-    }
-
-    private void UpdateSelectedVariantRepairLabel(LegacyGridEvidenceRepair repair)
-    {
-        if (_selectedVariant is null || !_variantCardSummaries.TryGetValue(_selectedVariant.Id, out var summary)) return;
-        var gridCount = repair.Controls.Count(control => control.ControlType == "ControlType.Table");
-        var cellCount = repair.Controls.Count(control => control.ControlType == "ControlType.DataItem");
-        var label = gridCount > 0
-            ? $"Frame {_selectedVariant.FrameSequence}  •  {gridCount} grid  •  {cellCount} cells"
-            : $"Frame {_selectedVariant.FrameSequence}  •  " +
-              $"{Math.Max(0, _selectedVariant.ControlCount - repair.ReplacedControlCount + repair.Controls.Count)} controls  •  controls repaired";
-        if (string.Equals(summary.Text, label, StringComparison.Ordinal)) return;
-        summary.Text = label;
-        var accessibleName = VariantCardAccessibleName(_selectedVariant, label) + ", controls repaired";
-        if (_variantCardButtons.TryGetValue(_selectedVariant.Id, out var button))
-        {
-            System.Windows.Automation.AutomationProperties.SetName(button, accessibleName);
-            button.ToolTip = accessibleName + "\nSelect to show this observation in AppMap.";
-        }
-        UpdateVariantNavigatorState();
     }
 
     private UiMapSurfaceView? ResolveSurfaceForVariant(UiMapVariantView? variant)
@@ -4402,12 +4272,43 @@ public sealed class ExplorerWindow : Window
 
     private void ShowProperties(GraphNode node, int controlCount, int variantCount)
     {
+        node = UiMapPresentation.ForObservation(node, _selectedVariant?.BundleId, _selectedVariant?.FrameSequence);
         _properties.Children.Clear();
+        if (_selectedVariant is { } selected)
+        {
+            _properties.Children.Add(PropertyLabel("Selected observation", $"Frame {selected.FrameSequence} • {selected.BundleId}"));
+            _properties.Children.Add(PropertyLabel("Observed controls", selected.ControlCount.ToString()));
+            _properties.Children.Add(PropertyLabel("Projection scope", selected.ObservationScope.Length == 0 ? "recorded frame" : selected.ObservationScope));
+        }
         _properties.Children.Add(Text(node.Label, 15, FontWeights.SemiBold, Ink, textWrapping: TextWrapping.Wrap));
         _properties.Children.Add(PropertyLabel("Level", _inspectionLevel.DisplayName()));
         _properties.Children.Add(PropertyLabel("Type", node.Kind.ToString()));
-        if (controlCount > 0) _properties.Children.Add(PropertyLabel("Controls", controlCount.ToString()));
-        if (variantCount > 0) _properties.Children.Add(PropertyLabel("Observed variants", variantCount.ToString()));
+        if (controlCount > 0) _properties.Children.Add(PropertyLabel("Controls across observations", controlCount.ToString()));
+        if (variantCount > 0) _properties.Children.Add(PropertyLabel("Observations", variantCount.ToString()));
+        if (_evidence is not null && _selectedVariant is { } providerVariant)
+        {
+            var attempts = _evidence.ReadProviderObservations(providerVariant.BundleId);
+            var providerButton = new Button { Content = $"Provider attempts ({attempts.Count})", Margin = new Thickness(0, 6, 0, 6) };
+            providerButton.Click += (_, _) =>
+            {
+                var payload = attempts.Count == 0 ? "This recording has no retained provider-attempt stream. Historical rejected payloads cannot be recovered."
+                    : System.Text.Json.JsonSerializer.Serialize(attempts, UiAtlas.Core.Recording.JsonDefaults.Options);
+                new Window { Owner = this, Title = "Retained provider observations", Width = 900, Height = 650,
+                    Content = new TextBox { Text = payload, IsReadOnly = true, AcceptsReturn = true,
+                        VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
+                        FontFamily = new FontFamily("Consolas"), TextWrapping = TextWrapping.NoWrap } }.Show();
+            };
+            _properties.Children.Add(providerButton);
+            var scene = _evidence.ReadScene(providerVariant.BundleId, providerVariant.FrameSequence);
+            _properties.Children.Add(PropertyLabel("Coverage", scene.Coverage));
+            var owners = _model?.LayerFor(_inspectionLevel).ControlsForSurface(_selectedSurface!.Id,
+                    providerVariant.FrameSequence, providerVariant.BundleId)
+                .SelectMany(control => control.Source.Observations ?? [])
+                .Where(value => value.BundleId == providerVariant.BundleId && value.FrameSequence == providerVariant.FrameSequence)
+                .Select(value => value.EffectiveOwnerHwnd).ToHashSet() ?? [];
+            var retainedCount = scene.RetainedControls.Count(control => owners.Contains(control.EffectiveOwnerHwnd));
+            _properties.Children.Add(PropertyLabel("Retained earlier controls", $"{retainedCount} on this surface (not re-observed)"));
+        }
         _properties.Children.Add(Section("Identity"));
         _properties.Children.Add(PropertyLabel("ID", node.Id));
         if (PropertyValue(node, "manualAnnotationId") is { Length: > 0 } annotationId)

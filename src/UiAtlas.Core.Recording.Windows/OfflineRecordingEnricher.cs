@@ -23,16 +23,16 @@ public static class OfflineRecordingEnricher
         foreach (var recordedFrame in ordered)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var lagged = FindLaggedBackstageAutomation(recordedFrame, ordered);
-            var frame = lagged is null
-                ? recordedFrame
-                : recordedFrame with
-                {
-                    Automation = lagged.Automation,
-                    AutomationTimedOut = lagged.AutomationTimedOut,
-                    AutomationStatus = lagged.AutomationStatus,
-                    Extraction = null
-                };
+            var windowIds = (recordedFrame.ScopedWindows ?? [recordedFrame.Window]).Select(window => window.Hwnd).ToHashSet();
+            // A late provider result can mention a window which has already closed.
+            // Keep it in RecordedObservations, but do not promote it into the current scene.
+            var frame = recordedFrame with { Automation = recordedFrame.Automation
+                .Where(control => control.WindowHwnd == 0 || windowIds.Contains(control.WindowHwnd)).ToArray() };
+            if (string.IsNullOrEmpty(frame.FrameEntry))
+            {
+                result.Add(frame);
+                continue;
+            }
             var backstageMismatch = IsBackstageNavigationMismatch(frame);
             var legacyStructureRecovery = RequiresLegacyStructureRecovery(frame.Automation);
             var incompleteRootRecovery = RequiresIncompleteRootRecovery(frame);
@@ -42,7 +42,7 @@ public static class OfflineRecordingEnricher
             if ((!string.Equals(frame.Trigger, "adaptive-root-change", StringComparison.Ordinal) ||
                   !frame.AutomationTimedOut && frame.AutomationStatus != "partial") &&
                 !legacyStructureRecovery && !opaqueGalleryRecovery && !visualReclassification &&
-                !cachedExcelGridRecovery && !backstageMismatch)
+                !cachedExcelGridRecovery && !backstageMismatch && !IsVisualPopupFallback(frame))
             {
                 result.Add(frame);
                 continue;
@@ -79,7 +79,7 @@ public static class OfflineRecordingEnricher
                 var opaqueRegions = VisualFallbackPolicy.FindOpaqueRegions(alignedAutomation, window.Bounds);
                 var reclassifyVisual = visualReclassification || RequiresVisualReclassification(alignedAutomation);
                 if (!stale && opaqueRegions.Count == 0 && !reclassifyVisual &&
-                    !legacyStructureRecovery && !incompleteRootRecovery && !cachedExcelGridRecovery)
+                    !legacyStructureRecovery && !incompleteRootRecovery && !cachedExcelGridRecovery && !IsVisualPopupFallback(frame))
                 {
                     result.Add(frame);
                     continue;
@@ -174,8 +174,9 @@ public static class OfflineRecordingEnricher
                 result.Add(frame with
                 {
                     Automation = repaired,
-                    AutomationTimedOut = true,
+                    AutomationTimedOut = frame.AutomationTimedOut,
                     AutomationStatus = "partial",
+                    Derivation = "offline-visual/2",
                     Extraction = null
                 });
             }
@@ -196,7 +197,16 @@ public static class OfflineRecordingEnricher
         var knownByRoot = new Dictionary<long, ExcelWorksheetSnapshot>();
         foreach (var recordedFrame in observations.OrderBy(frame => frame.Sequence))
         {
-            var frame = recordedFrame;
+            var windowIds = (recordedFrame.ScopedWindows ?? [recordedFrame.Window]).Select(window => window.Hwnd).ToHashSet();
+            // A late provider result can mention a window which has already closed.
+            // Keep it in RecordedObservations, but do not promote it into the current scene.
+            var frame = recordedFrame with { Automation = recordedFrame.Automation
+                .Where(control => control.WindowHwnd == 0 || windowIds.Contains(control.WindowHwnd)).ToArray() };
+            if (string.IsNullOrEmpty(frame.FrameEntry))
+            {
+                result.Add(frame);
+                continue;
+            }
             var rootHwnd = frame.Window.RootOwnerHwnd;
             var rootBounds = (frame.ScopedWindows is { Count: > 0 }
                     ? frame.ScopedWindows
@@ -254,26 +264,6 @@ public static class OfflineRecordingEnricher
     private sealed record ExcelWorksheetSnapshot(
         RectI RootBounds,
         IReadOnlyList<AutomationObservation> Controls);
-
-    internal static FrameObservation? FindLaggedBackstageAutomation(
-        FrameObservation frame,
-        IReadOnlyList<FrameObservation> observations)
-    {
-        var expected = ExpectedBackstageSection(frame);
-        if (expected.Length == 0 ||
-            AutoTabDiscovery.IsBackstageSectionSelected(frame.Automation, expected))
-            return null;
-
-        return observations
-            .Where(candidate => candidate.Sequence > frame.Sequence &&
-                                candidate.Sequence <= frame.Sequence + 2 &&
-                                candidate.Window.RootOwnerHwnd == frame.Window.RootOwnerHwnd &&
-                                candidate.Window.Bounds == frame.Window.Bounds &&
-                                candidate.AutomationStatus is "ok" or "node-limit")
-            .OrderBy(candidate => candidate.Sequence)
-            .FirstOrDefault(candidate =>
-                AutoTabDiscovery.IsBackstageSectionSelected(candidate.Automation, expected));
-    }
 
     internal static bool IsBackstageNavigationMismatch(FrameObservation frame)
     {

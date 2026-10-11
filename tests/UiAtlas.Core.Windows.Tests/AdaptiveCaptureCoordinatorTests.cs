@@ -1244,6 +1244,31 @@ public sealed class AdaptiveCaptureCoordinatorTests
             AdaptiveCaptureCoordinator.FingerprintControlDelta([on]));
     }
 
+    [Fact]
+    public void ExternallyParentedProviderRootKeepsOriginalEvidenceAndNormalizesConnectedChildren()
+    {
+        var popup = Popup(new RectI(100, 200, 240, 300));
+        var controls = PopupControls(popup, "Choice");
+        controls[0] = controls[0] with { ParentRuntimeId = "outside-provider-parent" };
+        var normalized = AdaptiveCaptureCoordinator.NormalizePopupAutomation(popup, controls);
+        Assert.Equal(2, normalized.Count);
+        Assert.Equal("outside-provider-parent", controls[0].ParentRuntimeId);
+        Assert.Empty(normalized[0].ParentRuntimeId);
+        Assert.True(AdaptiveCaptureCoordinator.HasPopupContent(normalized));
+    }
+
+    [Fact]
+    public void ForeignOwnerAndDisconnectedItemsAreNotPromotedByExternalRootRecovery()
+    {
+        var popup = Popup(new RectI(100, 200, 240, 300));
+        var controls = PopupControls(popup, "Choice");
+        controls[0] = controls[0] with { ParentRuntimeId = "external" };
+        Assert.Empty(AdaptiveCaptureCoordinator.NormalizePopupAutomation(popup,
+            [controls[0], controls[1] with { ParentRuntimeId = "unrelated" }]));
+        Assert.Empty(AdaptiveCaptureCoordinator.NormalizePopupAutomation(popup,
+            controls.Select(control => control with { WindowHwnd = 99 }).ToArray()));
+    }
+
     private static WindowTarget Popup(RectI bounds) =>
         new(2, 1, 7, "EXCEL", DateTimeOffset.UnixEpoch, "Popup", "#32768", bounds, OwnerHwnd: 1);
 

@@ -36,6 +36,9 @@ public sealed class ManualRecordingSession : IAsyncDisposable
     private readonly List<InteractionObservation> _interactions = [];
     private readonly DateTimeOffset _started = DateTimeOffset.UtcNow;
     private long _frameSequence;
+    private long _providerSequence;
+    private long _providerBytes;
+    private bool _providerLimitReported;
     private long _latestScreenshotSequence;
     private byte[]? _latestScreenshotPng;
     private bool _startedCapture;
@@ -546,10 +549,13 @@ public sealed class ManualRecordingSession : IAsyncDisposable
                 popup.Bounds.Width <= 0 || popup.Bounds.Height <= 0)
                 return new(null, "window-unavailable");
 
+            var firstStarted = DateTimeOffset.UtcNow;
             var firstResult = await collectAutomationAsync(hwnd, cancellationToken).ConfigureAwait(false);
+            var first = normalizeAutomation(popup, firstResult.Items);
+            RetainProviderObservation(popup, baseFrameSequence, firstStarted, firstResult.Items,
+                firstResult.TimedOut, firstResult.Status, first.Count);
             if (!IsUsablePopupAutomationResult(firstResult.TimedOut, firstResult.Status))
                 return new(null, "uia-" + firstResult.Status);
-            var first = normalizeAutomation(popup, firstResult.Items);
             if (first.Count == 0)
                 return new(null, "content-incomplete");
 
@@ -594,7 +600,11 @@ public sealed class ManualRecordingSession : IAsyncDisposable
             if (capture.Png.Length > 16 * 1024 * 1024)
                 return new(null, "screenshot-too-large");
 
+            var secondStarted = DateTimeOffset.UtcNow;
             var secondResult = await collectAutomationAsync(hwnd, cancellationToken).ConfigureAwait(false);
+            var second = normalizeAutomation(popup, secondResult.Items);
+            RetainProviderObservation(popup, baseFrameSequence, secondStarted, secondResult.Items,
+                secondResult.TimedOut, secondResult.Status, second.Count);
             if (!IsUsablePopupAutomationResult(secondResult.TimedOut, secondResult.Status))
                 return new(null, "uia-" + secondResult.Status);
 
@@ -604,7 +614,7 @@ public sealed class ManualRecordingSession : IAsyncDisposable
             {
                 return new(null, "window-unavailable");
             }
-            var second = normalizeAutomation(finalPopup, secondResult.Items);
+            second = normalizeAutomation(finalPopup, secondResult.Items);
             if (finalPopup.Bounds != popup.Bounds || !NativeMethods.IsWindowVisible((nint)hwnd))
                 return new(null, "bounds-changed");
             if (second.Count == 0 || !snapshotsMatch(finalPopup, first, second))
@@ -645,6 +655,35 @@ public sealed class ManualRecordingSession : IAsyncDisposable
                 scopeWasTruncated, baseFrameSequence), "ready");
         }
         finally { _captureGate.Release(); }
+    }
+
+    private void RetainProviderObservation(WindowTarget popup, long baseFrameSequence,
+        DateTimeOffset started, IReadOnlyList<AutomationObservation> controls, bool timedOut,
+        string status, int accepted)
+    {
+        lock (_stateGate)
+        {
+            var observation = ProviderEvidence.Create(_providerSequence + 1, started, DateTimeOffset.UtcNow,
+                WindowSnapshotCapture.Observe(popup), baseFrameSequence, controls, timedOut, status, accepted);
+            var bytes = JsonSerializer.SerializeToUtf8Bytes(observation, JsonDefaults.Options);
+            while (bytes.Length > 4 * 1024 * 1024 && observation.Controls.Count > 0)
+            {
+                observation = observation with { Controls = observation.Controls.Take(observation.Controls.Count / 2).ToArray(), Truncated = true };
+                bytes = JsonSerializer.SerializeToUtf8Bytes(observation, JsonDefaults.Options);
+            }
+            if (_providerSequence >= RecordingContractLimits.MaxProviderObservations ||
+                _providerBytes + bytes.Length > RecordingContractLimits.MaxProviderBytes)
+            {
+                if (!_providerLimitReported)
+                    _health.Add(new(DateTimeOffset.UtcNow, "provider", "evidence-limit",
+                        "Provider evidence retention reached its bounded quota; subsequent attempts are not retained.", false));
+                _providerLimitReported = true;
+                return;
+            }
+            _writer.WriteBytes($"raw/providers/attempt-{observation.Sequence:D6}.json", bytes);
+            _providerSequence++;
+            _providerBytes += bytes.Length;
+        }
     }
 
     internal async Task<PopupDeltaPreparation> TryPrepareVisualPopupDeltaAsync(
@@ -751,7 +790,7 @@ public sealed class ManualRecordingSession : IAsyncDisposable
                 capture.IsPartial,
                 ScopeWasTruncated: false,
                 BaseFrameSequence: baseFrameSequence,
-                AutomationTimedOut: true), "ready-visual-fallback");
+                AutomationTimedOut: false), "ready-visual-fallback");
         }
         finally { _captureGate.Release(); }
     }

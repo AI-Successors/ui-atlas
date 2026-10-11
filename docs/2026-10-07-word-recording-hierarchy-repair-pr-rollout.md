@@ -2,6 +2,10 @@
 
 Status: implemented and qualified with the limitations below; ready for PR review. Execution authorized on 2026-10-07.
 
+## PR amendment: observation evidence and reconstructed scenes
+
+The 2026-10-10 review authorized an end-to-end follow-up in this PR. The ordered plan, evidence contract, acceptance gates and execution results are maintained in [Observation evidence and reconstructed scenes](2026-10-10-observation-scene-pr-rollout.md). This amendment preserves rejected provider evidence, introduces shared observation-scoped scene/state projection, moves visual enrichment out of rendering, and corrects popup observation and inspection UX. Its qualification is separate from the earlier results below.
+
 ## PR amendment: AppMap observed-variant navigation
 
 The same PR now includes an AppMap UX improvement requested during review. Replace the editable frame selector row with a labeled, horizontal strip of observed-variant cards above the canvas. Cards expose the observed frame, control count, available evidence dimensions, and enough capture identity to distinguish equal frame numbers across recordings. Preserve current variant selection and synchronization with the rendered evidence, controls, hierarchy, and properties. The strip supports horizontal overflow, keyboard navigation, selected-card visibility, and an explicit empty state.

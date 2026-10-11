@@ -37,6 +37,14 @@ public static class GraphValidator
                 issues.Add(new("graph.count-limit", "error", node.Id, "Node collection exceeds limit."));
             ValidateProperties(node.Properties, node.Id, issues);
             ValidateEvidence(node.Evidence, node.Id, graph.Metadata, issues);
+            if (node.Observations is { } observations &&
+                (observations.Count > 10_000 || observations.Any(value => value is null || value.Control is null ||
+                    value.FrameSequence <= 0 || value.BundleId is null || !ValidObservationControl(value.Control) ||
+                    value.OwnershipReason is null or { Length: > 128 } || value.Derivation is null or { Length: > 128 } ||
+                    !node.Evidence.Any(evidence => evidence.BundleId == value.BundleId && evidence.FrameSequence == value.FrameSequence)) ||
+                 observations.Where(value => value is not null).GroupBy(value => (value.BundleId, value.FrameSequence)).Any(group => group.Count() > 1) ||
+                 graph.Metadata.PrivacyProfile == FormatVersions.SafeExportProfile))
+                issues.Add(new("graph.observation", "error", node.Id, "Control observations require unique frame evidence and full-evidence privacy."));
             if (!ids.Add(node.Id)) issues.Add(new("graph.duplicate-id", "error", node.Id, "Duplicate node identifier."));
             if (node.Kind != GraphNodeKind.Application && string.IsNullOrWhiteSpace(node.ParentId))
                 issues.Add(new("graph.parent", "error", node.Id, "Non-application node has no parent."));
@@ -353,6 +361,15 @@ public static class GraphValidator
             }
         }
     }
+
+    private static bool ValidObservationControl(AutomationObservation control) =>
+        control.RuntimeId is { Length: <= 4096 } && control.ParentRuntimeId is { Length: <= 4096 } &&
+        control.AutomationId is { Length: <= 4096 } && control.Name is { Length: <= 16384 } &&
+        control.ControlType is { Length: <= 512 } && control.ClassName is { Length: <= 512 } &&
+        control.FrameworkId is { Length: <= 512 } && control.Bounds is { Width: >= 0, Height: >= 0 } &&
+        (long)control.Bounds.Width * control.Bounds.Height <= 16_000_000 &&
+        control.SupportedPatterns is not { Count: > 128 } &&
+        control.SupportedPatterns?.Any(pattern => pattern is null or { Length: > 512 }) != true;
 
     private static string? LayerOf(IReadOnlyDictionary<string, string[]> layersByNode, string id) =>
         layersByNode.TryGetValue(id, out var layers) && layers.Length == 1 ? layers[0] : null;

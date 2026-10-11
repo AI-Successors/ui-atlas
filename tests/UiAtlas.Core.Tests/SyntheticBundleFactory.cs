@@ -36,11 +36,14 @@ internal static class SyntheticBundleFactory
         bool hoverShadowPromotion = false,
         bool pointerObservedSourceAfterClick = false,
         bool foreignOwnedPopup = false,
-        bool visualFallback = false)
+        bool visualFallback = false,
+        ProviderObservation? providerObservation = null)
     {
         var output = Path.Combine(directory, name);
         var staging = Path.Combine(directory, Guid.NewGuid().ToString("N"));
         using var writer = new RecordingBundleWriter(staging);
+        if (providerObservation is not null)
+            writer.WriteJson($"raw/providers/attempt-{providerObservation.Sequence:D6}.json", providerObservation);
         var started = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
         var options = new JsonSerializerOptions(JsonDefaults.Options) { WriteIndented = false };
         var events = new List<InputEvent>

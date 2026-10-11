@@ -43,6 +43,16 @@ public sealed record UiMapProjectionPolicy(
 
 public static class UiMapPresentation
 {
+    public static GraphNode ForObservation(GraphNode node, string? bundleId, long? frameSequence) =>
+        ObservationStateProjection.ForObservation(node, bundleId, frameSequence);
+
+    public static UiMapControlView ForObservation(UiMapControlView control, string? bundleId, long? frameSequence)
+    {
+        var source = ForObservation(control.Source, bundleId, frameSequence);
+        return control with { Source = source, DisplayName = source.Label,
+            Bounds = ResolveControlBounds(control, frameSequence, bundleId) };
+    }
+
     public static UiMapVariantView? ResolveControlVariant(
         UiMapControlView control,
         IReadOnlyList<UiMapVariantView> variants,
@@ -543,6 +553,7 @@ public sealed record UiMapLayerView(
         .Where(control => frameSequence is null || control.Evidence.Any(evidence =>
             evidence.FrameSequence == frameSequence &&
             (bundleId is null || string.Equals(evidence.BundleId, bundleId, StringComparison.Ordinal))))
+        .Select(control => UiMapPresentation.ForObservation(control, bundleId, frameSequence))
         .OrderBy(control => control.DisplayName, StringComparer.OrdinalIgnoreCase)
         .ThenBy(control => control.Id, StringComparer.Ordinal)
         .ToArray();
@@ -766,7 +777,9 @@ public sealed class UiMappingReadModel
                 group.Key.BundleId,
                 group.Key.FrameSequence,
                 controlIds.Length,
-                values.Select(value => value.Evidence).FirstOrDefault(value => value is not null), controlIds);
+                values.Select(value => value.Evidence).FirstOrDefault(value => value is not null), controlIds,
+                Reason: string.Join(", ", values.Select(value => value.Reason).Distinct(StringComparer.Ordinal)),
+                ObservationScope: string.Join(", ", values.Select(value => value.ObservationScope).Where(value => value.Length > 0).Distinct(StringComparer.Ordinal)));
         }).ToArray();
 
     public UiPipelineView BuildPipeline(UiUnderstandingLevel horizon)
@@ -936,9 +949,7 @@ public sealed class UiMappingReadModel
                 .SelectMany(state => state.Evidence.Select(evidence => new { evidence.BundleId, evidence.FrameSequence, State = state }))
                 .GroupBy(value => (value.BundleId, value.FrameSequence))
                 .ToDictionary(group => group.Key, group => group.First().State);
-            var suppressVariants = level == UiUnderstandingLevel.SemanticWorld &&
-                string.Equals(Property(node, "semanticSurfaceKind"), "PopupVariant", StringComparison.Ordinal);
-            var variants = suppressVariants ? [] : node.Evidence
+            var variants = node.Evidence
                 .Where(evidence => evidence.FrameSequence > 0)
                 .GroupBy(evidence => (evidence.BundleId, evidence.FrameSequence))
                 .OrderBy(group => group.Key.BundleId, StringComparer.Ordinal)
@@ -963,7 +974,7 @@ public sealed class UiMappingReadModel
                         evidence,
                         visibleFrameControls.Select(control => control.Id).OrderBy(id => id, StringComparer.Ordinal).ToArray(),
                         ObservationScope: sourceState is null
-                            ? string.Empty
+                            ? Property(node, "observationScope") ?? string.Empty
                             : Property(sourceState, "observationScope") ?? string.Empty);
                 }).ToArray();
             return new UiMapSurfaceView(
@@ -1015,7 +1026,8 @@ public sealed class UiMappingReadModel
         IReadOnlyList<UiMapControlView> controls,
         IReadOnlySet<string> popupFrames)
     {
-        if (surface.SurfaceKind.Contains("Popup", StringComparison.OrdinalIgnoreCase)) return [];
+        if (surface.SurfaceKind.Contains("Popup", StringComparison.OrdinalIgnoreCase))
+            return surface.Variants.Select(variant => variant with { Reason = "popup_observation" }).ToArray();
 
         var controlsById = controls.ToDictionary(control => control.Id, StringComparer.Ordinal);
         var acceptedStable = new List<(string Id, HashSet<string> Keys)>();
@@ -1027,6 +1039,7 @@ public sealed class UiMappingReadModel
                 .Select(id => controlsById.GetValueOrDefault(id))
                 .Where(control => control is not null)
                 .Cast<UiMapControlView>()
+                .Select(control => UiMapPresentation.ForObservation(control, variant.BundleId, variant.FrameSequence))
                 .ToArray();
             var stable = frameControls.Select(ControlStableKey)
                 .Where(key => key.Length > 0)
