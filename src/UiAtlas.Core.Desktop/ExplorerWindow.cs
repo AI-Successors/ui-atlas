@@ -3557,7 +3557,9 @@ public sealed class ExplorerWindow : Window
             if (!streamChoices.ContainsValue(id)) streamChoices[$"{PropertyValue(control.Source, "rawStreamSource") ?? "legacy"} [{id}]"] = id;
         }
         var streamNames = new[] { "All raw records (combined)" }.Concat(streamChoices.Keys).ToArray();
-        if (!streamNames.SequenceEqual(_rawStreamFilter.Items.Cast<string>()))
+        // Derived views have no raw attempts. Do not let their synthetic "all"
+        // selection override the useful provider default on first entering raw.
+        if (isRaw && !streamNames.SequenceEqual(_rawStreamFilter.Items.Cast<string>()))
         {
             var selectedStream = _rawStreamFilter.SelectedItem as string;
             _updatingRawStreams = true;
