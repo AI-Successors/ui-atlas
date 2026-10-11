@@ -3,6 +3,11 @@
 Status: implemented on 2026-10-10; amendment to draft PR #1. Automated qualification
 completed with the native desktop and interactive limitations recorded below.
 
+Follow-up: the first new Word recording exposed unusable provider rectangles that
+raw graph validation rejected. The fix, exact-recording recovery and subsequent
+successful raw-view inspection are recorded in
+[Raw provider geometry RCA](2026-10-10-raw-provider-geometry-rca.md).
+
 ## Correction to the previous rollout
 
 Raw Data Streams answers what each provider returned during one acquisition. The

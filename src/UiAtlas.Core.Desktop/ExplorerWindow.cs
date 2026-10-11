@@ -3461,10 +3461,10 @@ public sealed class ExplorerWindow : Window
             : Brush("#F4F5F9");
         var width = projectionMode == UiMapProjectionMode.Routes
             ? 900
-            : bitmap?.PixelWidth ?? Math.Max(1, _selectedSurface.Bounds.Width);
+            : bitmap?.PixelWidth ?? (ControlGeometry.IsRenderable(_selectedSurface.Bounds) ? _selectedSurface.Bounds.Width : 800);
         var height = projectionMode == UiMapProjectionMode.Routes
             ? Math.Max(600, (_model.Routes.Count + _model.Affordances.Count(item => !item.WasObserved)) * 48 + 80)
-            : bitmap?.PixelHeight ?? Math.Max(1, _selectedSurface.Bounds.Height);
+            : bitmap?.PixelHeight ?? (ControlGeometry.IsRenderable(_selectedSurface.Bounds) ? _selectedSurface.Bounds.Height : 600);
         _appMapViewport.Width = width;
         _appMapViewport.Height = height;
         _appMapOverlay.Width = width;
@@ -3631,7 +3631,7 @@ public sealed class ExplorerWindow : Window
         }
         if (projectionMode is not (UiMapProjectionMode.Trace or UiMapProjectionMode.Routes))
         {
-            var pixelStatus = evidenceImage is null ? "No compatible screenshot" : evidenceImage.InheritedPixels
+            var pixelStatus = evidenceImage is null ? "No screenshot for this observation" : evidenceImage.InheritedPixels
                 ? $"Pixels inherited from frame {evidenceImage.ScreenshotFrameSequence} ({evidenceImage.ScreenshotTimestampUtc:HH:mm:ss.fff})"
                 : $"Pixels captured with frame {evidenceImage.Observation.Sequence}";
             var coverage = evidenceImage?.Observation is { } observation
@@ -3640,7 +3640,11 @@ public sealed class ExplorerWindow : Window
             var retainedCount = controls.Count(item => PropertyValue(item.Control.Source, "sceneStatus") == "retained");
             var candidates = controls.Count(item => GraphControlConfirmation.IsConfirmableButtonCandidate(item.Control.Source));
             var legend = candidates > 0 ? $" Orange dashes: {candidates} unverified candidates." : "";
-            _traceBannerHost.Content = Text($"{coverage} • {controls.Length - retainedCount} current + {retainedCount} retained controls • {pixelStatus}.{legend}",
+            var unavailableGeometry = controls.Count(item => !ControlGeometry.IsRenderable(item.Bounds));
+            var summary = isRaw
+                ? $"{scopedControls.Length} recorded entries • {controls.Length} in selected stream • {unavailableGeometry} without usable geometry • {pixelStatus}."
+                : $"{coverage} • {controls.Length - retainedCount} current + {retainedCount} retained controls • {pixelStatus}.{legend}";
+            _traceBannerHost.Content = Text(summary,
                 11, FontWeights.Normal, Muted, textWrapping: TextWrapping.Wrap);
             _traceBannerHost.Visibility = Visibility.Visible;
         }

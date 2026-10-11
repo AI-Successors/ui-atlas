@@ -470,6 +470,8 @@ public sealed class UiMappingReadModelTests
         Assert.Equal(new RectI(20, 30, 40, 50), UiMapPresentation.ProjectToSurface(new(120, 230, 40, 50), surface));
         Assert.Equal(new RectI(0, 0, 20, 20), UiMapPresentation.ProjectToSurface(new(80, 180, 40, 40), surface));
         Assert.Null(UiMapPresentation.ProjectToSurface(new(0, 0, 10, 10), surface));
+        Assert.Equal(new RectI(20, 30, 40, 50), UiMapPresentation.ProjectToSurface(
+            new(-780, -570, 40, 50), new(-800, -600, 800, 600)));
     }
 
     [Fact]

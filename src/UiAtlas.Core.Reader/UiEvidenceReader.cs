@@ -120,7 +120,11 @@ public sealed class UiEvidenceReader : IDisposable
             windows.Max(x => x.Bounds.X + x.Bounds.Width) - windows.Min(x => x.Bounds.X),
             windows.Max(x => x.Bounds.Y + x.Bounds.Height) - windows.Min(x => x.Bounds.Y));
         var bounds = evidence.Bounds;
-        var relative = bounds is null ? null : bounds with { X = bounds.X - screenshotBounds.X, Y = bounds.Y - screenshotBounds.Y };
+        var relativeX = bounds is null ? 0L : (long)bounds.X - screenshotBounds.X;
+        var relativeY = bounds is null ? 0L : (long)bounds.Y - screenshotBounds.Y;
+        var relative = !ControlGeometry.IsRenderable(bounds) ||
+            relativeX is < int.MinValue or > int.MaxValue || relativeY is < int.MinValue or > int.MaxValue
+                ? null : bounds! with { X = (int)relativeX, Y = (int)relativeY };
         InteractionObservation? interaction = null;
         if (bundle.Entries.Contains("raw/interactions.jsonl"))
         {

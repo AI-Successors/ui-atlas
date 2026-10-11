@@ -356,7 +356,7 @@ public static class RecordingBundleValidator
         (long)value.Bounds.Width * value.Bounds.Height <= 16_000_000 && value.Dpi is >= 48 and <= 960;
 
     private static bool ValidAutomation(AutomationObservation item) =>
-        item.RuntimeId is not null && item.ParentRuntimeId is not null && item.AutomationId is not null && item.Name is not null &&
+        item.Bounds is not null && item.RuntimeId is not null && item.ParentRuntimeId is not null && item.AutomationId is not null && item.Name is not null &&
         item.ControlType is not null && item.ClassName is not null && item.FrameworkId is not null && item.RuntimeId.Length <= 4_096 &&
         item.ParentRuntimeId.Length <= 4_096 && item.AutomationId.Length <= 512 && item.Name.Length <= 4_096 &&
         item.ControlType.Length <= 512 && item.ClassName.Length <= 512 && item.FrameworkId.Length <= 512;

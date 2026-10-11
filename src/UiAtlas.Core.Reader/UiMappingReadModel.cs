@@ -510,7 +510,7 @@ public static class UiMapPresentation
 
     public static RectI? ProjectToSurface(RectI absoluteBounds, RectI surfaceBounds)
     {
-        if (absoluteBounds.Width <= 0 || absoluteBounds.Height <= 0 ||
+        if (!ControlGeometry.IsRenderable(absoluteBounds) ||
             surfaceBounds.Width <= 0 || surfaceBounds.Height <= 0)
             return null;
 

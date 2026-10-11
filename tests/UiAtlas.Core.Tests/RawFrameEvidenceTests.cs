@@ -8,6 +8,77 @@ namespace UiAtlas.Core.Tests;
 
 public sealed class RawFrameEvidenceTests
 {
+    [Theory]
+    [InlineData(int.MaxValue, int.MaxValue, int.MaxValue, int.MaxValue)]
+    [InlineData(0, 0, 5000, 5000)]
+    [InlineData(int.MaxValue - 2, 0, 10, 10)]
+    [InlineData(0, 0, -1, 10)]
+    [InlineData(0, 0, 0, 10)]
+    public void UnusableProviderBoundsSurviveRawBuildAndReopenWithoutBecomingDrawable(int x, int y, int width, int height)
+    {
+        using var temp = new TempDirectory();
+        var bounds = new RectI(x, y, width, height);
+        var path = Rewrite(SyntheticBundleFactory.Create(temp.Path, includeScreenshot: true), temp.Path, frame => frame with {
+            RawStreams = [Stream(frame, "uia", frame.Automation.First() with {
+                RuntimeId = "provider-invalid-bounds", Bounds = bounds, WindowHwnd = frame.Window.Hwnd })]
+        });
+        Assert.True(RecordingBundleValidator.Validate(path).IsValid);
+        var graph = new RecordingGraphBuilder().Build(path);
+        var database = Path.Combine(temp.Path, "raw-geometry.db");
+        SqliteGraphStore.Save(graph, database);
+        var reopened = SqliteGraphStore.Load(database);
+        Assert.True(GraphValidator.Validate(reopened).IsValid);
+        Assert.Equal(graph.Metadata.SemanticHash, reopened.Metadata.SemanticHash);
+        var raw = new UiMappingReadModel(reopened).LayerFor(UiUnderstandingLevel.RawDataStreams);
+        using var evidenceReader = UiEvidenceReader.Open(path);
+        Assert.NotEmpty(raw.Controls);
+        Assert.All(raw.Controls, control => {
+            Assert.Equal(bounds, Assert.Single(control.Source.Observations!).Control.Bounds);
+            Assert.Equal(bounds, Assert.Single(control.Evidence).Bounds);
+            Assert.Equal("unavailable", UiMappingReadModel.Property(control.Source, "geometryStatus"));
+            Assert.Null(UiMapPresentation.ProjectToSurface(bounds, new RectI(0, 0, 800, 600)));
+            var evidence = Assert.Single(control.Evidence);
+            if (evidence.ScreenshotEntry is not null)
+                Assert.Null(Assert.IsType<UiEvidenceImage>(evidenceReader.Read(evidence)).Highlight);
+            else Assert.Null(evidenceReader.Read(evidence));
+        });
+        Assert.True(GraphValidator.Validate(GraphExport.ApplyProfile(reopened, false)).IsValid);
+        Assert.DoesNotContain(reopened.Nodes.Where(node =>
+            UiMappingReadModel.Property(node, "layer") != "raw-data-streams"),
+            node => node.Observations?.Any(value => value.Control.RuntimeId == "provider-invalid-bounds") == true);
+    }
+
+    [Fact]
+    public void RawGeometryAllowanceDoesNotRelaxDerivedGeometryOrEvidencePrivacy()
+    {
+        using var temp = new TempDirectory();
+        var graph = new RecordingGraphBuilder().Build(SyntheticBundleFactory.Create(temp.Path));
+        var derived = graph.Nodes.First(node => node.Kind == GraphNodeKind.Control &&
+            UiMappingReadModel.Property(node, "layer") == "raw-world");
+        var oversized = derived with { Observations = derived.Observations!.Select(value => value with {
+            Control = value.Control with { Bounds = new(int.MaxValue, int.MaxValue, int.MaxValue, int.MaxValue) }
+        }).ToArray() };
+        AssertObservationRejected(oversized);
+        var raw = graph.Nodes.First(node => node.Kind == GraphNodeKind.Control &&
+            UiMappingReadModel.Property(node, "layer") == "raw-data-streams");
+        AssertObservationRejected(raw with { Observations = [raw.Observations![0], raw.Observations[0]] });
+        AssertObservationRejected(raw with { Observations = [raw.Observations![0] with { FrameSequence = 999 }] });
+        AssertObservationRejected(raw with { Observations = [raw.Observations![0] with {
+            Control = raw.Observations[0].Control with { Bounds = null! } }] });
+        AssertObservationRejected(raw with { Observations = [raw.Observations![0] with {
+            Control = raw.Observations[0].Control with { Name = new string('x', 16385) } }] });
+        Assert.Contains(GraphValidator.Validate(graph with { Metadata = graph.Metadata with {
+            PrivacyProfile = FormatVersions.SafeExportProfile } }).Issues, issue => issue.Code == "graph.observation");
+
+        void AssertObservationRejected(GraphNode changed)
+        {
+            var nodes = graph.Nodes.Select(node => node.Id == changed.Id ? changed : node).ToArray();
+            var malformed = graph with { Nodes = nodes, Metadata = graph.Metadata with {
+                SemanticHash = GraphSemantics.ComputeHash(nodes, graph.Edges) } };
+            Assert.Contains(GraphValidator.Validate(malformed).Issues, issue => issue.Code == "graph.observation");
+        }
+    }
+
     [Fact]
     public void RawGraphPreservesIndependentProvidersAndEmptyWindowsAcrossReopen()
     {

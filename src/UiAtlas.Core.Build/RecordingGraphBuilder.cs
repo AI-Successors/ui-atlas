@@ -629,9 +629,12 @@ public sealed class RecordingGraphBuilder
             var evidence = Evidence(manifest, frame, control.Bounds);
             var node = GetNode(nodes, id, GraphNodeKind.Control, parentId, id, StableDisplay(control));
             node.AddEvidence(evidence);
+            var renderable = ControlGeometry.IsRenderable(control.Bounds);
+            var visible = renderable && effectivelyVisible.Contains(control);
             node.AddObservation(new(manifest.SessionId, frame.Sequence, control, windows.Any(window => window.Hwnd == windowHwnd) ? windowHwnd : 0,
-                windows.Any(window => window.Hwnd == windowHwnd) ? "reported" : "unresolved", effectivelyVisible.Contains(control), frame.Derivation ?? "recorded"));
+                windows.Any(window => window.Hwnd == windowHwnd) ? "reported" : "unresolved", visible, frame.Derivation ?? "recorded"));
             node.AddProperty("layer", RawDataStreamsLayer);
+            node.AddProperty("geometryStatus", renderable ? "available" : "unavailable");
             node.AddProperty("sourcePackageId", packageId);
             node.AddProperty("sourceStateId", frame.Sequence.ToString(CultureInfo.InvariantCulture));
             node.AddProperty("rawDataStreamSurfaceId", surfaceId);
@@ -646,8 +649,8 @@ public sealed class RecordingGraphBuilder
             node.AddProperty("frameworkId", control.FrameworkId);
             node.AddProperty("enabled", control.IsEnabled.ToString(CultureInfo.InvariantCulture));
             node.AddProperty("offscreen", control.IsOffscreen.ToString(CultureInfo.InvariantCulture));
-            node.AddProperty("effectivelyVisible", effectivelyVisible.Contains(control).ToString(CultureInfo.InvariantCulture));
-            node.AddProperty("verificationStatus", effectivelyVisible.Contains(control) ? "Observed" : "Unverified");
+            node.AddProperty("effectivelyVisible", visible.ToString(CultureInfo.InvariantCulture));
+            node.AddProperty("verificationStatus", visible ? "Observed" : "Unverified");
             node.AddProperty("selected", control.IsSelected.ToString(CultureInfo.InvariantCulture));
             node.AddProperty("focused", control.HasKeyboardFocus.ToString(CultureInfo.InvariantCulture));
             node.AddProperty("toggleState", control.ToggleState);
