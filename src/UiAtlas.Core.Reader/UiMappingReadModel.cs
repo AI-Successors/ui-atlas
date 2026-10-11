@@ -20,7 +20,8 @@ public sealed record UiMapVariantView(
     bool IsVisibleByDefault = true,
     string Reason = "observed",
     string DedupedIntoVariantId = "",
-    string ObservationScope = "");
+    string ObservationScope = "",
+    IReadOnlyDictionary<string, long>? ControlSourceFrames = null);
 
 public enum UiMapProjectionMode
 {
@@ -43,6 +44,18 @@ public sealed record UiMapProjectionPolicy(
 
 public static class UiMapPresentation
 {
+    public static UiMapControlView ForVariant(UiMapControlView control, UiMapVariantView? variant)
+    {
+        if (variant is null) return control;
+        var sourceFrame = variant.ControlSourceFrames is not null && variant.ControlSourceFrames.TryGetValue(control.Id, out var recordedFrame)
+            ? recordedFrame : variant.FrameSequence;
+        var projected = ForObservation(control, variant.BundleId, sourceFrame);
+        return projected with { Source = projected.Source with { Properties = projected.Source.Properties.Concat([
+            new GraphProperty("sceneFrame", variant.FrameSequence.ToString()),
+            new GraphProperty("sourceFrame", sourceFrame.ToString()),
+            new GraphProperty("sceneStatus", sourceFrame == variant.FrameSequence ? "observed" : "retained")]).ToArray() } };
+    }
+
     public static GraphNode ForObservation(GraphNode node, string? bundleId, long? frameSequence) =>
         ObservationStateProjection.ForObservation(node, bundleId, frameSequence);
 
@@ -62,7 +75,7 @@ public static class UiMapPresentation
         ArgumentNullException.ThrowIfNull(variants);
 
         static bool ContainsControlEvidence(UiMapControlView candidate, UiMapVariantView variant) =>
-            candidate.Evidence.Any(evidence =>
+            variant.ControlIds.Contains(candidate.Id) || candidate.Evidence.Any(evidence =>
                 evidence.FrameSequence == variant.FrameSequence &&
                 string.Equals(evidence.BundleId, variant.BundleId, StringComparison.Ordinal));
 
@@ -92,10 +105,11 @@ public static class UiMapPresentation
         string? bundleId,
         IReadOnlyList<UiMapControlView>? siblingControls = null)
     {
-        var observed = frameSequence is null
+        var sourceFrame = long.TryParse(SourceProperty(control.Source, "sourceFrame"), out var source) ? source : frameSequence;
+        var observed = sourceFrame is null
             ? control.Bounds
             : control.Evidence.FirstOrDefault(evidence =>
-                  evidence.FrameSequence == frameSequence.Value &&
+                  evidence.FrameSequence == sourceFrame.Value &&
                   (bundleId is null || string.Equals(evidence.BundleId, bundleId, StringComparison.Ordinal)))
               ?.Bounds ?? control.Bounds;
         return ResolveOfficeSystemIconBounds(control, observed, frameSequence, bundleId, siblingControls);
@@ -287,7 +301,7 @@ public static class UiMapPresentation
     }
 
     private static bool HasEvidenceForFrame(UiMapControlView control, long? frameSequence, string? bundleId) =>
-        frameSequence is null || control.Evidence.Any(evidence =>
+        frameSequence is null || SourceProperty(control.Source, "sceneFrame") == frameSequence.Value.ToString() || control.Evidence.Any(evidence =>
             evidence.FrameSequence == frameSequence.Value &&
             (bundleId is null || string.Equals(evidence.BundleId, bundleId, StringComparison.Ordinal)));
 
@@ -373,19 +387,14 @@ public static class UiMapPresentation
         bool isSelected = false)
     {
         if (!HasReliableBounds(control, surface) || HasEstimatedGeometry(control)) return false;
-        // Cached Excel worksheet entries are recovery hints, not evidence that
-        // the cell is painted in this screenshot. Visible cells come from native
-        // or pixel evidence instead.
-        if (IsCachedControl(control.Source) &&
-            IsTrue(SourceProperty(control.Source, "offscreen")) &&
-            IsExcelWorksheetControl(control.Source))
-            return false;
+        // An application cache is a probe hint, not screenshot geometry. Its
+        // coordinates may predate a DPI, window size, ribbon or document change.
+        if (IsCachedControl(control.Source)) return false;
         // Raw Data Streams intentionally retain provider evidence for hidden pages,
         // but drawing it over the screenshot makes every dialog tab appear at once.
         // Keep the evidence inspectable while rendering only the effective visible
         // tree. Older maps do not have effectivelyVisible, so honor offscreen too.
         if (!IsVisualCandidate(control.Source) &&
-            !IsCachedControl(control.Source) &&
             (IsFalse(SourceProperty(control.Source, "effectivelyVisible")) ||
              IsTrue(SourceProperty(control.Source, "offscreen"))))
             return false;
@@ -548,15 +557,20 @@ public sealed record UiMapLayerView(
     IReadOnlyList<UiMapSurfaceView> Surfaces,
     IReadOnlyList<UiMapControlView> Controls)
 {
-    public IReadOnlyList<UiMapControlView> ControlsForSurface(string surfaceId, long? frameSequence = null, string? bundleId = null) => Controls
+    public IReadOnlyList<UiMapControlView> ControlsForSurface(string surfaceId, long? frameSequence = null, string? bundleId = null)
+    {
+        var variant = Surfaces.FirstOrDefault(surface => surface.Id == surfaceId)?.Variants.FirstOrDefault(item =>
+            item.FrameSequence == frameSequence && item.BundleId == bundleId);
+        return Controls
         .Where(control => string.Equals(control.OwnerSurfaceId, surfaceId, StringComparison.Ordinal))
-        .Where(control => frameSequence is null || control.Evidence.Any(evidence =>
+        .Where(control => frameSequence is null || (variant?.ControlSourceFrames is not null ? variant.ControlIds.Contains(control.Id) : control.Evidence.Any(evidence =>
             evidence.FrameSequence == frameSequence &&
-            (bundleId is null || string.Equals(evidence.BundleId, bundleId, StringComparison.Ordinal))))
-        .Select(control => UiMapPresentation.ForObservation(control, bundleId, frameSequence))
+            (bundleId is null || string.Equals(evidence.BundleId, bundleId, StringComparison.Ordinal)))))
+        .Select(control => variant is null ? UiMapPresentation.ForObservation(control, bundleId, frameSequence) : UiMapPresentation.ForVariant(control, variant))
         .OrderBy(control => control.DisplayName, StringComparer.OrdinalIgnoreCase)
         .ThenBy(control => control.Id, StringComparer.Ordinal)
         .ToArray();
+    }
 }
 
 public sealed record UiHierarchyGroupView(
@@ -779,7 +793,9 @@ public sealed class UiMappingReadModel
                 controlIds.Length,
                 values.Select(value => value.Evidence).FirstOrDefault(value => value is not null), controlIds,
                 Reason: string.Join(", ", values.Select(value => value.Reason).Distinct(StringComparer.Ordinal)),
-                ObservationScope: string.Join(", ", values.Select(value => value.ObservationScope).Where(value => value.Length > 0).Distinct(StringComparer.Ordinal)));
+                ObservationScope: string.Join(", ", values.Select(value => value.ObservationScope).Where(value => value.Length > 0).Distinct(StringComparer.Ordinal)),
+                ControlSourceFrames: values.All(value => value.ControlSourceFrames is null) ? null : values.SelectMany(value => value.ControlSourceFrames ?? new Dictionary<string, long>())
+                    .GroupBy(value => value.Key).ToDictionary(group => group.Key, group => group.Max(value => value.Value)));
         }).ToArray();
 
     public UiPipelineView BuildPipeline(UiUnderstandingLevel horizon)
@@ -957,14 +973,20 @@ public sealed class UiMappingReadModel
                 .Select(group =>
                 {
                     var evidence = group.First();
+                    var sourceState = statesByFrame.GetValueOrDefault(group.Key);
+                    var reconstructed = level != UiUnderstandingLevel.RawDataStreams && sourceState is not null &&
+                        Property(sourceState, "sceneProjection") == "reconstructed";
+                    var members = reconstructed ? graph.Edges.Where(edge => edge.Kind == "contains" && edge.FromId == sourceState!.Id &&
+                        edge.Evidence.Any(item => item.BundleId == group.Key.BundleId && item.FrameSequence == group.Key.FrameSequence))
+                        .Select(edge => edge.ToId).ToHashSet(StringComparer.Ordinal) : [];
                     var frameControls = controls.Where(control =>
                         string.Equals(control.OwnerSurfaceId, node.Id, StringComparison.Ordinal) &&
+                        (reconstructed ? members.Contains(Property(control.Source, "sourceRawControlId") ?? control.Id) :
                         control.Evidence.Any(item => item.FrameSequence == group.Key.FrameSequence &&
-                                                     string.Equals(item.BundleId, group.Key.BundleId, StringComparison.Ordinal)));
+                                                     string.Equals(item.BundleId, group.Key.BundleId, StringComparison.Ordinal))));
                     if (level == UiUnderstandingLevel.RawDataStreams)
                         frameControls = frameControls.Where(IsPresentableRawControl);
                     var visibleFrameControls = frameControls.ToArray();
-                    var sourceState = statesByFrame.GetValueOrDefault(group.Key);
                     return new UiMapVariantView(
                         $"{node.Id}:frame:{group.Key.BundleId}:{group.Key.FrameSequence}",
                         sourceState?.Label ?? $"Observed frame {group.Key.FrameSequence}",
@@ -975,7 +997,10 @@ public sealed class UiMappingReadModel
                         visibleFrameControls.Select(control => control.Id).OrderBy(id => id, StringComparer.Ordinal).ToArray(),
                         ObservationScope: sourceState is null
                             ? Property(node, "observationScope") ?? string.Empty
-                            : Property(sourceState, "observationScope") ?? string.Empty);
+                            : Property(sourceState, "observationScope") ?? string.Empty,
+                        ControlSourceFrames: reconstructed ? visibleFrameControls.ToDictionary(control => control.Id,
+                            control => control.Evidence.Where(item => item.BundleId == group.Key.BundleId && item.FrameSequence <= group.Key.FrameSequence)
+                                .Max(item => item.FrameSequence)) : null);
                 }).ToArray();
             return new UiMapSurfaceView(
                 node.Id,
@@ -1039,7 +1064,7 @@ public sealed class UiMappingReadModel
                 .Select(id => controlsById.GetValueOrDefault(id))
                 .Where(control => control is not null)
                 .Cast<UiMapControlView>()
-                .Select(control => UiMapPresentation.ForObservation(control, variant.BundleId, variant.FrameSequence))
+                .Select(control => UiMapPresentation.ForVariant(control, variant))
                 .ToArray();
             var stable = frameControls.Select(ControlStableKey)
                 .Where(key => key.Length > 0)
@@ -1055,7 +1080,7 @@ public sealed class UiMappingReadModel
                 visible = false;
                 reason = "empty_frame";
             }
-            else if (string.Equals(variant.ObservationScope, "control-delta", StringComparison.Ordinal))
+            else if (variant.ControlSourceFrames is null && string.Equals(variant.ObservationScope, "control-delta", StringComparison.Ordinal))
             {
                 // A control delta records click evidence only. It deliberately
                 // reuses the preceding screenshot and can contain a unique
@@ -1069,12 +1094,12 @@ public sealed class UiMappingReadModel
                 visible = false;
                 reason = "popup_effective_owner_frame";
             }
-            else if (TryFindNearDuplicate(stable, acceptedStable, out dedupedInto))
+            else if (variant.ObservationScope != "control-delta" && TryFindNearDuplicate(stable, acceptedStable, out dedupedInto))
             {
                 visible = false;
                 reason = "duplicate_content";
             }
-            else if (TryFindNearDuplicate(visual, acceptedVisual, out dedupedInto))
+            else if (variant.ObservationScope != "control-delta" && TryFindNearDuplicate(visual, acceptedVisual, out dedupedInto))
             {
                 visible = false;
                 reason = "duplicate_visual_content";

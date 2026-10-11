@@ -61,6 +61,9 @@ public sealed class ExplorerWindow : Window
     private readonly Image _appMapImage = new() { Stretch = Stretch.Uniform, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top };
     private readonly Grid _appMapViewport = new() { Background = Brush("#F4F5F9"), ClipToBounds = true };
     private readonly ContentControl _traceBannerHost = new() { Visibility = Visibility.Collapsed };
+    private readonly CheckBox _includeRetainedControls = new() { Content = "Scene context", IsChecked = true,
+        VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(10, 0, 4, 0),
+        ToolTip = "Include earlier controls from this recording in the reconstructed scene. Clear to inspect only this capture's controls." };
     private readonly ScaleTransform _appMapZoomTransform = new(1, 1);
     private readonly TextBlock _variantPosition = Text(string.Empty, 10, FontWeights.SemiBold, Muted);
     private readonly StackPanel _properties = new() { Margin = new Thickness(18) };
@@ -625,6 +628,9 @@ public sealed class ExplorerWindow : Window
             _viewModeButtons[mode] = button;
             modes.Children.Add(button);
         }
+        _includeRetainedControls.Checked += (_, _) => RenderAppMap();
+        _includeRetainedControls.Unchecked += (_, _) => RenderAppMap();
+        modes.Children.Add(_includeRetainedControls);
         var actorFilter = new ComboBox { Width = 125, Margin = new Thickness(10, 0, 0, 0), ToolTip = "Filter interaction actor" };
         foreach (var value in new[] { "All actors", "User", "AutoExplorer", "DerivedCandidate" }) actorFilter.Items.Add(value);
         actorFilter.SelectedItem = _interactionActorFilter;
@@ -3276,7 +3282,7 @@ public sealed class ExplorerWindow : Window
         var parts = new List<string>
         {
             $"Frame {variant.FrameSequence}",
-            $"{variant.ControlCount} {(variant.ControlCount == 1 ? "control" : "controls")}"
+            $"{variant.ControlCount} {(variant.ControlSourceFrames is null ? "source entries" : "scene controls")}"
         };
         if (variant.Evidence?.Bounds is { Width: > 0, Height: > 0 } bounds)
             parts.Add($"{bounds.Width} × {bounds.Height}");
@@ -3477,12 +3483,22 @@ public sealed class ExplorerWindow : Window
             .ToDictionary(surface => surface.Id, StringComparer.Ordinal);
         var scopedControls = _model.LayerFor(_inspectionLevel).Controls
             .Where(control => activeSurfaceIds.Contains(control.OwnerSurfaceId))
-            .Select(control => UiMapPresentation.ForObservation(control, frameBundleId, frameSequence))
+            .Where(control => _selectedVariant is null || _selectedVariant.ControlIds.Contains(control.Id))
+            .Select(control => UiMapPresentation.ForVariant(control, _selectedVariant))
             .ToArray();
+        if (_includeRetainedControls.IsChecked == true && _inspectionLevel == UiUnderstandingLevel.RawDataStreams &&
+            _selectedVariant is { } rawVariant && _evidence is not null && _evidence.SessionIds.Contains(rawVariant.BundleId))
+        {
+            var observation = _evidence.ReadObservation(rawVariant.BundleId, rawVariant.FrameSequence);
+            var owner = (observation.ScopedWindows ?? [observation.Window])
+                .FirstOrDefault(window => window.Bounds == rawVariant.Evidence?.Bounds);
+            if (owner is not null)
+                scopedControls = RawSceneProjection.Project(_model.LayerFor(_inspectionLevel).Controls,
+                    _evidence.ReadScene(rawVariant.BundleId, rawVariant.FrameSequence), rawVariant.BundleId,
+                    owner.Hwnd, _selectedSurface.Id).ToArray();
+        }
         var controls = scopedControls
-            .Where(control => frameSequence is null || control.Evidence.Any(item =>
-                item.FrameSequence == frameSequence &&
-                (frameBundleId is null || string.Equals(item.BundleId, frameBundleId, StringComparison.Ordinal))))
+            .Where(control => _includeRetainedControls.IsChecked == true || PropertyValue(control.Source, "sceneStatus") != "retained")
             .Where(control => !UiMapPresentation.IsStaleCachedControlForFrame(
                 control, frameSequence, frameBundleId, scopedControls))
             .Where(control => !UiMapPresentation.IsRedundantCaptionButton(
@@ -3552,7 +3568,8 @@ public sealed class ExplorerWindow : Window
                         ? new DropShadowEffect { Color = highlightColor, BlurRadius = 14, ShadowDepth = 0, Opacity = 0.8 }
                         : null,
                     Cursor = canMove ? Cursors.SizeAll : Cursors.Hand,
-                    ToolTip = canMove ? "Drag to move button" : null };
+                    ToolTip = canMove ? "Drag to move button" :
+                        $"{control.DisplayName} • {PropertyValue(control.Source, "sceneStatus")} from frame {PropertyValue(control.Source, "sourceFrame")}" };
                 rectangle.MouseLeftButtonDown += (_, args) =>
                 {
                     if (canMove)
@@ -3599,7 +3616,10 @@ public sealed class ExplorerWindow : Window
             var coverage = evidenceImage?.Observation is { } observation
                 ? $"{observation.ObservationScope} • {observation.AutomationStatus}"
                 : _selectedVariant?.ObservationScope ?? "unknown coverage";
-            _traceBannerHost.Content = Text($"{coverage} • {controls.Length} displayed controls • {pixelStatus}. Blank areas are unobserved.",
+            var retainedCount = controls.Count(item => PropertyValue(item.Control.Source, "sceneStatus") == "retained");
+            var candidates = controls.Count(item => GraphControlConfirmation.IsConfirmableButtonCandidate(item.Control.Source));
+            var legend = candidates > 0 ? $" Orange dashes: {candidates} unverified candidates." : "";
+            _traceBannerHost.Content = Text($"{coverage} • {controls.Length - retainedCount} current + {retainedCount} retained controls • {pixelStatus}.{legend}",
                 11, FontWeights.Normal, Muted, textWrapping: TextWrapping.Wrap);
             _traceBannerHost.Visibility = Visibility.Visible;
         }
@@ -4280,12 +4300,16 @@ public sealed class ExplorerWindow : Window
 
     private void ShowProperties(GraphNode node, int controlCount, int variantCount)
     {
-        node = UiMapPresentation.ForObservation(node, _selectedVariant?.BundleId, _selectedVariant?.FrameSequence);
+        var sourceFrame = _selectedVariant?.ControlSourceFrames is { } sources && sources.TryGetValue(node.Id, out var recordedFrame)
+            ? recordedFrame : _selectedVariant?.FrameSequence;
+        node = UiMapPresentation.ForObservation(node, _selectedVariant?.BundleId, sourceFrame);
         _properties.Children.Clear();
         if (_selectedVariant is { } selected)
         {
             _properties.Children.Add(PropertyLabel("Selected observation", $"Frame {selected.FrameSequence} • {selected.BundleId}"));
-            _properties.Children.Add(PropertyLabel("Observed controls", selected.ControlCount.ToString()));
+            _properties.Children.Add(PropertyLabel(selected.ControlSourceFrames is null ? "Source controls" : "Scene controls", selected.ControlCount.ToString()));
+            if (sourceFrame < selected.FrameSequence)
+                _properties.Children.Add(PropertyLabel("Retained from observation", $"Frame {sourceFrame}; not re-observed"));
             _properties.Children.Add(PropertyLabel("Projection scope", selected.ObservationScope.Length == 0 ? "recorded frame" : selected.ObservationScope));
         }
         _properties.Children.Add(Text(node.Label, 15, FontWeights.SemiBold, Ink, textWrapping: TextWrapping.Wrap));
@@ -4293,7 +4317,7 @@ public sealed class ExplorerWindow : Window
         _properties.Children.Add(PropertyLabel("Type", node.Kind.ToString()));
         if (controlCount > 0) _properties.Children.Add(PropertyLabel("Controls across observations", controlCount.ToString()));
         if (variantCount > 0) _properties.Children.Add(PropertyLabel("Observations", variantCount.ToString()));
-        if (_evidence is not null && _selectedVariant is { } providerVariant)
+        if (_evidence is not null && _selectedVariant is { } providerVariant && _evidence.SessionIds.Contains(providerVariant.BundleId))
         {
             var attempts = _evidence.ReadProviderObservations(providerVariant.BundleId);
             var providerButton = new Button { Content = $"Provider attempts ({attempts.Count})", Margin = new Thickness(0, 6, 0, 6) };

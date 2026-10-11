@@ -7,6 +7,7 @@ public sealed class ObservationSceneReducer
 {
     private readonly Dictionary<(long Hwnd, string RuntimeId), (long Owner, RectI Bounds)> _previousOwners = [];
     private readonly Dictionary<(long Hwnd, string RuntimeId), SceneControl> _knowledge = [];
+    private readonly Dictionary<long, WindowObservation> _windows = [];
     private long _lastSequence;
 
     public ObservationScene Reduce(FrameObservation frame)
@@ -17,8 +18,12 @@ public sealed class ObservationSceneReducer
         var observed = (frame.ObservedWindowHwnds ?? windows.Select(window => window.Hwnd).ToArray()).ToHashSet();
         var complete = frame.ObservationScope == "full-root" && !frame.AutomationTimedOut && frame.AutomationStatus == "ok";
         var incoming = frame.Automation.Select(control => (control.WindowHwnd, control.RuntimeId)).ToHashSet();
+        var invalidWindows = _windows.Values.Where(prior => !windows.Any(window =>
+            window.Hwnd == prior.Hwnd && window.ProcessId == prior.ProcessId && window.ClassName == prior.ClassName &&
+            window.Bounds == prior.Bounds && window.Dpi == prior.Dpi && window.IsVisible && !window.IsMinimized && !window.IsCloaked))
+            .Select(window => window.Hwnd).ToHashSet();
         foreach (var key in _previousOwners.Keys.ToArray())
-            if (!windows.Any(window => window.Hwnd == _previousOwners[key].Owner) ||
+            if (invalidWindows.Contains(_previousOwners[key].Owner) || !windows.Any(window => window.Hwnd == _previousOwners[key].Owner) ||
                 complete && observed.Contains(_previousOwners[key].Owner) && !incoming.Contains(key))
                 _previousOwners.Remove(key);
         var owners = ReduceOwners(frame, windows, frame.Automation);
@@ -28,9 +33,36 @@ public sealed class ObservationSceneReducer
         foreach (var key in _knowledge.Keys.ToArray())
         {
             var prior = _knowledge[key];
-            if (!windows.Any(window => window.Hwnd == prior.EffectiveOwnerHwnd && window.Bounds == prior.WindowBounds) ||
+            if (invalidWindows.Contains(prior.EffectiveOwnerHwnd) ||
+                !windows.Any(window => window.Hwnd == prior.EffectiveOwnerHwnd && window.Bounds == prior.WindowBounds) ||
                 complete && observed.Contains(prior.EffectiveOwnerHwnd)) _knowledge.Remove(key);
         }
+        // A partial response can explicitly hide or replace an ancestor. Its old
+        // children are then stale even though this is not a complete root walk.
+        var invalidAncestors = frame.Automation.Where(control =>
+            _knowledge.TryGetValue((control.WindowHwnd, control.RuntimeId), out var prior) &&
+            (control.IsOffscreen || control.Bounds != prior.Control.Bounds ||
+             control.ParentRuntimeId != prior.Control.ParentRuntimeId || control.ClassName != prior.Control.ClassName ||
+             control.ControlType != prior.Control.ControlType ||
+             control.ControlType.EndsWith("Pane", StringComparison.Ordinal) && control.Name != prior.Control.Name ||
+             control.ControlType.EndsWith("Group", StringComparison.Ordinal) && control.Name != prior.Control.Name))
+            .Select(control => (control.WindowHwnd, control.RuntimeId)).ToHashSet();
+        foreach (var key in _knowledge.Keys.ToArray())
+        {
+            var ancestor = _knowledge[key].Control;
+            var visited = new HashSet<(long, string)>();
+            while (!string.IsNullOrEmpty(ancestor.ParentRuntimeId) &&
+                   visited.Add((ancestor.WindowHwnd, ancestor.ParentRuntimeId)))
+            {
+                var parentKey = (ancestor.WindowHwnd, ancestor.ParentRuntimeId);
+                if (invalidAncestors.Contains(parentKey)) { invalidAncestors.Add(key); break; }
+                if (!_knowledge.TryGetValue(parentKey, out var parent)) break;
+                ancestor = parent.Control;
+            }
+        }
+        foreach (var key in invalidAncestors) _knowledge.Remove(key);
+        _windows.Clear();
+        foreach (var window in windows) _windows[window.Hwnd] = window;
         var current = new List<SceneControl>();
         foreach (var control in frame.Automation)
         {

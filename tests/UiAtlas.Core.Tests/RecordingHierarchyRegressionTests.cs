@@ -60,7 +60,7 @@ public sealed class RecordingHierarchyRegressionTests
     }
 
     [Fact]
-    public void RetainedToolbarControlKeepsSourceEvidenceAndIsNotObservedInCurrentState()
+    public void RetainedToolbarControlJoinsSceneWithoutNewObservationEvidence()
     {
         var root = Control("root", "", "Editor", "Window", "RibbonHost", Window.Bounds);
         var button = Control("button", "root", "Reservations", "Button", "TAbacreButton", new(20, 100, 100, 40), "reservations");
@@ -74,7 +74,9 @@ public sealed class RecordingHierarchyRegressionTests
             node.Evidence.Any(evidence => evidence.FrameSequence == 2));
         var current = Assert.Single(graph.Nodes, node => node.Kind == GraphNodeKind.State &&
             node.Evidence.Any(evidence => evidence.FrameSequence == 2));
-        Assert.DoesNotContain(graph.Edges, edge => edge.Kind == "contains" && edge.FromId == current.Id && edge.ToId == saved.Id);
+        Assert.Contains(current.Properties, property => property is { Name: "sceneProjection", Value: "reconstructed" });
+        Assert.Contains(graph.Edges, edge => edge.Kind == "contains" && edge.FromId == current.Id && edge.ToId == saved.Id);
+        Assert.Equal(1, Assert.Single(saved.Observations!).FrameSequence);
     }
 
     [Fact]

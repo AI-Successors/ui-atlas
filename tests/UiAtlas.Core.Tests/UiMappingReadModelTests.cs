@@ -211,7 +211,7 @@ public sealed class UiMappingReadModelTests
     }
 
     [Fact]
-    public void AppMapHidesOffscreenCachedWorksheetCellsButKeepsOtherCachedHints()
+    public void AppMapNeverUsesHistoricalCacheHintsAsScreenshotGeometry()
     {
         var surfaceNode = new GraphNode("surface", GraphNodeKind.Surface, "app", "surface", "Excel",
             [new GraphProperty("surfaceClass", "RawWindow")], []);
@@ -222,8 +222,8 @@ public sealed class UiMappingReadModelTests
 
         Assert.False(UiMapPresentation.ShouldRenderControl(cell, surface, UiMapProjectionMode.Controls));
         Assert.False(UiMapPresentation.ShouldRenderControl(cell, surface, UiMapProjectionMode.Overlay));
-        Assert.True(UiMapPresentation.ShouldRenderControl(button, surface, UiMapProjectionMode.Controls));
-        Assert.True(UiMapPresentation.ShouldRenderControl(button, surface, UiMapProjectionMode.Overlay));
+        Assert.False(UiMapPresentation.ShouldRenderControl(button, surface, UiMapProjectionMode.Controls));
+        Assert.False(UiMapPresentation.ShouldRenderControl(button, surface, UiMapProjectionMode.Overlay));
     }
 
     [Fact]

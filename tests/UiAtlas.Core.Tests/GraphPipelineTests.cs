@@ -353,13 +353,15 @@ public sealed class GraphPipelineTests
         var model = new UiMappingReadModel(graph);
         var semanticWindow = Assert.Single(model.LayerFor(UiUnderstandingLevel.SemanticWorld).Surfaces,
             surface => surface.SurfaceKind == "SemanticWindow");
-        Assert.Equal([1L], model.VariantsFor([semanticWindow]).Select(variant => variant.FrameSequence));
-        Assert.DoesNotContain(semanticWindow.Variants, variant => variant.FrameSequence == 2);
+        Assert.Equal([1L, 2L], model.VariantsFor([semanticWindow]).Select(variant => variant.FrameSequence));
+        var deltaScene = model.LayerFor(UiUnderstandingLevel.SemanticWorld).ControlsForSurface(semanticWindow.Id, 2, manifest.SessionId);
+        Assert.Contains(deltaScene, control => control.DisplayName == "Reservations...");
+        Assert.Contains(deltaScene, control => control.DisplayName == "Search");
         Assert.True(GraphValidator.Validate(graph).IsValid);
     }
 
     [Fact]
-    public void QuickMapPairIsOneScreenAndAdaptiveControlDeltasNeverBecomeVariants()
+    public void QuickMapPairHasOneInitialSceneAndDeltasRetainItsControls()
     {
         var now = new DateTimeOffset(2026, 8, 30, 0, 0, 0, TimeSpan.Zero);
         var target = new TargetScope(2, 2, 7, "LegacyApp", now.AddHours(-1));
@@ -398,13 +400,16 @@ public sealed class GraphPipelineTests
         var semanticWindow = Assert.Single(model.LayerFor(UiUnderstandingLevel.SemanticWorld).Surfaces,
             surface => surface.SurfaceKind == "SemanticWindow");
 
-        Assert.Equal([2L], model.VariantsFor([semanticWindow]).Select(variant => variant.FrameSequence));
+        Assert.Equal([2L, 3L], model.VariantsFor([semanticWindow]).Select(variant => variant.FrameSequence));
+        var deltaScene = model.LayerFor(UiUnderstandingLevel.SemanticWorld).ControlsForSurface(semanticWindow.Id, 3, manifest.SessionId);
         foreach (var label in new[] { "Bold", "Font", "Number Format", "More Options" })
         {
             var control = Assert.Single(graph.Nodes, node =>
                 node.Kind == GraphNodeKind.Control && node.Label == label &&
                 node.Properties.Any(property => property is { Name: "layer", Value: "raw-world" }));
             Assert.Contains(control.Evidence, evidence => evidence.FrameSequence == 2);
+            Assert.Contains(deltaScene, item => item.DisplayName == label &&
+                UiMappingReadModel.Property(item.Source, "sourceFrame") == "2");
         }
         Assert.True(GraphValidator.Validate(graph).IsValid);
     }

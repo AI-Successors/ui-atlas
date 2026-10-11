@@ -1978,6 +1978,7 @@ public sealed class ManualRecordingSession : IAsyncDisposable
                 .ToArray();
             _interactions.Clear();
             _interactions.AddRange(orderedInteractions);
+            FinalizeFrameInteractionReferences(_writer, _frameObservations, _interactions, _health);
             var ended = DateTimeOffset.UtcNow;
             var sessionId = Path.GetFileNameWithoutExtension(_outputPath);
             if (string.IsNullOrWhiteSpace(sessionId)) sessionId = Guid.NewGuid().ToString("N");
@@ -1993,6 +1994,26 @@ public sealed class ManualRecordingSession : IAsyncDisposable
             _writer.WriteJson("manifest.json", manifest);
             if (outcome != RecordingOutcome.Cancelled || retainOnCancel)
                 _writer.Complete(_outputPath);
+        }
+    }
+
+    internal static void FinalizeFrameInteractionReferences(RecordingBundleWriter writer,
+        IList<FrameObservation> frames, IReadOnlyList<InteractionObservation> interactions,
+        ICollection<CaptureHealthEvent> health)
+    {
+        var committed = interactions.Select(item => item.InteractionId).ToHashSet(StringComparer.Ordinal);
+        for (var index = 0; index < frames.Count; index++)
+        {
+            var frame = frames[index];
+            if (string.IsNullOrWhiteSpace(frame.InteractionId) || committed.Contains(frame.InteractionId)) continue;
+            // Popup events can arrive while a manual click is merely armed. If
+            // Stop/Pause wins, there is no observed click to commit. Keep the
+            // captured scene, but do not publish a causal link to that reservation.
+            frame = frame with { InteractionId = null };
+            frames[index] = frame;
+            writer.WriteJson($"raw/observations/frame-{frame.Sequence:D6}.json", frame);
+            health.Add(new(DateTimeOffset.UtcNow, "interaction", "uncommitted-frame-reference",
+                $"Frame {frame.Sequence} was retained without a completed interaction; its provisional correlation was discarded.", true));
         }
     }
 

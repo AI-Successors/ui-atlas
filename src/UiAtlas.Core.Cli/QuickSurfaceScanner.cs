@@ -71,7 +71,7 @@ internal static class QuickSurfaceScanner
             cachedControls = [];
         }
         var raw = IsRibbonTarget(target)
-            ? await CollectRibbonApplicationAsync(session, target, cachedControls.Count, cancellationToken).ConfigureAwait(false)
+            ? await CollectRibbonApplicationAsync(session, target, cancellationToken).ConfigureAwait(false)
             : await session.CollectWindowAutomationAsync(
                 target.Hwnd,
                 TimeSpan.FromMilliseconds(3_200),
@@ -356,7 +356,6 @@ internal static class QuickSurfaceScanner
     private static async Task<(IReadOnlyList<AutomationObservation> Items, bool TimedOut, string Status)> CollectRibbonApplicationAsync(
         ManualRecordingSession session,
         WindowTarget target,
-        int cachedControlCount,
         CancellationToken cancellationToken)
     {
         var timer = Stopwatch.StartNew();
@@ -447,8 +446,6 @@ internal static class QuickSurfaceScanner
         // half a second for the screenshot. The remaining time is the Ribbon walk.
         var ribbonCeiling = isExcel
             ? TimeSpan.FromMilliseconds(6_800)
-            : cachedControlCount >= 24
-            ? TimeSpan.FromMilliseconds(1_100)
             : isRevit ? TimeSpan.FromMilliseconds(4_900) : TimeSpan.FromMilliseconds(3_200);
         var ribbonBudget = ribbonCeiling - timer.Elapsed;
         (IReadOnlyList<AutomationObservation> Items, bool TimedOut, string Status) ribbon =

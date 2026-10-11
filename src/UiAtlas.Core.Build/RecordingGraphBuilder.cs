@@ -74,6 +74,7 @@ public sealed class RecordingGraphBuilder
             // Curation preserves observation object references. Update only from
             // direct input, never from a carried copy of an earlier frame.
             var sourceFrames = new Dictionary<AutomationObservation, FrameObservation>(ReferenceEqualityComparer.Instance);
+            var materializedControls = new Dictionary<AutomationObservation, FrameControl>(ReferenceEqualityComparer.Instance);
             app.AddProperty("processName", manifest.Target.ProcessName, sensitive: true);
             app.AddProperty("productVersion", manifest.Target.ProductVersion);
             app.AddProperty("originalFilename", manifest.Target.OriginalFilename, sensitive: true);
@@ -84,7 +85,6 @@ public sealed class RecordingGraphBuilder
             {
                 foreach (var control in derivedBySequence[frame.Sequence].Automation)
                     sourceFrames[control] = derivedBySequence[frame.Sequence];
-                var screenVariantFrame = IsScreenVariantFrame(frame);
                 var windows = (frame.ScopedWindows is { Count: > 0 } ? frame.ScopedWindows : [frame.Window])
                     .OrderBy(window => window.ZOrder)
                     .ThenByDescending(window => NativeRole(frame, window) == "root")
@@ -136,7 +136,13 @@ public sealed class RecordingGraphBuilder
                     manifest, recordedFrame, recordedWindows, recordedFrame.Automation, appId, nodes, edges);
                 var rawStreamSurfaceByWindow = rawDataStreamFrame.SurfaceByWindow;
                 var surfaceByWindow = new Dictionary<long, RawSurfaceInfo>();
-                var effectiveControlsByWindow = scene.Reduce(frame with { Automation = promotedAutomation }).ControlsByWindow;
+                // Hidden ancestors are still necessary to invalidate old subtrees.
+                // Promotion governs current graph nodes, not the reducer's knowledge
+                // of what a provider has explicitly replaced or hidden.
+                var observationScene = scene.Reduce(frame);
+                var promotedSet = promotedAutomation.ToHashSet(ReferenceEqualityComparer.Instance);
+                var effectiveControlsByWindow = observationScene.ControlsByWindow.ToDictionary(pair => pair.Key,
+                    pair => (IReadOnlyList<AutomationObservation>)pair.Value.Where(promotedSet.Contains).ToArray());
                 var roleByWindow = windows.ToDictionary(
                     window => window.Hwnd,
                     window => NativeRole(frame, window));
@@ -184,8 +190,7 @@ public sealed class RecordingGraphBuilder
                     var evidence = Evidence(manifest, frame, window.Bounds);
                     var surfaceNode = GetNode(nodes, surfaceId, GraphNodeKind.Surface, appId, surfaceId,
                         surfaceClass);
-                    if (screenVariantFrame)
-                        surfaceNode.AddEvidence(evidence);
+                    surfaceNode.AddEvidence(evidence);
                     surfaceNode.AddProperty("layer", RawLayer);
                     surfaceNode.AddProperty("surfaceClass", surfaceClass);
                     surfaceNode.AddProperty("role", role);
@@ -211,8 +216,7 @@ public sealed class RecordingGraphBuilder
                         surfaceInfo = new(surfaceId, surfaceKey, surfaceClass, role, window.ClassName, window.Title, fingerprint);
                         rawSurfaces.Add(surfaceId, surfaceInfo);
                     }
-                    if (screenVariantFrame)
-                        surfaceInfo.Evidence.Add(evidence);
+                    surfaceInfo.Evidence.Add(evidence);
                     surfaceByWindow[window.Hwnd] = surfaceInfo;
                     rawSurfaceByNativeWindow[window.Hwnd] = surfaceInfo;
                 }
@@ -254,8 +258,15 @@ public sealed class RecordingGraphBuilder
                 {
                     var window = windows.First(candidate => candidate.Hwnd == pair.Key);
                     var controls = effectiveControlsByWindow.GetValueOrDefault(window.Hwnd) ?? [];
-                    var frameControls = MaterializeControls(
+                    var currentControls = MaterializeControls(
                         manifest, frame, window, pair.Value, controls, nodes, edges, rawControls, sourceFrames, ambiguousSignatures);
+                    foreach (var control in currentControls) materializedControls[control.Observation] = control;
+                    // Membership describes the reconstructed scene; each node keeps only
+                    // its original observation and evidence, never a fabricated delta fact.
+                    var frameControls = currentControls.Concat(observationScene.RetainedControls
+                        .Where(control => control.EffectiveOwnerHwnd == window.Hwnd && materializedControls.ContainsKey(control.Control))
+                        .Select(control => materializedControls[control.Control] with { IsCurrent = false }))
+                        .DistinctBy(control => control.Id).ToArray();
                     foreach (var control in frameControls.Where(control => control.IsCurrent))
                     {
                         var lookupWindow = control.Observation.WindowHwnd != 0 ? control.Observation.WindowHwnd : frame.Window.RootOwnerHwnd;
@@ -265,10 +276,10 @@ public sealed class RecordingGraphBuilder
                             nodes[rawStreamControlId].AddProperty("stableControlKey", control.Id);
                     }
                     var visibleControls = frameControls
-                        .Where(control => control.IsCurrent && IsStateVisible(control.Observation))
+                        .Where(control => IsStateVisible(control.Observation))
                         .OrderBy(control => control.Id, StringComparer.Ordinal)
                         .ToArray();
-                    var contentSignature = StableIdentity.Create("shape", pair.Value.Id,
+                    var contentSignature = StableIdentity.Create("shape", pair.Value.Id, VariantObservationScope(frame),
                         string.Join('|', visibleControls.Select(control =>
                             $"{control.Id}:{control.Observation.IsEnabled}:{control.Observation.IsSelected}:" +
                             $"{control.Observation.HasKeyboardFocus}:{control.Observation.ToggleState}:{control.Observation.ExpandCollapseState}")));
@@ -277,6 +288,7 @@ public sealed class RecordingGraphBuilder
                     var variant = GetNode(nodes, variantId, GraphNodeKind.State, pair.Value.Id, variantId, "Observed variant");
                     variant.AddEvidence(variantEvidence);
                     variant.AddProperty("layer", RawLayer);
+                    variant.AddProperty("sceneProjection", "reconstructed");
                     variant.AddProperty("contentSignature", contentSignature);
                     variant.AddProperty("trigger", frame.Trigger, sensitive: true);
                     variant.AddProperty("observationScope", VariantObservationScope(frame));
@@ -1228,11 +1240,6 @@ public sealed class RecordingGraphBuilder
         !frame.AutomationTimedOut && frame.AutomationStatus is "ok" or "node-limit" ||
         frame.Automation.Any(IsShadowControl) ||
         HasStableNativeRootChrome(frame);
-
-    private static bool IsScreenVariantFrame(FrameObservation frame) =>
-        !string.Equals(frame.ObservationScope, "control-delta", StringComparison.Ordinal) ||
-        frame.Trigger.StartsWith("quick-map:", StringComparison.Ordinal) ||
-        frame.Trigger.StartsWith("quick-map-screen:", StringComparison.Ordinal);
 
     private static string VariantObservationScope(FrameObservation frame) =>
         string.Equals(frame.ObservationScope, "control-delta", StringComparison.Ordinal) &&

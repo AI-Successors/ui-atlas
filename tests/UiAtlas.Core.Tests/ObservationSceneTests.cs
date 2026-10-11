@@ -17,6 +17,82 @@ public sealed class ObservationSceneTests
             controls, false, "ok", "test", [Root], ObservedWindowHwnds: [1]);
 
     [Fact]
+    public void ReconstructedDeltaSurvivesSqliteWithoutFabricatingControlEvidence()
+    {
+        using var temp = new TempDirectory();
+        using var bundle = RecordingBundle.Open(SyntheticBundleFactory.Create(temp.Path));
+        var manifest = bundle.ReadJson<RecordingManifest>("manifest.json");
+        var first = Frame(1, Button("a"), Button("b") with { Bounds = new(120, 20, 90, 24) });
+        var delta = Frame(2, Button("a") with { IsSelected = true }) with
+            { ObservationScope = "control-delta", BaseFrameSequence = 1, FrameEntry = "" };
+        var complete = Frame(3, Button("a"));
+        var graph = new RecordingGraphBuilder().Build(new RecordingGraphInput(manifest with { FrameCount = 3 }, [first, delta, complete], []));
+        var path = Path.Combine(temp.Path, "scene.db");
+        SqliteGraphStore.Save(graph, path);
+        var model = new UiMappingReadModel(SqliteGraphStore.Load(path));
+        foreach (var level in new[] { UiUnderstandingLevel.RawWorld, UiUnderstandingLevel.SemanticWorld })
+        {
+            var layer = model.LayerFor(level);
+            var surface = Assert.Single(layer.Surfaces);
+            var variant = Assert.Single(surface.Variants, value => value.FrameSequence == 2);
+            Assert.True(variant.IsVisibleByDefault);
+            var controls = layer.ControlsForSurface(surface.Id, 2, manifest.SessionId);
+            Assert.Equal(2, controls.Count);
+            var retained = Assert.Single(controls, control => control.DisplayName == "b");
+            Assert.Equal(new RectI(120, 20, 90, 24), retained.Bounds);
+            Assert.Equal("retained", UiMappingReadModel.Property(retained.Source, "sceneStatus"));
+            Assert.Equal(1, Assert.Single(retained.Source.Observations!).FrameSequence);
+            Assert.Equal(1, Assert.Single(retained.Evidence).FrameSequence);
+            Assert.Equal("True", UiMappingReadModel.Property(controls.Single(control => control.DisplayName == "a").Source, "selected"));
+            Assert.DoesNotContain(layer.ControlsForSurface(surface.Id, 3, manifest.SessionId), control => control.DisplayName == "b");
+        }
+        var raw = model.LayerFor(UiUnderstandingLevel.RawDataStreams);
+        var rawDelta = Assert.Single(raw.Surfaces, surface => surface.Evidence.Any(evidence => evidence.FrameSequence == 2));
+        Assert.Single(raw.ControlsForSurface(rawDelta.Id, 2, manifest.SessionId));
+        var reducer = new ObservationSceneReducer();
+        reducer.Reduce(first);
+        var contextual = RawSceneProjection.Project(raw.Controls, reducer.Reduce(delta), manifest.SessionId, 1, rawDelta.Id);
+        Assert.Equal(2, contextual.Count);
+        Assert.Equal("1", UiMappingReadModel.Property(contextual.Single(control => control.DisplayName == "b").Source, "sourceFrame"));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ExplicitAncestorReplacementInvalidatesRetainedChildren(bool hidden)
+    {
+        var reducer = new ObservationSceneReducer();
+        var group = Button("group") with { ControlType = "Group", Name = "Home" };
+        var child = Button("child") with { ParentRuntimeId = "group" };
+        reducer.Reduce(Frame(1, group, child, Button("unrelated")));
+        var scene = reducer.Reduce(Frame(2, group with { Name = hidden ? "Home" : "Draw", IsOffscreen = hidden }) with
+            { ObservationScope = "control-delta" });
+        Assert.Equal("unrelated", Assert.Single(scene.RetainedControls).Control.RuntimeId);
+    }
+
+    [Theory]
+    [InlineData("resize")]
+    [InlineData("dpi")]
+    [InlineData("process")]
+    [InlineData("hidden")]
+    [InlineData("closed")]
+    public void RetainedControlsExpireWhenTheirWindowChanges(string change)
+    {
+        var reducer = new ObservationSceneReducer();
+        reducer.Reduce(Frame(1, Button("old")));
+        var window = change switch
+        {
+            "resize" => Root with { Bounds = new(0, 0, 900, 600) },
+            "dpi" => Root with { Dpi = 144 },
+            "process" => Root with { ProcessId = 99 },
+            "hidden" => Root with { IsVisible = false },
+            _ => Root with { Hwnd = 2 }
+        };
+        Assert.Empty(reducer.Reduce(Frame(2) with { Window = window, ScopedWindows = [window],
+            ObservationScope = "control-delta" }).RetainedControls);
+    }
+
+    [Fact]
     public void PartialAndDeltaRetainKnowledgeWithoutInventingCurrentEvidence()
     {
         var reducer = new ObservationSceneReducer();
