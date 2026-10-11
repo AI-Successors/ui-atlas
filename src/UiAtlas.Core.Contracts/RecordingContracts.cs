@@ -243,7 +243,22 @@ public sealed record FrameObservation(
     AdaptiveExtractionSnapshot? Extraction = null,
     string? Derivation = null,
     IReadOnlyList<RawDataStreamObservation>? RawStreams = null,
-    string? RecordKind = null);
+    string? RecordKind = null,
+    RawObservationAcquisition? Acquisition = null);
+
+/// <summary>Acquisition facts, not a claim that the target process was atomically frozen.</summary>
+public sealed record RawObservationAcquisition(
+    string FormatVersion,
+    string ObservationId,
+    DateTimeOffset StartedUtc,
+    DateTimeOffset SealedUtc,
+    string Status,
+    string CaptureMethod,
+    string StabilityStatus,
+    string DiagnosticCode = "",
+    IReadOnlyList<RawWindowCoverage>? WindowCoverage = null);
+
+public sealed record RawWindowCoverage(long Hwnd, RectI Bounds, string Pixels);
 
 /// <summary>One provider response within a sealed observation; never a reconstructed scene.</summary>
 public sealed record RawDataStreamObservation(
@@ -256,7 +271,11 @@ public sealed record RawDataStreamObservation(
     int ReturnedCount = 0,
     bool Truncated = false,
     IReadOnlyList<WindowObservation>? Windows = null,
-    string? ScreenshotEntry = null);
+    string? ScreenshotEntry = null,
+    string? EvidenceKind = null,
+    long? TargetWindowHwnd = null,
+    RectI? ImageBounds = null,
+    DateTimeOffset? QueuedUtc = null);
 
 /// <summary>A bounded, redacted provider response retained before popup normalization.</summary>
 public sealed record ProviderObservation(

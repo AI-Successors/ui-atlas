@@ -11,15 +11,17 @@ public static class RawFrameEvidence
     public static IReadOnlyList<RawDataStreamObservation> Seal(
         FrameObservation frame, DateTimeOffset started, DateTimeOffset pixelsStarted,
         DateTimeOffset pixelsCompleted, string pixelStatus,
-        IEnumerable<RawDataStreamObservation> providers)
+        IEnumerable<RawDataStreamObservation> providers, DateTimeOffset? windowsCompleted = null)
     {
         var completed = frame.TimestampUtc;
         var windows = frame.ScopedWindows ?? [frame.Window];
         var streams = new List<RawDataStreamObservation>
         {
             new("pixels", "pixels", pixelsStarted, pixelsCompleted, pixelStatus, [],
-                ScreenshotEntry: string.IsNullOrEmpty(frame.FrameEntry) ? null : frame.FrameEntry),
-            new("win32", "win32", started, completed, "ok", [], windows.Count, Windows: windows)
+                ScreenshotEntry: string.IsNullOrEmpty(frame.FrameEntry) ? null : frame.FrameEntry,
+                EvidenceKind: "pixels", ImageBounds: frame.ScreenshotBounds),
+            new("win32", "win32", started, windowsCompleted ?? completed, "ok", [], windows.Count, Windows: windows,
+                EvidenceKind: "native-windows")
         };
         var remaining = MaxControls;
         foreach (var provider in providers.Take(MaxStreams - 2))
@@ -29,7 +31,11 @@ public static class RawFrameEvidence
             streams.Add(provider with
             {
                 StreamId = $"{provider.Source}:{streams.Count:D3}", Controls = retained,
-                Truncated = provider.Truncated || retained.Length < provider.Controls.Count
+                Truncated = provider.Truncated || retained.Length < provider.Controls.Count,
+                EvidenceKind = provider.EvidenceKind ?? RawObservationSemantics.Kind(provider.Source),
+                ScreenshotEntry = RawObservationSemantics.IsImageSource(provider.Source)
+                    ? string.IsNullOrEmpty(frame.FrameEntry) ? null : frame.FrameEntry : provider.ScreenshotEntry,
+                ImageBounds = RawObservationSemantics.IsImageSource(provider.Source) ? frame.ScreenshotBounds : provider.ImageBounds
             });
         }
         return streams;

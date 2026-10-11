@@ -315,6 +315,20 @@ public static class RecordingBundleValidator
             if (frame.RecordKind is not (null or "observation" or "supplementary") ||
                 frame.RawStreams is not null && !ValidRawStreams(frame))
                 issues.Add(new("bundle.raw-streams", "error", entry, "Raw streams are invalid or refer to another observation."));
+            if (frame.Acquisition is { } acquisition &&
+                (acquisition.FormatVersion != RawObservationSemantics.Version ||
+                 acquisition.ObservationId != $"observation:{frame.Sequence}" ||
+                 acquisition.StartedUtc > acquisition.SealedUtc || acquisition.SealedUtc > frame.TimestampUtc ||
+                 acquisition.Status is not ("ok" or "partial" or "interrupted" or "cancelled") ||
+                 acquisition.StabilityStatus is not ("stable" or "changed" or "unverified" or "interrupted") ||
+                 acquisition.Status == "ok" && acquisition.StabilityStatus != "stable" ||
+                 acquisition.CaptureMethod is null or { Length: > 128 } || acquisition.DiagnosticCode is null or { Length: > 256 } ||
+                 acquisition.WindowCoverage is not { } coverage || coverage.Count != scopedHwnds.Count ||
+                 coverage.Any(item => item is null) ||
+                 coverage.Select(item => item.Hwnd).Distinct().Count() != coverage.Count ||
+                 coverage.Any(item => !scopedHwnds.Contains(item.Hwnd) || item.Pixels is not ("full" or "partial" or "missing")) ||
+                 frame.RawStreams?.Any(stream => stream is null || stream.StartedUtc < acquisition.StartedUtc || stream.CompletedUtc > acquisition.SealedUtc) == true))
+                issues.Add(new("bundle.acquisition", "error", entry, "Observation acquisition identity, timing or coverage is invalid."));
         }
 
         if (statebook.RepresentativeFrames is not null && statebook.Episodes is not null &&
@@ -371,6 +385,9 @@ public static class RecordingBundleValidator
         return streams.All(stream => stream.StreamId is { Length: > 0 and <= 256 } &&
             stream.Source is { Length: > 0 and <= 128 } && stream.Status is { Length: > 0 and <= 128 } &&
             stream.StartedUtc <= stream.CompletedUtc && stream.CompletedUtc <= frame.TimestampUtc &&
+            (stream.QueuedUtc is null || stream.QueuedUtc <= stream.StartedUtc) &&
+            (stream.EvidenceKind is null || stream.EvidenceKind == RawObservationSemantics.Kind(stream.Source)) &&
+            (stream.ImageBounds is null || ControlGeometry.IsRenderable(stream.ImageBounds)) &&
             stream.Controls is not null && stream.Controls.All(control => control is not null && ValidAutomation(control)) &&
             stream.ReturnedCount >= stream.Controls.Count &&
             (stream.ScreenshotEntry is null || stream.ScreenshotEntry == frame.FrameEntry && frame.FrameEntry.Length > 0) &&
