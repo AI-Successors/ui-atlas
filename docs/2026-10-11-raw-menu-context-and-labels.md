@@ -66,7 +66,7 @@ likewise distinguish a raw image containing a menu from automation ownership.
 - [x] **C — canvas presentation:** make labels opt-in in all raw control modes;
   prevent fallback labels from bypassing the checkbox. Disable control crops when
   capture stability is unknown/changed. Validate checkbox and mode transitions.
-- [ ] **D — qualification:** run focused reader, storage and renderer regressions,
+- [x] **D — qualification:** run focused reader, storage and renderer regressions,
   inspect the retained Word recording in the updated editor, build normal Visual
   Studio output, and update the existing draft PR with exact validation limits.
 
@@ -93,4 +93,14 @@ compatible. Preserve all unrelated working-tree changes.
   attempts. Its interrupted capture supplies geometry without screenshot crops.
 - No capture or graph serialization code changed. Existing maps and recordings
   are read directly; no recapture is needed for menus present in their frame pixels.
-- Normal Visual Studio output and hosted PR update: pending final delivery.
+- Normal Visual Studio Build produced **UI Atlas Core 2.0.75**: eight projects built,
+  six up-to-date, zero failures. Recorder and staged viewer both identify source
+  commit `497703b`. Normal output includes the user's pre-existing working changes;
+  the clean qualification above excludes them.
+- The normal build opens the retained merged Word map and shows Main Window/frame
+  2 with its captured font menu. This confirms the direct main-owner case as well
+  as the Font-owned palette case, without changing either bundle.
+- The existing draft PR #1 contains this follow-up. Native desktop baseline failures
+  from the parent rollout remain separate release gates; those seven cases and the
+  Windows capture suite were not rerun for this viewer-only change. No new recording
+  or live customer-grid export qualification is claimed.
