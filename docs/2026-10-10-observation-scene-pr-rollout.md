@@ -59,7 +59,7 @@ Run focused provider/scene/state/reader regressions, full Core and Windows suite
 - [x] Popup observations and screenshot source are visible; inspection layer is consistent.
 - [x] Focused/full tests, build, boundary and smoke results recorded.
 - [x] Private replay, viewer inspection and any fresh live qualification recorded separately.
-- [ ] Final diff reviewed, task changes committed/pushed, PR updated with remaining limits.
+- [x] Final diff reviewed, task changes committed/pushed, PR updated with remaining limits.
 
 ## Recovery
 
@@ -92,6 +92,8 @@ The four popup observations now expose persisted derived content: underline 5, h
 
 The rebuilt viewer was inspected using the isolated catalog. Popup observation cards, frame-specific control counts, screenshot source, Raw World inspection indicator and historical absence of provider attempts were visible. Inspection found and corrected missing merged scope metadata, unrelated-surface retained counts and a generic container label overlapping popup text. The original user viewer and maps were preserved.
 
+The final executable was also inspected against the fresh native recording: font-color frame 10 shows 83 controls, eight inspectable provider attempts, `popup-delta` coverage and zero retained controls from unrelated surfaces. The properties label distinguishes projection scope from the recorded capture coverage shown with its pixels.
+
 ### Fresh Word capture
 
 A blank disposable Word document was used without entering document content. Before the MSAA compaction correction, the new evidence stream retained all 25 rejected attempts: twelve with 21 returned underline controls and thirteen with 14 line-spacing controls. Every attempt reports `disconnected-content`, zero accepted controls, no timeout and no truncation. The 294,887 retained bytes made the dangling-parent defect directly inspectable.
@@ -103,3 +105,9 @@ After correction, a second recording captured all four popups natively: underlin
 - Keep the PR draft until native desktop test failures and hosted CI are resolved or explicitly accepted by maintainers.
 - Historical recordings cannot recover native responses discarded by older executables. Visual palette reconstruction remains incomplete and is labeled derived evidence.
 - Partial root scans and unconfirmed interaction outcomes remain review findings; popup acceptance alone is not proof of unrestricted Word workflow reliability.
+
+### Delivery
+
+Implementation commit `94a9c8e` was pushed to the existing `codex/word-recording-hierarchy-repair` branch. [Draft PR #1](https://github.com/AI-Successors/ui-atlas/pull/1) now describes the combined hierarchy, provider-evidence and scene-reconstruction changes with these validation limits. The GitHub connector could read but not edit PR metadata; the update succeeded using the repository's existing Git credential through GitHub's normal API. No new credentials or permissions were created.
+
+Hosted checks started for the implementation commit; their result remains a separate release gate. The branch is not merged. Private qualification artifacts stay outside Git, and all pre-existing unstaged/untracked paths are preserved.
