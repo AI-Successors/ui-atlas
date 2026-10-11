@@ -23,6 +23,11 @@ public sealed record RawSurfaceImageLayout(RectI SourcePixels, RectI WindowLocal
 
 public static class RawVariantPresentation
 {
+    public static UiMapVariantView? SelectionInScope(UiMapVariantView? current,
+        IEnumerable<UiMapSurfaceView> surfaces) => current is null ? null : surfaces
+        .SelectMany(surface => surface.Variants)
+        .FirstOrDefault(variant => variant.Id == current.Id);
+
     public static IReadOnlyList<UiMapVariantView> Filter(IEnumerable<UiMapVariantView> variants,
         bool skipEmpty, bool includeSupplementary) => variants
         .Where(variant => includeSupplementary || variant.RecordKind != "supplementary")

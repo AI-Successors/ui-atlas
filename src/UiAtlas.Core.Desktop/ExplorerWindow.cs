@@ -3004,7 +3004,9 @@ public sealed class ExplorerWindow : Window
         _selectedSurface = surface;
         _selectedSurfaceScope = scope is { Count: > 0 } ? scope : [surface];
         _selectedControl = null;
-        _selectedVariant = null;
+        _selectedVariant = surface.Level == UiUnderstandingLevel.RawDataStreams
+            ? RawVariantPresentation.SelectionInScope(_selectedVariant, _selectedSurfaceScope)
+            : null;
         _resetAppMapZoomOnNextRender = true;
         _synchronizing = true;
         RevealHierarchyItem(surface.Id);

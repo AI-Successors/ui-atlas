@@ -135,6 +135,13 @@ public sealed class RawStreamParityTests
         Assert.Equal(2, variants.Select(variant => variant.SurfaceId).Distinct().Count());
         Assert.Equal(2, variants.Select(variant => variant.DisplayName).Distinct().Count());
         Assert.All(variants, variant => Assert.Equal(1, variant.FrameSequence));
+        // Reselecting the family in either navigation pane must keep the exact
+        // window instance, even when another window shares its frame and class.
+        var selected = variants[1];
+        var familySurfaces = model.ResolvePipelineSurfaces(family);
+        Assert.Equal(selected, RawVariantPresentation.SelectionInScope(selected, familySurfaces));
+        Assert.Null(RawVariantPresentation.SelectionInScope(selected,
+            familySurfaces.Where(surface => surface.Id != selected.SurfaceId)));
     }
 
     [Theory]
