@@ -10776,6 +10776,9 @@ internal sealed class RecordingControlPanel : IDisposable
             "verify" => "Verifying controls",
             "build" => "Building map",
             "save" => "Saving map",
+            "raw" => "Reading data streams",
+            "ready" => "Ready for next click",
+            "partial" => "Incomplete evidence saved",
             _ => "Saving screen"
         };
     }
@@ -10783,6 +10786,9 @@ internal sealed class RecordingControlPanel : IDisposable
     private static string ResolveActiveStageKey(string message)
     {
         var lower = message.ToLowerInvariant();
+        if (lower.Contains("incomplete evidence", StringComparison.Ordinal)) return "partial";
+        if (lower.Contains("ready for the next", StringComparison.Ordinal)) return "ready";
+        if (lower.StartsWith("reading ", StringComparison.Ordinal) && lower.Contains("streams remaining", StringComparison.Ordinal)) return "raw";
         if (lower.Contains("stage 3 of 5", StringComparison.Ordinal) ||
             lower.Contains("verifying", StringComparison.Ordinal) ||
             lower.Contains("waiting for the screen to update", StringComparison.Ordinal) ||
@@ -11491,6 +11497,9 @@ internal sealed class RecordingControlPanel : IDisposable
     internal static string ActiveCaption(string message)
     {
         var lower = message.ToLowerInvariant();
+        if (lower.Contains("incomplete evidence", StringComparison.Ordinal)) return "INCOMPLETE OBSERVATION SAVED";
+        if (lower.Contains("ready for the next", StringComparison.Ordinal)) return "READY FOR NEXT CLICK";
+        if (lower.StartsWith("reading ", StringComparison.Ordinal) && lower.Contains("streams remaining", StringComparison.Ordinal)) return "READING DATA STREAMS";
         if (lower.Contains("matching the current screen to the existing map", StringComparison.Ordinal)) return "MATCHING EXISTING MAP";
         if (lower.Contains("matched the existing map", StringComparison.Ordinal)) return "EXISTING MAP MATCHED";
         if (lower.Contains("stage 1 of 5", StringComparison.Ordinal)) return "CAPTURING SCREEN";
@@ -11528,6 +11537,9 @@ internal sealed class RecordingControlPanel : IDisposable
     internal static string ActiveBarText(string message)
     {
         var lower = message.ToLowerInvariant();
+        if (lower.Contains("incomplete evidence", StringComparison.Ordinal)) return "Partial evidence saved. Ready for next click";
+        if (lower.Contains("ready for the next", StringComparison.Ordinal)) return "Ready for next click";
+        if (lower.StartsWith("reading ", StringComparison.Ordinal) && lower.Contains("streams remaining", StringComparison.Ordinal)) return message;
         if (lower.Contains("matching the current screen to the existing map", StringComparison.Ordinal))
             return "Matching existing map...";
         if (lower.Contains("matched the existing map", StringComparison.Ordinal))
