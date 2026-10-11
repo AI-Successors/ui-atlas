@@ -1,8 +1,160 @@
 # Raw Data Streams capture and editor parity rollout
 
-Status: implemented and locally qualified (2026-10-11). Draft PR #1 remains
-unmerged; the four reproduced baseline native-test failures and latest-head hosted
-CI are release gates. Qualification limits are recorded below.
+Status: corrective implementation complete and qualified below (2026-10-11). The earlier qualification
+proved record retention and crop alignment, not isolated window pixels, reliable
+native ownership, or coherent overlays. The live-word review exposed those gaps.
+Draft PR #1 remains unmerged; qualification must include the corrective gates below.
+
+## Corrective rollout: live-word review
+
+### Goals and evidence
+
+- Frame 3 captured pixels before the Font tooltip appeared, then retained later
+  UIA records. Keep interrupted attempts inspectable without presenting them as
+  coherent observations. Before/after checks qualify stability, not atomicity.
+- Main Window frames 6–11 and Font frame 11 contain covering dialogs because
+  screen pixels were flattened before cropping. Retain independent HWND images
+  with their own bounds, timestamps, method and coverage. A screen fallback is
+  explicitly occluded/unknown evidence, never an isolated window image.
+- Tooltip Control-view results include Word controls. Separate query HWND from
+  reported native HWND and verified ancestry; stop traversal escaping its root.
+  Legacy ownership remains unverified rather than retrospectively invented.
+- The twelfth card is resumed-session frame 1. Its screenshot exists but the
+  explicit first bundle replaced the auto-resolved evidence set. Resolve all map
+  sessions, union matching attachments, and expose missing-bundle diagnostics.
+- OCR/geometry are provider evidence, not native window families. Keep every
+  record accessible through frame stream inspection without counting image-source
+  groups as native surfaces or source records as unique physical controls.
+
+### Non-goals
+
+No raw scene reconstruction, hidden-pixel synthesis, temporal backfill, forced
+input blocking, automatic dialog traversal, changes to test5, remote model
+activation, or changes to grid acquisition/export. Preserve original recordings
+and unrelated working-tree changes. Existing composites cannot be repaired into
+isolated surfaces; legacy display must disclose that limitation.
+
+### Ordered PR units and to do
+
+1. **Evidence attachment and presentation**
+   - [x] Resolve every source session when opening a merged map, including when
+     an explicit evidence path is supplied; never silently replace other sessions.
+   - [x] Distinguish missing attachment, missing image, and invalid evidence.
+   - [x] Label session/frame identity and source-entry counts clearly.
+2. **Per-window pixel contract and capture**
+   - [x] Add backward-compatible per-HWND image references, bounds, acquisition
+     intervals, capture method and coverage; validate entries and budgets.
+   - [x] Retain independent WGC images before any composition. Preserve original
+     screen frame as supporting evidence and input to image providers/stability.
+   - [x] Render only a selected window's independent pixels in native raw views;
+     explicitly label/mask occluded screen fallback instead of inventing pixels.
+3. **Provider scope and temporal qualification**
+   - [x] Preserve query target separately from actual reported native handle;
+     verify raw ancestry for filtered traversals and reject scope escapes.
+   - [x] Keep incomplete/changed attempts accessible but visually separate;
+     suppress misleading synchronized overlays for changed/unverified attempts.
+   - [x] Never choose a provider default solely because an invalid scope returned
+     more records. Keep timestamps and scope visible in source inspection.
+4. **Raw provider navigation**
+   - [x] Remove Image streams as a peer native-window family. Offer an explicit
+     frame-stream inspector for OCR/geometry, empty outcomes and all raw records.
+5. **Regression and live qualification**
+   - [x] Test merged-session attachment, per-window image save/reopen/validation,
+     occlusion fallback, interrupted overlays, provider scope and source navigation.
+   - [x] Reopen retained live-word with both bundles and inspect resumed frame 1.
+   - [x] Fresh Word capture: root + Font + Colors; color dropdown; interrupted
+     capture. Verify window-specific pixels, provider ownership and honest status.
+   - [x] Run focused storage/raw/grid checks and broader suites; compare unexplained
+     failures against baseline. Build user-facing outputs through normal VS.
+   - [x] Record exact results and limits here and update the existing draft PR.
+
+### Acceptance and rollback
+
+Font and Colors in one observation remain two window instances, not invented
+time frames. Each displayed native image has a traceable HWND image reference;
+fallback/legacy occlusion is explicit. Changed observations cannot look like
+successful synchronized overlays. Both sessions in live-word show their actual
+screenshots. Image-provider records remain inspectable but are not window nodes.
+No grid contract or source record is silently discarded. Revert scoped commits
+for rollback; never mutate retained source bundles or bypass integrity checks.
+
+### Corrective execution evidence (2026-10-11)
+
+Implementation commit: `6d5ac0ce87f3fb226cf59f189979c75440aca0ad`.
+Provider-selection follow-up: `b174fea`.
+
+- Additive window-image references retain HWND, exact pixel bounds, start/end time,
+  method and outcome. WGC images are bounded to 16 MiB each, 32 MiB per capture,
+  two seconds per window and five seconds cumulatively. Validation rejects foreign
+  frame/window references, missing images, duplicate planes, invalid times and
+  PNG dimensions inconsistent with the recorded rectangle. DWM extended bounds
+  account for invisible resize borders without stretching the pixels.
+- UIA records distinguish the query HWND, reported native handle and bounded
+  Raw-view ancestry verification. Traversal stops when ancestry escapes the target;
+  rejected evidence stays in the stream inspector with unresolved ownership.
+  Legacy query targets remain explicitly unverified. The original composite and
+  all OCR/geometry data remain available through Frame streams.
+- Reopened retained `live-word.db` with only the first bundle explicitly supplied.
+  Automatic attachment also resolved `live-word-resume02`; its frame 1 screenshot
+  displays correctly. All 12,492 source entries remain available, with 21 native
+  window observations and three native families. Image streams is no longer a
+  peer window family. A legacy crop displays explicit known-occluder masking.
+- Fresh normal-output Word recording: `word-isolated`, four observations, nine
+  independent HWND images, four original frame images, no missing screenshots,
+  and two complete interactions. Main Window remains free of covering dialogs;
+  Font remains free of Colors; Colors has its own image. These three saved images
+  were visually inspected, including the actual invisible-border coordinate offset.
+- Initial observation is `ok/stable`. Font is `partial/stable` because modal UIA
+  providers time out. Opening Colors during the color-palette acquisition retains
+  `interrupted/changed`, then creates a separate `partial/stable` three-window
+  observation. The palette's Raw UIA attempt returned 80 verified records; later
+  palette reads failed after it closed and remain failed attempts. No tab traversal
+  or document formatting change was performed.
+- Finish Map saved successfully: 5,685 nodes and 7,031 edges. Bundle validation,
+  stored graph validation, clean-source rebuilding and subsequent validation pass.
+  A field-equivalent comparison after save/reopen confirms all **4,459 raw records**,
+  zero missing/extra records, and no overlapping acquisition intervals. Recording
+  SHA-256: `7388316b11956fea9f9042373bcb1e314bc2a1b1ed20deee5e3a556d34c538bc`.
+- Clean task snapshot (excluding unrelated working-tree edits): full Release
+  solution builds with zero warnings/errors. Only the disposable snapshot's SDK
+  feature-band selection was adjusted. **532/532 Windows tests pass**, including
+  a real overlapping blue-parent/red-popup WGC test and UIA scope checks in all
+  three views. **461/461 Core tests excluding the seven native UI cases pass**.
+  Focused raw/evidence/grid/boundary checks pass **50/50**; final boundary and raw
+  follow-up after the screenshot-request guard passes **30/30**.
+- Clean native Core follow-up: **3/7 pass**. The same four earlier baseline failures
+  reproduce: mapper inspector placement and three opaque-grid traversal cases.
+  Combined clean Core result is **464/468**. These remain explicit release gates.
+- Normal Visual Studio Build produced **UI Atlas Core 2.0.71**: 12 projects built,
+  two up-to-date and zero failures. The executable product version points to
+  implementation commit `6d5ac0c`. The fresh recording used build 69; build 71 also
+  includes stricter PNG validation and the final inspector diagnostics. Normal
+  output includes the user's pre-existing edits, excluded from the clean snapshot.
+- The working-tree full Windows run before the final test addition passed 536/536;
+  it includes user-owned tests and is separate from the clean count. Its Core run
+  reproduced the four previously baseline-confirmed native failures plus two
+  temporary repository-root lookup failures. With an explicit root, the remaining
+  working-tree boundary failure is an absolute path in an unrelated untracked
+  document; the clean snapshot's boundary checks pass. That document was untouched.
+- Final viewer inspection exposed a same-frame selection leak: switching Font to
+  Colors kept Font's MSAA attempt selected, making Colors appear to have zero
+  records. The provider default now resets for each window observation while
+  retaining an explicitly selected empty attempt when staying within that scope.
+  The follow-up clean Desktop Release build passes with zero warnings/errors.
+  Normal Visual Studio Build then produced **UI Atlas Core 2.0.72**, seven projects
+  built, seven up-to-date and zero failures, with product version `b174fea`.
+  Live Font/frame 4 to Colors/frame 4 selection now changes from Font's 236 MSAA
+  entries to Colors' 18 UIA Raw entries, with all 140 Colors entries retained.
+  Font/frame 4 and Colors/frame 4 display their separate independent images.
+
+Limits: independent pixels require a fresh recording; old flattened images cannot
+recover covered content. Masking only covers known recorded occluders. WGC failure
+uses a labelled screen fallback. Stability checks do not make Windows APIs atomic.
+Word's modal UIA timeouts remain real partial outcomes. The exact old Font-tooltip
+Control-view anomaly was not replayed to successful completion; ownership checks
+are qualified by the fresh palette and overlapping-window test. Grid contracts
+pass; this run is not a new customer-grid export certification. Private evidence
+and test logs remain local; unrelated changes and test5 are untouched.
 
 This is the execution plan for the 07:43 video review. It amends the existing
 draft PR #1, with five ordered, separately reviewable implementation stages.
