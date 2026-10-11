@@ -14,6 +14,7 @@ public sealed class RawObservationCaptureTests
     [InlineData("ok")]
     [InlineData("cancelled")]
     [InlineData("unavailable")]
+    [InlineData("full")]
     public async Task PixelsAndCollectorCompletionSealOneFrameEvenWhenInterrupted(string outcome)
     {
         var ready = new TaskCompletionSource<(Window Window, long Hwnd)>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -32,6 +33,7 @@ public sealed class RawObservationCaptureTests
         try
         {
             await using var session = new ManualRecordingSession(WindowCatalog.Resolve(host.Hwnd), output);
+            session.FullRawObservations = outcome == "full";
             session.Start(explicitConsent: true);
             using var cancellation = new CancellationTokenSource();
             async Task<AdaptiveExtractionResult> Collect(CancellationToken token)
@@ -54,19 +56,32 @@ public sealed class RawObservationCaptureTests
             using var bundle = RecordingBundle.Open(output);
             var report = RecordingBundleValidator.Validate(bundle);
             Assert.True(report.IsValid, string.Join("; ", report.Issues.Select(issue => issue.Message)));
-            var observationEntry = Assert.Single(bundle.Entries, entry => entry.StartsWith("raw/observations/frame-", StringComparison.Ordinal));
+            var entries = bundle.Entries.Where(entry => entry.StartsWith("raw/observations/frame-", StringComparison.Ordinal)).Order().ToArray();
+            var observationEntry = entries[0];
             var observation = bundle.ReadJson<FrameObservation>(observationEntry);
             Assert.Equal(1, observation.Sequence);
             Assert.Equal("observation", observation.RecordKind);
             Assert.Equal(observation.FrameEntry, Assert.Single(observation.RawStreams!, stream => stream.Source == "pixels").ScreenshotEntry);
             Assert.NotEmpty(Assert.Single(observation.RawStreams!, stream => stream.Source == "win32").Windows!);
-            if (outcome != "ok") Assert.Equal(outcome, observation.AutomationStatus);
+            if (outcome is "cancelled" or "unavailable") Assert.Equal(outcome, observation.AutomationStatus);
             else
             {
                 Assert.Contains(observation.RawStreams!, stream => stream.Source.StartsWith("uia.raw/", StringComparison.Ordinal));
                 Assert.Contains(observation.RawStreams!, stream => stream.Source == "ocr");
                 Assert.Contains(observation.RawStreams!, stream => stream.Source == "visual.geometry");
                 Assert.All(observation.RawStreams!, stream => Assert.True(stream.CompletedUtc <= observation.TimestampUtc));
+                if (outcome == "full")
+                {
+                    Assert.NotNull(observation.Acquisition);
+                    Assert.Equal(RawObservationSemantics.Version, observation.Acquisition.FormatVersion);
+                    Assert.Equal("screen-bounds-explicit", observation.Acquisition.CaptureMethod);
+                    Assert.All(observation.RawStreams!.Where(stream => stream.Source.StartsWith("uia.") || stream.Source.StartsWith("msaa/")),
+                        stream => Assert.Equal(host.Hwnd, stream.TargetWindowHwnd));
+                    var frames = entries.Select(bundle.ReadJson<FrameObservation>).ToArray();
+                    Assert.All(frames, frame => Assert.NotNull(frame.Acquisition));
+                    for (var i = 1; i < frames.Length; i++)
+                        Assert.True(frames[i].Acquisition!.StartedUtc >= frames[i - 1].Acquisition!.SealedUtc);
+                }
             }
         }
         finally

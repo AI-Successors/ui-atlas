@@ -11,7 +11,7 @@ using UiAtlas.Core.Recording;
 namespace UiAtlas.Core.Recording.Windows;
 
 [SupportedOSPlatform("windows")]
-public sealed class ManualRecordingSession : IAsyncDisposable
+public sealed partial class ManualRecordingSession : IAsyncDisposable
 {
     private readonly WindowTarget _target;
     private readonly string _outputPath;
@@ -112,6 +112,9 @@ public sealed class ManualRecordingSession : IAsyncDisposable
         FrameCaptureOptions? options = null)
     {
         options ??= new FrameCaptureOptions();
+        if (FullRawObservations && options.RecordKind != "supplementary")
+            return await CaptureFullObservationAsync(trigger, cancellationToken,
+                options.InteractionId, options.InteractionSource).ConfigureAwait(false);
         if (!_startedCapture || _finalized) throw new InvalidOperationException("Recording is not active.");
         if (DateTimeOffset.UtcNow - _started > MaxDuration)
             throw new InvalidOperationException("Recording quota reached; finalize or cancel the session.");
@@ -1080,6 +1083,7 @@ public sealed class ManualRecordingSession : IAsyncDisposable
         CancellationToken cancellationToken,
         [CallerMemberName] string source = "native")
     {
+        var queued = DateTimeOffset.UtcNow;
         await _automationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
@@ -1088,12 +1092,12 @@ public sealed class ManualRecordingSession : IAsyncDisposable
             {
                 var result = await collect().ConfigureAwait(false);
                 _rawCapture.Value?.Add(source, started, DateTimeOffset.UtcNow,
-                    result.TimedOut ? "timeout" : result.Status, result.Items);
+                    result.TimedOut ? "timeout" : result.Status, result.Items, queued);
                 return result;
             }
             catch (OperationCanceledException)
             {
-                _rawCapture.Value?.Add(source, started, DateTimeOffset.UtcNow, "cancelled", []);
+                _rawCapture.Value?.Add(source, started, DateTimeOffset.UtcNow, "cancelled", [], queued);
                 throw;
             }
         }
@@ -1798,6 +1802,7 @@ public sealed class ManualRecordingSession : IAsyncDisposable
         }
 
         var scopedWindows = scopedTargets.Select(WindowSnapshotCapture.Observe).ToArray();
+        var windowsCompleted = DateTimeOffset.UtcNow;
         var window = options.PrimaryWindowHwnd is { } primaryWindowHwnd
             ? scopedWindows.FirstOrDefault(item => item.Hwnd == primaryWindowHwnd)
             : null;
@@ -1812,6 +1817,7 @@ public sealed class ManualRecordingSession : IAsyncDisposable
         var pixelsStarted = captureStarted;
         var pixelsCompleted = captureStarted;
         var pixelStatus = "not-requested";
+        var captureMethod = "not-requested";
 
         async Task CollectAutomationAsync()
         {
@@ -1917,6 +1923,7 @@ public sealed class ManualRecordingSession : IAsyncDisposable
                     }
                 }
                 var png = capture.Png;
+                captureMethod = capture.Method;
                 pixelStatus = capture.IsPartial ? "partial" : "ok";
                 pixelsCompleted = options.PreparedScreenshot?.CapturedUtc ?? DateTimeOffset.UtcNow;
                 if (persistFrame)
@@ -1968,7 +1975,7 @@ public sealed class ManualRecordingSession : IAsyncDisposable
             // Provider output is separate from the merged/derived control tree.
             if (persistFrame && options.RecordKind != "supplementary" && _rawCapture.Value is not null)
             {
-                await CollectRemainingRawStreamsAsync(scopedTargets, cancellationToken).ConfigureAwait(false);
+                await CollectRemainingRawStreamsAsync(scopedTargets, cancellationToken, options.FullRawObservation).ConfigureAwait(false);
                 if (screenshotBounds is not null && TryGetFrameScreenshot(sequence, out var ownPixels))
                     await CollectPixelRawStreamsAsync(ownPixels, screenshotBounds, _target, cancellationToken).ConfigureAwait(false);
                 else
@@ -1994,25 +2001,49 @@ public sealed class ManualRecordingSession : IAsyncDisposable
             AddCaptureHealth("raw-streams", "unavailable", "A raw collector failed; already captured evidence was retained.");
         }
 
+        RawObservationAcquisition? acquisition = null;
+        if (options.FullRawObservation)
+        {
+            var retained = _rawCapture.Value?.Snapshot() ?? [];
+            automation = retained.Where(stream => RawObservationSemantics.Kind(stream.Source) == "native-automation")
+                .SelectMany(stream => stream.Controls)
+                .DistinctBy(control => (control.WindowHwnd, control.RuntimeId, control.ControlType, control.Bounds))
+                .Take(RecordingContractLimits.MaxControlsPerFrame).ToArray();
+            cancelled |= cancellationToken.IsCancellationRequested;
+            var stability = cancelled ? "interrupted" : await CheckObservationStabilityAsync(
+                scopedWindows, screenshotBounds, sequence, captureStarted, cancellationToken).ConfigureAwait(false);
+            cancelled |= cancellationToken.IsCancellationRequested;
+            var incomplete = pixelStatus != "ok" || retained.Any(stream =>
+                stream.Truncated || stream.Status is not ("ok" or "not-configured" or "not-applicable"));
+            incomplete |= discoveredTargets.Length > scopedTargets.Length;
+            status = cancelled ? "cancelled" : stability == "changed" ? "interrupted" :
+                incomplete || stability != "stable" ? "partial" : "ok";
+            timedOut = retained.Any(stream => stream.Status == "timeout");
+            acquisition = new(RawObservationSemantics.Version, $"observation:{sequence}", captureStarted,
+                DateTimeOffset.UtcNow, status, captureMethod,
+                stability, stability == "changed" ? "target-changed-during-collection" : "",
+                scopedWindows.Select(item => new RawWindowCoverage(item.Hwnd, item.Bounds,
+                    RawObservationSemantics.Coverage(item.Bounds, screenshotBounds))).ToArray());
+        }
         var observation = new FrameObservation(sequence, DateTimeOffset.UtcNow, frameEntry, window, automation, timedOut, status, trigger, scopedWindows,
             options.EpisodeSequence, options.PostTriggerDelayMs, options.CapturePhase, options.ActionObservedUtc,
             options.ObservationScope, options.ObservedWindowHwnds, screenshotBounds, options.BaseFrameSequence,
             options.InteractionSource, options.InteractionId, extraction,
-            RecordKind: options.RecordKind);
+            RecordKind: options.RecordKind, Acquisition: acquisition);
         if (!persistFrame)
             return observation;
 
-        var providers = _rawCapture.Value?.Snapshot().ToList() ?? [];
+        var providers = _rawCapture.Value?.Seal().ToList() ?? [];
         if (providers.Count == 0)
             providers.Add(new("capture-controls", "capture-controls", captureStarted, observation.TimestampUtc,
                 status, automation.Where(control => control.FrameworkId != "UiAtlas.Cached").ToArray(), automation.Count));
         observation = observation with { RawStreams = RawFrameEvidence.Seal(observation, captureStarted,
-            pixelsStarted, pixelsCompleted, pixelStatus, providers) };
+            pixelsStarted, pixelsCompleted, pixelStatus, providers, windowsCompleted) };
 
         lock (_stateGate)
         {
             if (_finalized) throw new OperationCanceledException("Recording finalized before the delta was persisted.");
-            _hasPartialCapture |= cancelled || observation.RawStreams.Any(stream => stream.Truncated ||
+            _hasPartialCapture |= cancelled || status is "interrupted" or "partial" || observation.RawStreams.Any(stream => stream.Truncated ||
                 stream.Status is "timeout" or "partial" or "unavailable" or "budget-exhausted");
             _frames.Add(new(observation.Sequence, observation.TimestampUtc, observation.Trigger, observation.EpisodeSequence,
                 observation.CapturePhase, observation.AutomationStatus, StructuralFingerprint(observation)));
@@ -2023,30 +2054,42 @@ public sealed class ManualRecordingSession : IAsyncDisposable
         return observation;
     }
 
-    private async Task CollectRemainingRawStreamsAsync(IReadOnlyList<WindowTarget> targets, CancellationToken cancellationToken)
+    private async Task CollectRemainingRawStreamsAsync(IReadOnlyList<WindowTarget> targets, CancellationToken cancellationToken,
+        bool fullObservation = false)
     {
         var timer = Stopwatch.StartNew();
-        var budget = TimeSpan.FromSeconds(4);
-        foreach (var target in targets)
+        var budget = fullObservation ? TimeSpan.FromSeconds(180) : TimeSpan.FromSeconds(4);
+        var pending = targets.Count * 4;
+        foreach (var source in new[] { "uia.raw", "uia.control", "uia.content", "msaa" })
         {
-            foreach (var source in new[] { "uia.raw", "uia.control", "uia.content", "msaa" })
+            foreach (var target in targets)
             {
                 var stream = $"{source}/0x{target.Hwnd:X}";
                 var remaining = budget - timer.Elapsed;
-                if (remaining < TimeSpan.FromMilliseconds(250))
+                var fairShare = remaining.TotalMilliseconds / Math.Max(1, pending--);
+                if (remaining < TimeSpan.FromMilliseconds(250) || cancellationToken.IsCancellationRequested)
                 {
                     var now = DateTimeOffset.UtcNow;
-                    _rawCapture.Value?.Add(stream, now, now, "budget-exhausted", []);
+                    _rawCapture.Value?.Add(stream, now, now, cancellationToken.IsCancellationRequested ? "cancelled" : "budget-exhausted", []);
                     continue;
                 }
-                var timeout = TimeSpan.FromMilliseconds(Math.Min(700, remaining.TotalMilliseconds));
+                var timeout = TimeSpan.FromMilliseconds(Math.Min(fullObservation ? 35_000 : 700,
+                    fullObservation ? fairShare : remaining.TotalMilliseconds));
+                var maxNodes = fullObservation ? 12_000 : 2_500;
+                if (fullObservation) RawCaptureProgress?.Invoke($"Reading {source} for {target.ClassName} ({pending + 1} streams remaining)...");
                 try
                 {
                     await CollectAutomationExclusiveAsync(() => source == "msaa"
-                        ? _automation.CollectLegacyAsync(_target, target.Hwnd, timeout, 2_500, cancellationToken)
+                        ? _automation.CollectLegacyAsync(_target, target.Hwnd, timeout, maxNodes, cancellationToken)
                         : _automation.CollectViewAsync(_target, target.Hwnd,
                             source == "uia.raw" ? AutomationTreeView.Raw : source == "uia.control" ? AutomationTreeView.Control : AutomationTreeView.Content,
-                            timeout, 2_500, cancellationToken), cancellationToken, stream).ConfigureAwait(false);
+                            timeout, maxNodes, cancellationToken), cancellationToken, stream).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    var now = DateTimeOffset.UtcNow;
+                    if (_rawCapture.Value?.Snapshot().Any(attempt => attempt.Source == stream) != true)
+                        _rawCapture.Value?.Add(stream, now, now, "cancelled", []);
                 }
                 catch (Exception ex) when (ex is InvalidOperationException or ArgumentException or System.ComponentModel.Win32Exception)
                 {
@@ -2491,7 +2534,8 @@ public sealed record FrameCaptureOptions(
     bool WaitForDeferredVisualContent = false,
     bool RequireRenderedAutomationContent = false,
     Func<CancellationToken, Task<AdaptiveExtractionResult>>? AutomationCollector = null,
-    string RecordKind = "observation");
+    string RecordKind = "observation",
+    bool FullRawObservation = false);
 
 public sealed record PreparedFrameScreenshot(
     byte[] Png,

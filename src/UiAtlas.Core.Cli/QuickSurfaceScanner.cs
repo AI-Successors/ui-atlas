@@ -36,6 +36,11 @@ internal static class QuickSurfaceScanner
     {
         ArgumentNullException.ThrowIfNull(session);
         if (string.IsNullOrWhiteSpace(trigger)) throw new ArgumentException("A trigger is required.", nameof(trigger));
+        if (session.FullRawObservations)
+        {
+            session.RawCaptureProgress = status;
+            return Describe(await session.CaptureFullObservationAsync("manual:" + trigger, cancellationToken).ConfigureAwait(false));
+        }
 
         var timer = Stopwatch.StartNew();
         // A number of legacy Win32/Delphi applications keep a hidden zero-sized

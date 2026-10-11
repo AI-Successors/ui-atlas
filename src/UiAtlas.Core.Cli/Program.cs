@@ -1253,6 +1253,8 @@ internal static class Program
                 panel.RestoreAfterScreenshot();
                 overlay.RestoreAfterScreenshot();
             });
+        session.FullRawObservations = launchMode != SessionLaunchMode.AutoTabs;
+        session.RawCaptureProgress = message => panel.SetStatus(message);
         session.Start(explicitConsent: true);
         // The click that chose a recording mode and any user input used while the
         // initial bounded scan is running must never become the first recorded
@@ -1302,6 +1304,7 @@ internal static class Program
         }
         async Task<AutoTabsOutcome> RunCancelableAutoPassAsync(FrameObservation frame, AdaptiveCaptureCoordinator coordinator)
         {
+            session.FullRawObservations = false;
             using var autoCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellation.Token);
             lock (autoPassGate)
                 activeAutoPassCancellation = autoCancellation;
@@ -1329,6 +1332,7 @@ internal static class Program
                         activeAutoPassCancellation = null;
                 }
                 Volatile.Write(ref autoStopRequested, 0);
+                session.FullRawObservations = true;
             }
         }
         Console.CancelKeyPress += cancelHandler;
@@ -1415,7 +1419,7 @@ internal static class Program
                 var initialSurfaceInvalidated = 0;
                 using (var feedbackCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellation.Token))
                 {
-                    var feedbackTask = ShowInitialManualClickFeedbackAsync(
+                    var feedbackTask = session.FullRawObservations ? Task.CompletedTask : ShowInitialManualClickFeedbackAsync(
                         session,
                         target,
                         panel,
@@ -1559,26 +1563,25 @@ internal static class Program
                 }
                 else
                 {
-                    Console.WriteLine("Single-click capture is armed automatically. Use Pause to hold this session, Double or T for a double-click, Stop or F to finish, or C to cancel. Press A only if you need to refocus the app.");
+                    Console.WriteLine("Collecting the initial observation. Capture becomes ready when all streams finish. Use Pause to hold, Stop or F to finish, or C to cancel.");
                     PrintRecorderActiveConsoleHelp();
-                    panel.SetStatus("Recording is active. The next single click is armed automatically.");
+                    panel.SetStatus("Capturing the initial observation. Please wait until the recorder is ready.");
                 }
 
-                // Arm after the chooser click has finished but before the slow
-                // UIA/OCR pass. A lightweight watcher paints the clicked control
-                // immediately while the complete map continues in background.
+                // Track intervening input for stability, but accept the next action
+                // only after the initial observation has been sealed.
                 manualClickCursorUtc = DateTimeOffset.UtcNow;
                 if (Volatile.Read(ref pauseRequested) == 0)
                 {
                     session.SetInputCapturePaused(false);
-                    session.AddMarker("manual-mode:armed-before-initial-scan");
+                    session.AddMarker("manual-mode:collecting-initial-observation");
                 }
                 QuickSurfaceScanResult initialScan;
                 var matchedExistingMap = false;
                 var initialSurfaceInvalidated = 0;
                 using (var feedbackCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellation.Token))
                 {
-                    var feedbackTask = ShowInitialManualClickFeedbackAsync(
+                    var feedbackTask = session.FullRawObservations ? Task.CompletedTask : ShowInitialManualClickFeedbackAsync(
                         session,
                         target,
                         panel,
@@ -1588,7 +1591,7 @@ internal static class Program
                         feedbackCancellation.Token);
                     try
                     {
-                        var mappedBaseline = matchExistingMapOnStart
+                        var mappedBaseline = matchExistingMapOnStart && !session.FullRawObservations
                             ? await TryCaptureMappedResumeSurfaceAsync(
                                 session, target, panel, workspace, sessionId, mappedSurfaces!,
                                 overlay, cancellation.Token).ConfigureAwait(false)
@@ -1621,6 +1624,7 @@ internal static class Program
                 else if (Volatile.Read(ref initialSurfaceInvalidated) != 0)
                     overlay.ClearObservedSurfaceHighlights();
                 var baseline = initialScan.Frame;
+                manualClickCursorUtc = DateTimeOffset.UtcNow;
                 adaptive = new AdaptiveCaptureCoordinator(session, target, ReportAdaptiveStatus);
                 SynchronizeOverlayWithAdaptiveFrames(adaptive, overlay);
                 adaptive.Start(baseline);
@@ -1859,14 +1863,18 @@ internal static class Program
                         immediateBounds,
                         TimeSpan.FromSeconds(45));
                     panel.SetStatus("Click detected. Writing it to the map...");
-                    var immediateVisualFeedback = RefineManualClickFeedbackAsync(
+                    var immediateVisualFeedback = session.FullRawObservations ? Task.CompletedTask : RefineManualClickFeedbackAsync(
                         target,
                         clickPoint,
                         overlay,
                         cancellation.Token);
-                    clickCaptureOutcome = await adaptive.CaptureClickAsync(
-                        clickPoint, captureCheckpoint, cancellation.Token,
-                        recordedClick.WindowFromPointHwnd, dialogCheckpoint).ConfigureAwait(false);
+                    clickCaptureOutcome = session.FullRawObservations
+                        ? await overlay.RunHiddenAsync(() => adaptive.CaptureClickAsync(
+                            clickPoint, captureCheckpoint, cancellation.Token,
+                            recordedClick.WindowFromPointHwnd, dialogCheckpoint), cancellation.Token).ConfigureAwait(false)
+                        : await adaptive.CaptureClickAsync(clickPoint, captureCheckpoint, cancellation.Token,
+                            recordedClick.WindowFromPointHwnd, dialogCheckpoint).ConfigureAwait(false);
+                    if (session.FullRawObservations) manualClickCursorUtc = DateTimeOffset.UtcNow;
                     await immediateVisualFeedback.ConfigureAwait(false);
                     var highlightControl = adaptive.LastManualHighlightControl;
                     var highlightBounds = adaptive.ResolveManualHighlightBounds(clickPoint) ??
@@ -1963,7 +1971,9 @@ internal static class Program
                     {
                         AdaptiveClickCaptureOutcome.PopupCaptured => "Click and popup recorded. Ready for the next single click.",
                         AdaptiveClickCaptureOutcome.DialogCaptured => "Click and dialog controls recorded. The dialog remains open for manual clicks.",
-                        AdaptiveClickCaptureOutcome.RootCaptured => "Click and complete screen recorded. Ready for the next single click.",
+                        AdaptiveClickCaptureOutcome.RootCaptured => adaptive?.LatestFullFrame.Acquisition?.Status is "partial" or "interrupted"
+                            ? "Observation saved with incomplete evidence. Ready for the next single click."
+                            : "Click and screen recorded. Ready for the next single click.",
                         AdaptiveClickCaptureOutcome.ControlCaptured => "Click target saved, but no changed screen was confirmed. Ready for the next click.",
                         AdaptiveClickCaptureOutcome.PopupFailed => "The click was recorded, but the popup was not captured. Keep it open and click again.",
                         AdaptiveClickCaptureOutcome.DialogFailed => "The dialog opened, but its controls were not captured. Keep it open and click a control again.",

@@ -365,6 +365,16 @@ public sealed class AdaptiveCaptureCoordinator : IAsyncDisposable
         // popup-producing click returns through the popup path below, so waiting
         // until after popup capture would lose the Ribbon button highlight.
         var clickScopeHwnd = ResolvePointScopeHwnd(clickWindowHwnd);
+        if (_session.FullRawObservations)
+        {
+            if (_latestFullFrame is not null)
+                SetLastManualHighlight(ResolveManualHighlightTarget(_target, _latestFullFrame.Automation, point));
+            _session.RawCaptureProgress = _status;
+            var observed = await _session.CaptureFullObservationAsync("manual-action", cancellationToken,
+                checkpoint.InteractionId, _lastManualHighlightControl).ConfigureAwait(false);
+            RegisterFullFrame(observed);
+            return AdaptiveClickCaptureOutcome.RootCaptured;
+        }
         if (clickScopeHwnd != 0 && _recentPopupAutomation.TryGetValue(clickScopeHwnd, out var popupControls))
             SetLastManualHighlight(ResolveManualHighlightTarget(_target, popupControls, point));
         else if ((clickScopeHwnd == 0 || clickScopeHwnd == _target.RootOwnerHwnd) && _latestFullFrame is not null)
@@ -934,6 +944,13 @@ public sealed class AdaptiveCaptureCoordinator : IAsyncDisposable
     {
         if (timeout <= TimeSpan.Zero)
             throw new ArgumentOutOfRangeException(nameof(timeout));
+        if (_session.FullRawObservations)
+        {
+            var full = await _session.CaptureFullObservationAsync("manual-refresh", cancellationToken,
+                _activeInteractionId).ConfigureAwait(false);
+            RegisterFullFrame(full);
+            return full;
+        }
         var request = CreateRootRequest(isBackground: false);
         if (!_requests.Writer.TryWrite(request))
         {
@@ -1052,6 +1069,7 @@ public sealed class AdaptiveCaptureCoordinator : IAsyncDisposable
 
     private void QueuePopup(long hwnd)
     {
+        if (_session.FullRawObservations) return;
         if (Volatile.Read(ref _draining) != 0 || hwnd == _target.RootOwnerHwnd ||
             !IsPopupCaptureCandidateClass(WindowCatalog.GetClass((nint)hwnd))) return;
         try
@@ -2308,6 +2326,7 @@ public sealed class AdaptiveCaptureCoordinator : IAsyncDisposable
 
     private void QueueChangedRootSurface()
     {
+        if (_session.FullRawObservations) return;
         try
         {
             if (!NativeMethods.GetWindowRect((nint)_target.Hwnd, out _))
