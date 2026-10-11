@@ -282,10 +282,13 @@ fall back to cross-frame reconstruction if a new capture is incomplete.
   command suites pass **115/115** and the full clean Release solution builds with
   zero warnings/errors. This follow-up covers the final source change; the full
   suite counts above precede the final readiness-label and selection-only changes.
-- Normal Visual Studio Build produced **UI Atlas Core 2.0.64**, with eight projects
-  built, six up-to-date and zero failures. The CLI product version identifies source
-  commit `3edf79419440bb6d4fa7859e30bd82788f3e1e4e`. The live initial recording used
-  build 62; resume/merge used build 63; final editor verification uses build 64.
+- Normal Visual Studio Build produced **UI Atlas Core 2.0.65**, with seven projects
+  built, seven up-to-date and zero failures. The live initial recording used build
+  62; resume/merge used build 63; legacy crop/selection verification used build 64.
+- A final startup check found the initial derived view preselected the raw selector's
+  combined option. Raw provider initialization now runs only in the raw view, so
+  first entry can choose its most useful available attempt. Clean Release build
+  and the **115/115** focused run pass again after this final one-line UI condition.
 - Recorder-only Build, repeated Build repair and Rebuild all stage a complete,
   matching viewer. Repository-boundary checks and the offline synthetic flow
   (build, validate, save, export/import, reopen and semantic diff) pass.
