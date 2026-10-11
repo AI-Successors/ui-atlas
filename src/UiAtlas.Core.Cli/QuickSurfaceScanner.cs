@@ -42,84 +42,86 @@ internal static class QuickSurfaceScanner
         // application window as GA_ROOTOWNER. Scan the visible window selected by
         // the user; the root-owner handle remains available for scope validation.
         var target = WindowCatalog.Resolve(session.TargetHwnd);
-        // Persist visual and Win32 evidence before asking an application UIA
-        // provider anything. A blocked WPF provider must never make recording
-        // look as though it did not start.
-        var baseFrame = await session.CaptureAsync(
-            "quick-map-screen:" + trigger,
-            cancellationToken,
-            new FrameCaptureOptions(
-                IncludeAutomation: false,
-                CapturePhase: "materialized",
-                ObservationScope: "full-root",
-                ScreenshotTimeout: TimeSpan.FromMilliseconds(500),
-                PreferScreenBoundsScreenshot: true)).ConfigureAwait(false);
-        status?.Invoke("Stage 2 of 5: scanning visible controls and tables. Complex applications can take several minutes.");
-        var catalog = new LocalArtifactCatalog();
-        var cacheStore = new ApplicationSurfaceCacheStore(catalog.Root);
-        var cacheKey = SurfaceCacheKey(target);
-        IReadOnlyList<AutomationObservation> cachedControls;
-        try
+        async Task<AdaptiveExtractionResult> CollectStreamsAsync(CancellationToken token)
         {
-            var cache = cacheStore.Load(cacheKey);
-            if (cache.Controls.Count < 24)
-                cache = BootstrapCacheFromRecentRecordings(cacheStore, catalog, cacheKey, cache);
-            cachedControls = cacheStore.Project(cache, target.Bounds, target.RootOwnerHwnd);
+            status?.Invoke("Stage 2 of 5: scanning visible controls and tables. Complex applications can take several minutes.");
+            var catalog = new LocalArtifactCatalog();
+            var cacheStore = new ApplicationSurfaceCacheStore(catalog.Root);
+            var cacheKey = SurfaceCacheKey(target);
+            IReadOnlyList<AutomationObservation> cachedControls;
+            try
+            {
+                var cache = cacheStore.Load(cacheKey);
+                if (cache.Controls.Count < 24)
+                    cache = BootstrapCacheFromRecentRecordings(cacheStore, catalog, cacheKey, cache);
+                cachedControls = cacheStore.Project(cache, target.Bounds, target.RootOwnerHwnd);
+            }
+            catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException)
+            {
+                cachedControls = [];
+            }
+            var raw = IsRibbonTarget(target)
+                ? await CollectRibbonApplicationAsync(session, target, token).ConfigureAwait(false)
+                : await session.CollectWindowAutomationAsync(
+                    target.Hwnd,
+                    TimeSpan.FromMilliseconds(3_200),
+                    MaximumControlCount,
+                    token).ConfigureAwait(false);
+            var cascadeBudget = CaptureBudget - TimeSpan.FromMilliseconds(650) - timer.Elapsed;
+            if (cascadeBudget < TimeSpan.Zero) cascadeBudget = TimeSpan.Zero;
+            var cascade = await AdaptiveExtractionCascade.EnrichAsync(
+                session, target, raw.Items, raw.TimedOut, raw.Status, cascadeBudget,
+                MaximumControlCount, token, cachedControls).ConfigureAwait(false);
+            var shadowBudget = CaptureBudget - TimeSpan.FromMilliseconds(650) - timer.Elapsed;
+            if (NeedsOpaqueSurfaceScan(cascade.Snapshot) && shadowBudget >= TimeSpan.FromMilliseconds(350))
+            {
+                status?.Invoke("Recording is active. Windows exposed only a control group; mapping it safely without clicks...");
+                var shadow = await OpaqueSurfaceScanner.ScanAsync(
+                    session, target, cascade.Snapshot.Gaps, shadowBudget, token,
+                    cascade.Controls, enableHoverAndFocusDiscovery: false,
+                    allowOcrFallback: true).ConfigureAwait(false);
+                cascade = MergeShadowEvidence(cascade, target, shadow);
+                foreach (var diagnostic in shadow.DiagnosticCodes)
+                    session.AddCaptureHealth("opaque-surface", diagnostic,
+                        $"Hover probes: {shadow.HoverProbeCount}; focus probes: {shadow.FocusProbeCount}; " +
+                        $"hover states: {shadow.HoverStateCount}.");
+                if (shadow.InterruptedByUser)
+                    status?.Invoke("Background mapping stopped because you started interacting. Manual recording is active.");
+            }
+            try
+            {
+                _ = cacheStore.Observe(cacheKey, target.Bounds, cascade.Controls, DateTimeOffset.UtcNow);
+            }
+            catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException)
+            {
+                // The scan is immutable evidence even when the optional accelerator
+                // cache cannot be updated. Never fail recording for a cache problem.
+            }
+
+            return cascade;
         }
-        catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException)
+
+        // Pixels are staged first; provider reads are sealed into the same observation.
+        // Cached hints guide acquisition but are never appended to fresh raw evidence.
+        var frame = await session.CaptureAsync("quick-map:" + trigger, cancellationToken,
+            new FrameCaptureOptions(IncludeAutomation: false, ObservationScope: "full-root",
+                ScreenshotTimeout: TimeSpan.FromMilliseconds(500), PreferScreenBoundsScreenshot: true,
+                AutomationCollector: CollectStreamsAsync)).ConfigureAwait(false);
+        // Active discovery changes the application and may capture a popup itself.
+        // Run it only after CaptureAsync releases the observation lock; its results
+        // must never be merged back into the already sealed baseline frame.
+        var activeBudget = CaptureBudget - timer.Elapsed;
+        if (enableHoverAndFocusDiscovery && frame.Extraction is { } extraction &&
+            NeedsOpaqueSurfaceScan(extraction) && activeBudget >= TimeSpan.FromMilliseconds(350))
         {
-            cachedControls = [];
-        }
-        var raw = IsRibbonTarget(target)
-            ? await CollectRibbonApplicationAsync(session, target, cancellationToken).ConfigureAwait(false)
-            : await session.CollectWindowAutomationAsync(
-                target.Hwnd,
-                TimeSpan.FromMilliseconds(3_200),
-                MaximumControlCount,
-                cancellationToken).ConfigureAwait(false);
-        var cascadeBudget = CaptureBudget - TimeSpan.FromMilliseconds(650) - timer.Elapsed;
-        if (cascadeBudget < TimeSpan.Zero) cascadeBudget = TimeSpan.Zero;
-        var cascade = await AdaptiveExtractionCascade.EnrichAsync(
-            session, target, raw.Items, raw.TimedOut, raw.Status, cascadeBudget,
-            MaximumControlCount, cancellationToken, cachedControls).ConfigureAwait(false);
-        var shadowBudget = CaptureBudget - TimeSpan.FromMilliseconds(650) - timer.Elapsed;
-        if (NeedsOpaqueSurfaceScan(cascade.Snapshot) && shadowBudget >= TimeSpan.FromMilliseconds(350))
-        {
-            status?.Invoke("Recording is active. Windows exposed only a control group; mapping it safely without clicks...");
-            var shadow = await OpaqueSurfaceScanner.ScanAsync(
-                session, target, cascade.Snapshot.Gaps, shadowBudget, cancellationToken,
-                cascade.Controls, enableHoverAndFocusDiscovery,
-                allowOcrFallback: true).ConfigureAwait(false);
-            cascade = MergeShadowEvidence(cascade, target, shadow);
+            var shadow = await OpaqueSurfaceScanner.ScanAsync(session, target, extraction.Gaps,
+                activeBudget, cancellationToken, frame.Automation,
+                enableHoverAndFocusDiscovery: true, allowOcrFallback: true).ConfigureAwait(false);
             foreach (var diagnostic in shadow.DiagnosticCodes)
                 session.AddCaptureHealth("opaque-surface", diagnostic,
                     $"Hover probes: {shadow.HoverProbeCount}; focus probes: {shadow.FocusProbeCount}; " +
                     $"hover states: {shadow.HoverStateCount}.");
-            if (shadow.InterruptedByUser)
-                status?.Invoke("Background mapping stopped because you started interacting. Manual recording is active.");
         }
-        var combinedControls = MergeCachedControls(cascade.Controls, cachedControls, MaximumControlCount);
-        status?.Invoke($"Stage 3 of 5: verifying {combinedControls.Count} discovered controls and attaching them to this screen.");
-        var frame = await session.CaptureAutomationDeltaAsync(
-            "quick-map:" + trigger,
-            combinedControls,
-            cancellationToken,
-            baseFrame.Sequence,
-            target.Hwnd,
-            cascade.TimedOut,
-            cascade.Status,
-            cascade.Snapshot).ConfigureAwait(false);
-
-        try
-        {
-            _ = cacheStore.Observe(cacheKey, target.Bounds, cascade.Controls, DateTimeOffset.UtcNow);
-        }
-        catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException)
-        {
-            // The scan is immutable evidence even when the optional accelerator
-            // cache cannot be updated. Never fail recording for a cache problem.
-        }
-
         return Describe(frame);
     }
 

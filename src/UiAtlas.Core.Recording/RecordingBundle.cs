@@ -312,6 +312,9 @@ public static class RecordingBundleValidator
                     issues.Add(new("bundle.observation", "error", entry, "Automation field exceeds limit."));
             if (frame.Extraction is not null && !ValidExtraction(frame.Extraction))
                 issues.Add(new("bundle.extraction", "error", entry, "Adaptive extraction evidence exceeds limits."));
+            if (frame.RecordKind is not (null or "observation" or "supplementary") ||
+                frame.RawStreams is not null && !ValidRawStreams(frame))
+                issues.Add(new("bundle.raw-streams", "error", entry, "Raw streams are invalid or refer to another observation."));
         }
 
         if (statebook.RepresentativeFrames is not null && statebook.Episodes is not null &&
@@ -357,6 +360,23 @@ public static class RecordingBundleValidator
         item.ControlType is not null && item.ClassName is not null && item.FrameworkId is not null && item.RuntimeId.Length <= 4_096 &&
         item.ParentRuntimeId.Length <= 4_096 && item.AutomationId.Length <= 512 && item.Name.Length <= 4_096 &&
         item.ControlType.Length <= 512 && item.ClassName.Length <= 512 && item.FrameworkId.Length <= 512;
+
+    private static bool ValidRawStreams(FrameObservation frame)
+    {
+        var streams = frame.RawStreams!;
+        if (streams.Count > RawFrameEvidence.MaxStreams || streams.Any(stream => stream is null) ||
+            streams.Select(stream => stream.StreamId).Distinct(StringComparer.Ordinal).Count() != streams.Count)
+            return false;
+        if (streams.Sum(stream => (long)(stream.Controls?.Count ?? 0)) > RawFrameEvidence.MaxControls) return false;
+        return streams.All(stream => stream.StreamId is { Length: > 0 and <= 256 } &&
+            stream.Source is { Length: > 0 and <= 128 } && stream.Status is { Length: > 0 and <= 128 } &&
+            stream.StartedUtc <= stream.CompletedUtc && stream.CompletedUtc <= frame.TimestampUtc &&
+            stream.Controls is not null && stream.Controls.All(control => control is not null && ValidAutomation(control)) &&
+            stream.ReturnedCount >= stream.Controls.Count &&
+            (stream.ScreenshotEntry is null || stream.ScreenshotEntry == frame.FrameEntry && frame.FrameEntry.Length > 0) &&
+            (stream.Windows is null || stream.Windows.Count <= RecordingContractLimits.MaxScopedWindows &&
+                stream.Windows.All(window => window is not null && ValidWindow(window))));
+    }
 
     private static bool ValidExtraction(AdaptiveExtractionSnapshot value)
     {

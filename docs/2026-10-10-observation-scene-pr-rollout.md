@@ -10,6 +10,10 @@ The video, native recordings, screenshots, and document contents are private qua
 
 ## Contract
 
+The approved [raw frame isolation amendment](2026-10-10-raw-frame-isolation-pr-rollout.md)
+supersedes scene-context rendering in Raw Data Streams. Reconstruction and inherited
+pixels are restricted to Raw World and later projections.
+
 1. Retain bounded provider observations before readiness/normalization decisions. A rejection prevents promotion, not evidence retention. Distinguish timeout, missing root, disconnected descendants, wrong ownership, and empty content.
 2. Use a shared, deterministic scene projection for graph construction and inspection. Full observations, partial observations, and deltas have distinct coverage. Carry-forward preserves source observation identity and never fabricates fresh evidence.
 3. Keep control identity separate from observation-specific bounds, state, source, ownership and validity. Raw reported ownership is immutable; effective ownership requires compatible geometry and temporal evidence. Unresolved ownership stays unresolved.

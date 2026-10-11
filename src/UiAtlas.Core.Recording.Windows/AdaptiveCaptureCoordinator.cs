@@ -22,7 +22,7 @@ public sealed class AdaptiveCaptureCoordinator : IAsyncDisposable
     private static readonly TimeSpan TabAutomationTimeout = TimeSpan.FromSeconds(6);
     private static readonly TimeSpan RootLegacyRecoveryTimeout = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan RootNativeBandRecoveryTimeout = TimeSpan.FromSeconds(3);
-    internal static readonly TimeSpan ManualRootRefreshTimeout = TimeSpan.FromSeconds(8);
+    internal static readonly TimeSpan ManualRootRefreshTimeout = TimeSpan.FromSeconds(14);
     internal static readonly TimeSpan CancelledRootDrainTimeout = TimeSpan.FromMilliseconds(750);
     private const int PopupMaxNodes = 600;
     private const int TabMaxNodes = RecordingContractLimits.MaxControlsPerFrame;
@@ -454,7 +454,7 @@ public sealed class AdaptiveCaptureCoordinator : IAsyncDisposable
         // for the full root transaction before arming the next manual click so
         // tables, page buttons, and persistent application chrome are attached
         // to this interaction instead of being captured by a later click.
-        _status?.Invoke("Reading the changed screen for up to 8 seconds. No automatic click is being sent.");
+        _status?.Invoke("Reading the changed screen and its raw streams for up to 14 seconds.");
         var rootFrame = await RefreshRootSurfaceAsync(
             ManualRootRefreshTimeout, cancellationToken).ConfigureAwait(false);
         if (rootFrame is not null)
@@ -479,6 +479,7 @@ public sealed class AdaptiveCaptureCoordinator : IAsyncDisposable
         long clickScopeHwnd,
         CancellationToken cancellationToken)
     {
+        using var rawObservation = _session.BeginRawObservation();
         var probe = await _session.CollectPointAutomationAsync(
             point, ControlAutomationTimeout, 64, cancellationToken,
             clickScopeHwnd == 0 ? null : clickScopeHwnd).ConfigureAwait(false);
@@ -1230,6 +1231,7 @@ public sealed class AdaptiveCaptureCoordinator : IAsyncDisposable
 
     private async Task ProcessPopupAsync(PopupRequest request, CancellationToken cancellationToken)
     {
+        using var rawObservation = _session.BeginRawObservation();
         var hwnd = request.Hwnd;
         var popup = await WaitForMaterializedPopupAsync(hwnd, cancellationToken).ConfigureAwait(false);
         if (popup is null)
@@ -1577,6 +1579,7 @@ public sealed class AdaptiveCaptureCoordinator : IAsyncDisposable
 
     private async Task ProcessTabAsync(string stableKey, CancellationToken cancellationToken)
     {
+        using var rawObservation = _session.BeginRawObservation();
         if (IsTabRecorded(stableKey)) return;
         await Task.Delay(TabSettle, cancellationToken).ConfigureAwait(false);
         var profile = RibbonSurfaceCapturePolicy.ForTarget(_target, RibbonSurfaceCapturePolicy.Fast);
@@ -1648,6 +1651,7 @@ public sealed class AdaptiveCaptureCoordinator : IAsyncDisposable
 
     private async Task<FrameObservation?> ProcessRootAttemptAsync(CancellationToken cancellationToken)
     {
+        using var rawObservation = _session.BeginRawObservation();
         var currentTarget = WindowCatalog.Resolve(_target.Hwnd);
         var isExcel = IsExcelTarget(currentTarget);
         var isExcelBackstage = isExcel && IsExcelBackstageVisible(currentTarget);
@@ -2000,7 +2004,8 @@ public sealed class AdaptiveCaptureCoordinator : IAsyncDisposable
             bounds,
             capture.Method,
             capture.UsedFallback,
-            capture.IsPartial || discovered.Count > targets.Length);
+            capture.IsPartial || discovered.Count > targets.Length,
+            DateTimeOffset.UtcNow);
         return (screenshot, analysisTarget, targets.Select(target => target.Hwnd).ToArray());
     }
 

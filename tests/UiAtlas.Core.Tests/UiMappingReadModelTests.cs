@@ -80,7 +80,8 @@ public sealed class UiMappingReadModelTests
         Assert.True(streams.Surfaces.SelectMany(surface => surface.Evidence).Select(item => item.FrameSequence).Distinct().Count() >= 2);
         var firstFrame = Assert.Single(streams.Surfaces.SelectMany(surface => surface.Variants),
             variant => variant.FrameSequence == 1);
-        Assert.Equal(2, firstFrame.ControlCount);
+        // Raw evidence includes the hidden provider record as well as visible controls.
+        Assert.Equal(3, firstFrame.ControlCount);
     }
 
     [Fact]

@@ -61,6 +61,9 @@ public sealed class ExplorerWindow : Window
     private readonly Image _appMapImage = new() { Stretch = Stretch.Uniform, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top };
     private readonly Grid _appMapViewport = new() { Background = Brush("#F4F5F9"), ClipToBounds = true };
     private readonly ContentControl _traceBannerHost = new() { Visibility = Visibility.Collapsed };
+    private bool _updatingRawStreams;
+    private readonly ComboBox _rawStreamFilter = new() { MinWidth = 150, MaxWidth = 280,
+        Margin = new Thickness(6, 0, 0, 0), Visibility = Visibility.Collapsed };
     private readonly CheckBox _includeRetainedControls = new() { Content = "Scene context", IsChecked = true,
         VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(10, 0, 4, 0),
         ToolTip = "Include earlier controls from this recording in the reconstructed scene. Clear to inspect only this capture's controls." };
@@ -631,6 +634,11 @@ public sealed class ExplorerWindow : Window
         _includeRetainedControls.Checked += (_, _) => RenderAppMap();
         _includeRetainedControls.Unchecked += (_, _) => RenderAppMap();
         modes.Children.Add(_includeRetainedControls);
+        _rawStreamFilter.SelectionChanged += (_, _) =>
+        {
+            if (!_updatingRawStreams) RenderAppMap();
+        };
+        modes.Children.Add(_rawStreamFilter);
         var actorFilter = new ComboBox { Width = 125, Margin = new Thickness(10, 0, 0, 0), ToolTip = "Filter interaction actor" };
         foreach (var value in new[] { "All actors", "User", "AutoExplorer", "DerivedCandidate" }) actorFilter.Items.Add(value);
         actorFilter.SelectedItem = _interactionActorFilter;
@@ -3415,7 +3423,7 @@ public sealed class ExplorerWindow : Window
         {
             try
             {
-                var frame = _evidence.Read(evidence);
+                var frame = _evidence.Read(evidence, allowInheritedPixels: _inspectionLevel != UiUnderstandingLevel.RawDataStreams);
                 if (frame is not null)
                 {
                     evidenceImage = frame;
@@ -3468,7 +3476,7 @@ public sealed class ExplorerWindow : Window
         {
             var empty = Text(_evidence is null
                 ? "No recording bundle is attached for this map yet. Open the map from the catalog flow to see screenshots."
-                : "This observation intentionally contains no retained screenshot pixels.", 13, FontWeights.Normal, Muted);
+                : "No screenshot was captured for this observation.", 13, FontWeights.Normal, Muted);
             empty.TextWrapping = TextWrapping.Wrap;
             empty.MaxWidth = Math.Max(280, width - 60);
             Canvas.SetLeft(empty, 30); Canvas.SetTop(empty, 30); _appMapOverlay.Children.Add(empty);
@@ -3486,24 +3494,37 @@ public sealed class ExplorerWindow : Window
             .Where(control => _selectedVariant is null || _selectedVariant.ControlIds.Contains(control.Id))
             .Select(control => UiMapPresentation.ForVariant(control, _selectedVariant))
             .ToArray();
-        if (_includeRetainedControls.IsChecked == true && _inspectionLevel == UiUnderstandingLevel.RawDataStreams &&
-            _selectedVariant is { } rawVariant && _evidence is not null && _evidence.SessionIds.Contains(rawVariant.BundleId))
+        var isRaw = _inspectionLevel == UiUnderstandingLevel.RawDataStreams;
+        _includeRetainedControls.Visibility = isRaw ? Visibility.Collapsed : Visibility.Visible;
+        _rawStreamFilter.Visibility = isRaw ? Visibility.Visible : Visibility.Collapsed;
+        var recordedStreams = isRaw && _selectedVariant is { } rawVariant && _evidence is not null &&
+            _evidence.SessionIds.Contains(rawVariant.BundleId)
+                ? _evidence.ReadObservation(rawVariant.BundleId, rawVariant.FrameSequence).RawStreams?.Select(stream => stream.Source) ?? []
+                : Enumerable.Empty<string>();
+        var streamNames = new[] { "All raw streams" }.Concat(recordedStreams.Concat(scopedControls
+            .Select(control => PropertyValue(control.Source, "rawStreamSource") ?? "legacy"))
+            .Distinct(StringComparer.Ordinal).OrderBy(value => value, StringComparer.Ordinal)).ToArray();
+        if (!streamNames.SequenceEqual(_rawStreamFilter.Items.Cast<string>()))
         {
-            var observation = _evidence.ReadObservation(rawVariant.BundleId, rawVariant.FrameSequence);
-            var owner = (observation.ScopedWindows ?? [observation.Window])
-                .FirstOrDefault(window => window.Bounds == rawVariant.Evidence?.Bounds);
-            if (owner is not null)
-                scopedControls = RawSceneProjection.Project(_model.LayerFor(_inspectionLevel).Controls,
-                    _evidence.ReadScene(rawVariant.BundleId, rawVariant.FrameSequence), rawVariant.BundleId,
-                    owner.Hwnd, _selectedSurface.Id).ToArray();
+            var selectedStream = _rawStreamFilter.SelectedItem as string;
+            _updatingRawStreams = true;
+            try
+            {
+                _rawStreamFilter.ItemsSource = streamNames;
+                _rawStreamFilter.SelectedItem = selectedStream is not null && streamNames.Contains(selectedStream) ? selectedStream : streamNames[0];
+            }
+            finally { _updatingRawStreams = false; }
         }
+        var rawStream = _rawStreamFilter.SelectedItem as string;
         var controls = scopedControls
-            .Where(control => _includeRetainedControls.IsChecked == true || PropertyValue(control.Source, "sceneStatus") != "retained")
-            .Where(control => !UiMapPresentation.IsStaleCachedControlForFrame(
+            .Where(control => !isRaw || rawStream is null or "All raw streams" ||
+                (PropertyValue(control.Source, "rawStreamSource") ?? "legacy") == rawStream)
+            .Where(control => isRaw || _includeRetainedControls.IsChecked == true || PropertyValue(control.Source, "sceneStatus") != "retained")
+            .Where(control => isRaw || !UiMapPresentation.IsStaleCachedControlForFrame(
                 control, frameSequence, frameBundleId, scopedControls))
-            .Where(control => !UiMapPresentation.IsRedundantCaptionButton(
+            .Where(control => isRaw || !UiMapPresentation.IsRedundantCaptionButton(
                 control, frameSequence, frameBundleId, scopedControls))
-            .Where(control => !UiMapPresentation.IsRedundantCompositeBoundary(
+            .Where(control => isRaw || !UiMapPresentation.IsRedundantCompositeBoundary(
                 control, frameSequence, frameBundleId, scopedControls))
             .Select(control => new
             {
@@ -3513,13 +3534,13 @@ public sealed class ExplorerWindow : Window
                     control, frameSequence, frameBundleId, scopedControls)
             })
             .Where(item => item.Surface is not null)
-            .Where(item => !UiMapPresentation.IsRedundantPopupEditor(
+            .Where(item => isRaw || !UiMapPresentation.IsRedundantPopupEditor(
                 item.Control,
                 item.Surface!,
                 frameSequence,
                 frameBundleId,
                 scopedControls))
-            .Where(item => UiMapPresentation.ShouldRenderControl(
+            .Where(item => isRaw || UiMapPresentation.ShouldRenderControl(
                 item.Control,
                 item.Surface!,
                 projectionMode,
@@ -3547,8 +3568,8 @@ public sealed class ExplorerWindow : Window
                     controlCrop = new ImageBrush(new CroppedBitmap(bitmap, cropRect)) { Stretch = Stretch.Fill };
                 var isSelected = control.Id == _selectedControl?.Id;
                 var isUnverified = GraphControlConfirmation.IsUnverified(control.Source);
-                var isButtonCandidate = GraphControlConfirmation.IsConfirmableButtonCandidate(control.Source);
-                var isCompactPopupAction = UiMapPresentation.IsCompactPopupAction(control, ownerSurface);
+                var isButtonCandidate = !isRaw && GraphControlConfirmation.IsConfirmableButtonCandidate(control.Source);
+                var isCompactPopupAction = !isRaw && UiMapPresentation.IsCompactPopupAction(control, ownerSurface);
                 var manualAnnotationId = PropertyValue(control.Source, "manualAnnotationId");
                 var canMove = isSelected && _mapEditing &&
                               _inspectionLevel == UiUnderstandingLevel.SemanticWorld;
@@ -4320,7 +4341,7 @@ public sealed class ExplorerWindow : Window
         if (_evidence is not null && _selectedVariant is { } providerVariant && _evidence.SessionIds.Contains(providerVariant.BundleId))
         {
             var attempts = _evidence.ReadProviderObservations(providerVariant.BundleId);
-            var providerButton = new Button { Content = $"Provider attempts ({attempts.Count})", Margin = new Thickness(0, 6, 0, 6) };
+            var providerButton = new Button { Content = $"Session provider attempts ({attempts.Count})", Margin = new Thickness(0, 6, 0, 6) };
             providerButton.Click += (_, _) =>
             {
                 var payload = attempts.Count == 0 ? "This recording has no retained provider-attempt stream. Historical rejected payloads cannot be recovered."
@@ -4331,15 +4352,34 @@ public sealed class ExplorerWindow : Window
                         FontFamily = new FontFamily("Consolas"), TextWrapping = TextWrapping.NoWrap } }.Show();
             };
             _properties.Children.Add(providerButton);
-            var scene = _evidence.ReadScene(providerVariant.BundleId, providerVariant.FrameSequence);
-            _properties.Children.Add(PropertyLabel("Coverage", scene.Coverage));
-            var owners = _model?.LayerFor(_inspectionLevel).ControlsForSurface(_selectedSurface!.Id,
-                    providerVariant.FrameSequence, providerVariant.BundleId)
-                .SelectMany(control => control.Source.Observations ?? [])
-                .Where(value => value.BundleId == providerVariant.BundleId && value.FrameSequence == providerVariant.FrameSequence)
-                .Select(value => value.EffectiveOwnerHwnd).ToHashSet() ?? [];
-            var retainedCount = scene.RetainedControls.Count(control => owners.Contains(control.EffectiveOwnerHwnd));
-            _properties.Children.Add(PropertyLabel("Retained earlier controls", $"{retainedCount} on this surface (not re-observed)"));
+            var observation = _evidence.ReadObservation(providerVariant.BundleId, providerVariant.FrameSequence);
+            if (_inspectionLevel == UiUnderstandingLevel.RawDataStreams)
+            {
+                _properties.Children.Add(PropertyLabel("Capture kind", observation.RecordKind ?? "legacy capture"));
+                _properties.Children.Add(PropertyLabel("Coverage", observation.ObservationScope));
+                var rawButton = new Button { Content = "Inspect this frame's raw streams", Margin = new Thickness(0, 6, 0, 6) };
+                rawButton.Click += (_, _) => new Window { Owner = this, Title = $"Raw evidence — frame {observation.Sequence}",
+                    Width = 900, Height = 650, Content = new TextBox {
+                        Text = System.Text.Json.JsonSerializer.Serialize(observation, UiAtlas.Core.Recording.JsonDefaults.Options),
+                        IsReadOnly = true, AcceptsReturn = true, VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                        HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, FontFamily = new FontFamily("Consolas") } }.Show();
+                _properties.Children.Add(rawButton);
+                foreach (var stream in observation.RawStreams ?? [])
+                    _properties.Children.Add(PropertyLabel(stream.Source,
+                        $"{stream.Status} • {stream.Controls.Count} controls • {stream.Windows?.Count ?? 0} windows"));
+            }
+            else
+            {
+                var scene = _evidence.ReadScene(providerVariant.BundleId, providerVariant.FrameSequence);
+                _properties.Children.Add(PropertyLabel("Coverage", scene.Coverage));
+                var owners = _model?.LayerFor(_inspectionLevel).ControlsForSurface(_selectedSurface!.Id,
+                        providerVariant.FrameSequence, providerVariant.BundleId)
+                    .SelectMany(control => control.Source.Observations ?? [])
+                    .Where(value => value.BundleId == providerVariant.BundleId && value.FrameSequence == providerVariant.FrameSequence)
+                    .Select(value => value.EffectiveOwnerHwnd).ToHashSet() ?? [];
+                var retainedCount = scene.RetainedControls.Count(control => owners.Contains(control.EffectiveOwnerHwnd));
+                _properties.Children.Add(PropertyLabel("Retained earlier controls", $"{retainedCount} on this surface (not re-observed)"));
+            }
         }
         _properties.Children.Add(Section("Identity"));
         _properties.Children.Add(PropertyLabel("ID", node.Id));

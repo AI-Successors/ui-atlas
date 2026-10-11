@@ -129,7 +129,7 @@ public sealed class RecordingGraphBuilder
                     .ToArray();
                 var recordedFrame = recordedBySequence[frame.Sequence];
                 var recordedWindows = (recordedFrame.ScopedWindows ?? [recordedFrame.Window])
-                    .Where(window => recordedFrame.ObservedWindowHwnds is not { Count: > 0 } ||
+                    .Where(window => recordedFrame.RawStreams is not null || recordedFrame.ObservedWindowHwnds is not { Count: > 0 } ||
                                      recordedFrame.ObservedWindowHwnds.Contains(window.Hwnd) ||
                                      recordedFrame.Automation.Any(control => control.WindowHwnd == window.Hwnd)).ToArray();
                 var rawDataStreamFrame = MaterializeRawDataStreamFrame(
@@ -526,6 +526,8 @@ public sealed class RecordingGraphBuilder
         IDictionary<string, MutableNode> nodes,
         IDictionary<string, MutableEdge> edges)
     {
+        var rawControls = RawFrameEvidence.Controls(frame).ToArray();
+        controls = rawControls.Select(item => item.Control).ToArray();
         var surfaceByWindow = new Dictionary<long, string>();
         var packageId = StableIdentity.Create("package", manifest.SessionId, frame.Sequence.ToString(CultureInfo.InvariantCulture));
         var effectivelyVisible = AutomationObservationVisibility.FilterEffectivelyVisible(controls).ToHashSet();
@@ -546,6 +548,7 @@ public sealed class RecordingGraphBuilder
             node.AddProperty("sourceStateId", frame.Sequence.ToString(CultureInfo.InvariantCulture));
             node.AddProperty("captureReason", frame.Trigger, sensitive: true);
             node.AddProperty("observationScope", frame.ObservationScope);
+            node.AddProperty("recordKind", frame.RecordKind ?? "legacy");
             node.AddProperty("hwnd", $"0x{window.Hwnd:X}", sensitive: true);
             node.AddProperty("rootOwnerHwnd", $"0x{window.RootOwnerHwnd:X}", sensitive: true);
             node.AddProperty("ownerHwnd", window.OwnerHwnd == 0 ? null : $"0x{window.OwnerHwnd:X}", sensitive: true);
@@ -565,7 +568,7 @@ public sealed class RecordingGraphBuilder
             surfaceByWindow[window.Hwnd] = id;
         }
 
-        foreach (var unresolved in controls.Where(control => control.WindowHwnd != 0 && !surfaceByWindow.ContainsKey(control.WindowHwnd))
+        foreach (var unresolved in controls.Where(control => !surfaceByWindow.ContainsKey(control.WindowHwnd))
                      .GroupBy(control => control.WindowHwnd).OrderBy(group => group.Key))
         {
             var id = StableIdentity.Create("rds-unresolved", manifest.SessionId, frame.Sequence.ToString(CultureInfo.InvariantCulture),
@@ -579,14 +582,15 @@ public sealed class RecordingGraphBuilder
             node.AddProperty("hwnd", $"0x{unresolved.Key:X}", sensitive: true);
             node.AddProperty("ownershipStatus", "reported HWND absent from captured windows");
             node.AddProperty("observationScope", frame.ObservationScope);
+            node.AddProperty("recordKind", frame.RecordKind ?? "legacy");
             node.AddProperty("nativeWindowType", "UnresolvedObservation");
             node.AddProperty("role", "unresolved");
             surfaceByWindow[unresolved.Key] = id;
             AddContains(edges, appId, id, evidence);
         }
 
-        var orderedControls = controls
-            .Select((control, ordinal) => new { Control = control, Ordinal = ordinal })
+        var orderedControls = rawControls
+            .Select((item, ordinal) => new { item.Control, item.StreamId, item.Source, Ordinal = ordinal })
             .OrderBy(item => item.Control.WindowHwnd)
             .ThenBy(item => item.Control.Bounds.Y)
             .ThenBy(item => item.Control.Bounds.X)
@@ -595,9 +599,7 @@ public sealed class RecordingGraphBuilder
         var idByRuntimeAndWindow = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var item in orderedControls)
         {
-            var windowHwnd = item.Control.WindowHwnd != 0
-                ? item.Control.WindowHwnd
-                : frame.Window.RootOwnerHwnd;
+            var windowHwnd = item.Control.WindowHwnd;
             if (!surfaceByWindow.TryGetValue(windowHwnd, out var surfaceId))
                 continue;
             var instance = !string.IsNullOrWhiteSpace(item.Control.RuntimeId)
@@ -606,13 +608,13 @@ public sealed class RecordingGraphBuilder
             var id = StableIdentity.Create("rds-control", surfaceId, instance,
                 item.Ordinal.ToString(CultureInfo.InvariantCulture));
             if (!string.IsNullOrWhiteSpace(item.Control.RuntimeId))
-                idByRuntimeAndWindow.TryAdd($"{windowHwnd:x}|{item.Control.RuntimeId}", id);
+                idByRuntimeAndWindow.TryAdd($"{item.StreamId}|{windowHwnd:x}|{item.Control.RuntimeId}", id);
         }
 
         foreach (var item in orderedControls)
         {
             var control = item.Control;
-            var windowHwnd = control.WindowHwnd != 0 ? control.WindowHwnd : frame.Window.RootOwnerHwnd;
+            var windowHwnd = control.WindowHwnd;
             if (!surfaceByWindow.TryGetValue(windowHwnd, out var surfaceId))
                 continue;
             var instance = !string.IsNullOrWhiteSpace(control.RuntimeId)
@@ -621,7 +623,7 @@ public sealed class RecordingGraphBuilder
             var id = StableIdentity.Create("rds-control", surfaceId, instance,
                 item.Ordinal.ToString(CultureInfo.InvariantCulture));
             var parentId = !string.IsNullOrWhiteSpace(control.ParentRuntimeId) &&
-                           idByRuntimeAndWindow.TryGetValue($"{windowHwnd:x}|{control.ParentRuntimeId}", out var parent)
+                           idByRuntimeAndWindow.TryGetValue($"{item.StreamId}|{windowHwnd:x}|{control.ParentRuntimeId}", out var parent)
                 ? parent
                 : surfaceId;
             var evidence = Evidence(manifest, frame, control.Bounds);
@@ -633,6 +635,8 @@ public sealed class RecordingGraphBuilder
             node.AddProperty("sourcePackageId", packageId);
             node.AddProperty("sourceStateId", frame.Sequence.ToString(CultureInfo.InvariantCulture));
             node.AddProperty("rawDataStreamSurfaceId", surfaceId);
+            node.AddProperty("rawStreamId", item.StreamId);
+            node.AddProperty("rawStreamSource", item.Source);
             node.AddProperty("runtimeId", control.RuntimeId, sensitive: true);
             node.AddProperty("parentRuntimeId", control.ParentRuntimeId, sensitive: true);
             node.AddProperty("automationId", control.AutomationId);

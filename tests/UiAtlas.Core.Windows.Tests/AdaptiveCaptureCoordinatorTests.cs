@@ -65,7 +65,7 @@ public sealed class AdaptiveCaptureCoordinatorTests
     [Fact]
     public async Task BoundedWorkReturnsWhenTheUnderlyingOperationDoesNotFinish()
     {
-        Assert.Equal(TimeSpan.FromSeconds(8), AdaptiveCaptureCoordinator.ManualRootRefreshTimeout);
+        Assert.Equal(TimeSpan.FromSeconds(14), AdaptiveCaptureCoordinator.ManualRootRefreshTimeout);
         Assert.True(AdaptiveCaptureCoordinator.CancelledRootDrainTimeout <= TimeSpan.FromSeconds(1));
         var pending = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
         var timer = System.Diagnostics.Stopwatch.StartNew();

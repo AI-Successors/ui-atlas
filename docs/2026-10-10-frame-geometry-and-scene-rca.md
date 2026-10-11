@@ -1,5 +1,9 @@
 # Frame geometry and scene reconstruction: PR #1 amendment
 
+Superseded in part by the approved [raw frame isolation rollout](2026-10-10-raw-frame-isolation-pr-rollout.md):
+the historical Raw Data Streams scene-context behavior described below is removed.
+Raw Data Streams displays only the selected capture; reconstruction remains in Raw World.
+
 ## Reproduction and cause
 
 The open `word-v5.db` viewer uses the retained `word-fixed.mlrec` qualification recording. Frame 1 contains screenshot pixels, no automation. Frame 2 is a partial quick scan (131 entries, `node-limit`); its Font and Font Size entries are `UiAtlas.Cached`, disabled and offscreen. Their coordinates came from another capture. The presentation code exempted cached controls from visibility checks and painted those stale rectangles, including split-button candidates in orange dashes. This is not a uniform screenshot scaling error.

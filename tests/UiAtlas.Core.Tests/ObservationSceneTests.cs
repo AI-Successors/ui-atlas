@@ -49,11 +49,7 @@ public sealed class ObservationSceneTests
         var raw = model.LayerFor(UiUnderstandingLevel.RawDataStreams);
         var rawDelta = Assert.Single(raw.Surfaces, surface => surface.Evidence.Any(evidence => evidence.FrameSequence == 2));
         Assert.Single(raw.ControlsForSurface(rawDelta.Id, 2, manifest.SessionId));
-        var reducer = new ObservationSceneReducer();
-        reducer.Reduce(first);
-        var contextual = RawSceneProjection.Project(raw.Controls, reducer.Reduce(delta), manifest.SessionId, 1, rawDelta.Id);
-        Assert.Equal(2, contextual.Count);
-        Assert.Equal("1", UiMappingReadModel.Property(contextual.Single(control => control.DisplayName == "b").Source, "sourceFrame"));
+        Assert.DoesNotContain(raw.ControlsForSurface(rawDelta.Id, 2, manifest.SessionId), control => control.DisplayName == "b");
     }
 
     [Theory]

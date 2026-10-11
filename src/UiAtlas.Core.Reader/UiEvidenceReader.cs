@@ -69,7 +69,7 @@ public sealed class UiEvidenceReader : IDisposable
         }
     }
 
-    public UiEvidenceImage? Read(EvidenceRef evidence)
+    public UiEvidenceImage? Read(EvidenceRef evidence, bool allowInheritedPixels = false)
     {
         ArgumentNullException.ThrowIfNull(evidence);
         if (!_bundles.TryGetValue(evidence.BundleId, out var bundle))
@@ -90,14 +90,22 @@ public sealed class UiEvidenceReader : IDisposable
 
         if (string.IsNullOrEmpty(screenshotEntry))
         {
-            var resolved = ObservationSceneReducer.ResolveScreenshot(frame, sequence =>
+            if (!allowInheritedPixels)
             {
-                var entry = $"raw/observations/frame-{sequence:D6}.json";
-                return bundle.Entries.Contains(entry) ? bundle.ReadJson<FrameObservation>(entry) : null;
-            });
-            if (resolved is null) return null;
-            screenshotFrame = resolved;
-            screenshotEntry = screenshotFrame.FrameEntry;
+                screenshotEntry = frame.FrameEntry;
+                if (string.IsNullOrEmpty(screenshotEntry)) return null;
+            }
+            else
+            {
+                var resolved = ObservationSceneReducer.ResolveScreenshot(frame, sequence =>
+                {
+                    var entry = $"raw/observations/frame-{sequence:D6}.json";
+                    return bundle.Entries.Contains(entry) ? bundle.ReadJson<FrameObservation>(entry) : null;
+                });
+                if (resolved is null) return null;
+                screenshotFrame = resolved;
+                screenshotEntry = screenshotFrame.FrameEntry;
+            }
         }
 
         if (string.IsNullOrEmpty(screenshotEntry)) return null;

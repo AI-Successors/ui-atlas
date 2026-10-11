@@ -47,7 +47,7 @@ public static class ProviderEvidence
 
     private static string Bounded(string? value) => value is null ? "" : value[..Math.Min(value.Length, 512)];
 
-    private static AutomationObservation Redact(AutomationObservation control)
+    public static AutomationObservation Redact(AutomationObservation control)
     {
         var privateText = control.ControlType is "Edit" or "Document" or "ControlType.Edit" or "ControlType.Document";
         return control with

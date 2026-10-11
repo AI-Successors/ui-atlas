@@ -176,7 +176,9 @@ internal static class WindowsOcrTextRecognizer
 
     public static async Task<IReadOnlyList<VisualTextObservation>> RecognizeAsync(
         OpaqueSurfaceScanner.PixelFrame frame,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool preserveRawText = false,
+        Action<string>? reportStatus = null)
     {
         ArgumentNullException.ThrowIfNull(frame);
         cancellationToken.ThrowIfCancellationRequested();
@@ -201,9 +203,9 @@ internal static class WindowsOcrTextRecognizer
             // fallback for installations without that language pack.
             var engine = OcrEngine.TryCreateFromLanguage(new Language("en-US")) ??
                          OcrEngine.TryCreateFromUserProfileLanguages();
-            if (engine is null) return [];
+            if (engine is null) { reportStatus?.Invoke("unavailable"); return []; }
 
-            var result = await engine.RecognizeAsync(bitmap);
+            var result = await engine.RecognizeAsync(bitmap).AsTask(cancellationToken).ConfigureAwait(false);
             cancellationToken.ThrowIfCancellationRequested();
             var inverse = 1d / scale;
             var words = new List<VisualTextObservation>();
@@ -212,7 +214,7 @@ internal static class WindowsOcrTextRecognizer
                 foreach (var word in result.Lines[lineIndex].Words)
                 {
                     var box = word.BoundingRect;
-                    var text = NormalizeText(word.Text);
+                    var text = preserveRawText ? word.Text : NormalizeText(word.Text);
                     if (text.Length == 0) continue;
                     words.Add(new(
                         text,
@@ -224,6 +226,7 @@ internal static class WindowsOcrTextRecognizer
                         lineIndex));
                 }
             }
+            reportStatus?.Invoke("ok");
             return words;
         }
         catch (OperationCanceledException)
@@ -234,6 +237,7 @@ internal static class WindowsOcrTextRecognizer
         {
             // OCR is enrichment. Rectangle discovery remains usable when a
             // language pack or the Windows OCR runtime is unavailable.
+            reportStatus?.Invoke("unavailable");
             return [];
         }
     }

@@ -241,7 +241,22 @@ public sealed record FrameObservation(
     AutomationObservation? InteractionSource = null,
     string? InteractionId = null,
     AdaptiveExtractionSnapshot? Extraction = null,
-    string? Derivation = null);
+    string? Derivation = null,
+    IReadOnlyList<RawDataStreamObservation>? RawStreams = null,
+    string? RecordKind = null);
+
+/// <summary>One provider response within a sealed observation; never a reconstructed scene.</summary>
+public sealed record RawDataStreamObservation(
+    string StreamId,
+    string Source,
+    DateTimeOffset StartedUtc,
+    DateTimeOffset CompletedUtc,
+    string Status,
+    IReadOnlyList<AutomationObservation> Controls,
+    int ReturnedCount = 0,
+    bool Truncated = false,
+    IReadOnlyList<WindowObservation>? Windows = null,
+    string? ScreenshotEntry = null);
 
 /// <summary>A bounded, redacted provider response retained before popup normalization.</summary>
 public sealed record ProviderObservation(

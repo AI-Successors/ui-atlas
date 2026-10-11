@@ -112,6 +112,7 @@ public static class UiMapPresentation
                   evidence.FrameSequence == sourceFrame.Value &&
                   (bundleId is null || string.Equals(evidence.BundleId, bundleId, StringComparison.Ordinal)))
               ?.Bounds ?? control.Bounds;
+        if (SourceProperty(control.Source, "layer") == "raw-data-streams") return observed;
         return ResolveOfficeSystemIconBounds(control, observed, frameSequence, bundleId, siblingControls);
     }
 
@@ -787,7 +788,8 @@ public sealed class UiMappingReadModel
             var controlIds = values.SelectMany(value => value.ControlIds).Distinct(StringComparer.Ordinal).OrderBy(id => id, StringComparer.Ordinal).ToArray();
             return new UiMapVariantView(
                 string.Join("+", values.Select(value => value.Id).OrderBy(id => id, StringComparer.Ordinal)),
-                $"Observed frame {group.Key.FrameSequence}",
+                values.All(value => value.DisplayName.StartsWith("Supplementary", StringComparison.Ordinal))
+                    ? $"Supplementary capture {group.Key.FrameSequence}" : $"Observed frame {group.Key.FrameSequence}",
                 group.Key.BundleId,
                 group.Key.FrameSequence,
                 controlIds.Length,
@@ -984,12 +986,11 @@ public sealed class UiMappingReadModel
                         (reconstructed ? members.Contains(Property(control.Source, "sourceRawControlId") ?? control.Id) :
                         control.Evidence.Any(item => item.FrameSequence == group.Key.FrameSequence &&
                                                      string.Equals(item.BundleId, group.Key.BundleId, StringComparison.Ordinal))));
-                    if (level == UiUnderstandingLevel.RawDataStreams)
-                        frameControls = frameControls.Where(IsPresentableRawControl);
                     var visibleFrameControls = frameControls.ToArray();
                     return new UiMapVariantView(
                         $"{node.Id}:frame:{group.Key.BundleId}:{group.Key.FrameSequence}",
-                        sourceState?.Label ?? $"Observed frame {group.Key.FrameSequence}",
+                        level == UiUnderstandingLevel.RawDataStreams && Property(node, "recordKind") == "supplementary"
+                            ? $"Supplementary capture {group.Key.FrameSequence}" : sourceState?.Label ?? $"Observed frame {group.Key.FrameSequence}",
                         group.Key.BundleId,
                         group.Key.FrameSequence,
                         visibleFrameControls.Length,
@@ -1030,20 +1031,6 @@ public sealed class UiMappingReadModel
             }).ToArray();
         }
         return new(level, displayName, surfaces, controls);
-    }
-
-    private static bool IsPresentableRawControl(UiMapControlView control)
-    {
-        // Visual and hover candidates deliberately use offscreen/effectivelyVisible=false
-        // to mean "not yet confirmed by an accessibility provider". They still have
-        // observed screen geometry and must remain visible in the raw frame variant.
-        if (UiMapPresentation.IsVisualCandidate(control.Source) ||
-            UiMapPresentation.IsCachedControl(control.Source))
-            return control.Bounds.Width > 0 && control.Bounds.Height > 0;
-
-        var effective = Property(control.Source, "effectivelyVisible");
-        if (bool.TryParse(effective, out var isEffective) && !isEffective) return false;
-        return !bool.TryParse(Property(control.Source, "offscreen"), out var isOffscreen) || !isOffscreen;
     }
 
     private static IReadOnlyList<UiMapVariantView> ClassifyHigherWorldVariants(
