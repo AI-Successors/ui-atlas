@@ -8,6 +8,11 @@ public sealed partial class ManualRecordingSession
     public bool FullRawObservations { get; set; }
     public Action<string>? RawCaptureProgress { get; set; }
 
+    internal static bool HasIncompleteRawStreams(IReadOnlyList<RawDataStreamObservation> streams) =>
+        streams.Count > UiAtlas.Core.Recording.RawFrameEvidence.MaxStreams - 2 ||
+        streams.Sum(stream => (long)stream.Controls.Count) > UiAtlas.Core.Recording.RawFrameEvidence.MaxControls ||
+        streams.Any(stream => stream.Truncated || stream.Status is not ("ok" or "not-configured" or "not-applicable"));
+
     public async Task<FrameObservation> CaptureFullObservationAsync(string trigger, CancellationToken cancellationToken,
         string? interactionId = null, AutomationObservation? interactionSource = null)
     {

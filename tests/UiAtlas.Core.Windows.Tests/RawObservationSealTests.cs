@@ -6,6 +6,21 @@ namespace UiAtlas.Core.Windows.Tests;
 public sealed class RawObservationSealTests
 {
     [Fact]
+    public void SuccessfulProvidersCannotHideFrameRetentionLimits()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var control = new AutomationObservation("1", "", "", "Button", "Button", "Button",
+            new(10, 10, 40, 20), true, false, "UIA", 1);
+        var stream = new RawDataStreamObservation("uia.raw", "uia.raw", now, now, "ok",
+            Enumerable.Repeat(control, UiAtlas.Core.Recording.RawFrameEvidence.MaxControls).ToArray());
+        Assert.False(ManualRecordingSession.HasIncompleteRawStreams([stream]));
+        Assert.True(ManualRecordingSession.HasIncompleteRawStreams([stream, stream with { Controls = [control] }]));
+        var empty = stream with { Controls = [] };
+        Assert.False(ManualRecordingSession.HasIncompleteRawStreams(Enumerable.Repeat(empty, 254).ToArray()));
+        Assert.True(ManualRecordingSession.HasIncompleteRawStreams(Enumerable.Repeat(empty, 255).ToArray()));
+    }
+
+    [Fact]
     public void SealedCollectorRejectsLateProviderResultsAndPreservesTargetAndQueueTime()
     {
         using var collector = new RawObservationCollector(() => { });

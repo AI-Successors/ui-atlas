@@ -2013,8 +2013,7 @@ public sealed partial class ManualRecordingSession : IAsyncDisposable
             var stability = cancelled ? "interrupted" : await CheckObservationStabilityAsync(
                 scopedWindows, screenshotBounds, sequence, captureStarted, cancellationToken).ConfigureAwait(false);
             cancelled |= cancellationToken.IsCancellationRequested;
-            var incomplete = pixelStatus != "ok" || retained.Any(stream =>
-                stream.Truncated || stream.Status is not ("ok" or "not-configured" or "not-applicable"));
+            var incomplete = pixelStatus != "ok" || HasIncompleteRawStreams(retained);
             incomplete |= discoveredTargets.Length > scopedTargets.Length;
             status = cancelled ? "cancelled" : stability == "changed" ? "interrupted" :
                 incomplete || stability != "stable" ? "partial" : "ok";
