@@ -1,0 +1,182 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ui-atlas.org/schemas/uikg-v5.schema.json",
+  "title": "UiAtlas UI Knowledge Graph v5",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["metadata", "nodes", "edges"],
+  "properties": {
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["formatVersion", "toolVersion", "graphId", "builtUtc", "sourceBundleId", "semanticHash", "privacyProfile"],
+      "properties": {
+        "formatVersion": {"const": "ui-atlas.uikg/5"},
+        "toolVersion": {"type": "string"},
+        "graphId": {"$ref": "#/$defs/id"},
+        "builtUtc": {"type": "string", "format": "date-time"},
+        "sourceBundleId": {"type": "string", "minLength": 1, "maxLength": 256},
+        "sourceBundleIds": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 256}},
+        "logicalMapId": {"type": "string", "maxLength": 256},
+        "semanticHash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "privacyProfile": {"enum": ["safe/1", "full-evidence/1"]},
+        "effectiveSourceBundleIds": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 256}},
+        "effectiveLogicalMapId": {"type": "string", "maxLength": 256}
+      }
+    },
+    "nodes": {"type": "array", "maxItems": 100000, "items": {"$ref": "#/$defs/node"}},
+    "edges": {"type": "array", "maxItems": 100000, "items": {"$ref": "#/$defs/edge"}}
+  },
+  "$defs": {
+    "edge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "fromId", "toId", "properties", "evidence"],
+      "properties": {
+        "id": {"$ref": "#/$defs/id"},
+        "kind": {
+          "enum": [
+            "contains",
+            "observed-transition",
+            "opens-popup",
+            "interaction",
+            "predicts-transition",
+            "confirmed-as",
+            "contradicted-by"
+          ]
+        },
+        "fromId": {"$ref": "#/$defs/id"},
+        "toId": {"$ref": "#/$defs/id"},
+        "properties": {"type": "array", "maxItems": 1000, "items": {"$ref": "#/$defs/property"}},
+        "evidence": {"type": "array", "maxItems": 10000, "items": {"$ref": "#/$defs/evidence"}}
+      }
+    },
+    "id": {"type": "string", "pattern": "^[a-z][a-z-]*_[0-9a-f]{24}$"},
+    "property": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "value", "sensitive"],
+      "properties": {
+        "name": {"type": "string", "maxLength": 128},
+        "value": {"type": "string", "maxLength": 4096},
+        "sensitive": {"type": "boolean"}
+      }
+    },
+    "rect": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y", "width", "height"],
+      "properties": {
+        "x": {"type": "integer"},
+        "y": {"type": "integer"},
+        "width": {"type": "integer", "minimum": 0},
+        "height": {"type": "integer", "minimum": 0},
+        "isValid": {"type": "boolean"}
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["bundleId", "frameSequence", "observationEntry"],
+      "properties": {
+        "bundleId": {"type": "string", "minLength": 1, "maxLength": 256},
+        "frameSequence": {"type": "integer", "minimum": 0},
+        "observationEntry": {"type": "string", "maxLength": 240},
+        "bounds": {"anyOf": [{"$ref": "#/$defs/rect"}, {"type": "null"}]},
+        "screenshotEntry": {"type": ["string", "null"], "maxLength": 240}
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "bundleId": {"const": "[redacted]"},
+            "frameSequence": {"const": 0},
+            "observationEntry": {"const": "[redacted]"},
+            "screenshotEntry": {"type": "null"}
+          }
+        },
+        {
+          "properties": {
+            "bundleId": {"not": {"const": "[redacted]"}},
+            "frameSequence": {"minimum": 1},
+            "observationEntry": {"pattern": "^raw/observations/frame-[0-9]{6}\\.json$"},
+            "screenshotEntry": {"anyOf": [{"type": "null"}, {"type": "string", "pattern": "^raw/frames/frame-[0-9]{6}\\.png$"}]}
+          }
+        }
+      ]
+    },
+    "node": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "parentId", "stableKey", "label", "properties", "evidence"],
+      "properties": {
+        "id": {"$ref": "#/$defs/id"},
+        "kind": {"enum": ["application", "window", "surface", "state", "control"]},
+        "parentId": {"type": "string", "maxLength": 128},
+        "stableKey": {"type": "string", "maxLength": 256},
+        "label": {"type": "string", "maxLength": 4096},
+        "properties": {"type": "array", "maxItems": 1000, "items": {"$ref": "#/$defs/property"}},
+        "evidence": {"type": "array", "maxItems": 10000, "items": {"$ref": "#/$defs/evidence"}},
+        "observations": {"type": "array", "maxItems": 10000, "items": {"$ref": "#/$defs/controlObservation"}}
+      }
+    },
+    "control": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "runtimeId",
+        "parentRuntimeId",
+        "automationId",
+        "name",
+        "controlType",
+        "className",
+        "bounds",
+        "isEnabled",
+        "isOffscreen",
+        "frameworkId"
+      ],
+      "properties": {
+        "runtimeId": {"type": "string", "maxLength": 4096},
+        "parentRuntimeId": {"type": "string", "maxLength": 4096},
+        "automationId": {"type": "string", "maxLength": 4096},
+        "name": {"type": "string", "maxLength": 16384},
+        "controlType": {"type": "string", "maxLength": 512},
+        "className": {"type": "string", "maxLength": 512},
+        "bounds": {"$ref": "#/$defs/rect"},
+        "isEnabled": {"type": "boolean"},
+        "isOffscreen": {"type": "boolean"},
+        "frameworkId": {"type": "string", "maxLength": 512},
+        "windowHwnd": {"type": "integer"},
+        "supportedPatterns": {"type": ["array", "null"], "maxItems": 128, "items": {"type": "string", "maxLength": 512}},
+        "hasKeyboardFocus": {"type": "boolean"},
+        "isSelected": {"type": "boolean"},
+        "toggleState": {"type": ["string", "null"], "maxLength": 512},
+        "expandCollapseState": {"type": ["string", "null"], "maxLength": 512},
+        "visualRole": {"type": ["string", "null"], "maxLength": 128},
+        "ocrText": {"type": ["string", "null"], "maxLength": 4096},
+        "visualGroupId": {"type": ["string", "null"], "maxLength": 4096},
+        "tableRow": {"type": ["integer", "null"], "minimum": 0},
+        "tableColumn": {"type": ["integer", "null"], "minimum": 0}
+      }
+    },
+    "controlObservation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["bundleId", "frameSequence", "control", "effectiveOwnerHwnd", "ownershipReason", "effectivelyVisible", "derivation"],
+      "properties": {
+        "bundleId": {"type": "string", "minLength": 1, "maxLength": 256},
+        "frameSequence": {"type": "integer", "minimum": 1},
+        "control": {"$ref": "#/$defs/control"},
+        "effectiveOwnerHwnd": {"type": "integer"},
+        "ownershipReason": {"type": "string", "maxLength": 128},
+        "effectivelyVisible": {"type": "boolean"},
+        "derivation": {"type": "string", "maxLength": 128}
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"metadata": {"properties": {"privacyProfile": {"const": "safe/1"}}}}},
+      "then": {"properties": {"nodes": {"items": {"not": {"required": ["observations"]}}}}}
+    }
+  ]
+}

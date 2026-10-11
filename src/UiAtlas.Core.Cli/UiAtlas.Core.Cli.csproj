@@ -15,6 +15,8 @@
     <ProjectReference Include="../UiAtlas.Core.Build/UiAtlas.Core.Build.csproj" />
     <ProjectReference Include="../UiAtlas.Core.Storage/UiAtlas.Core.Storage.csproj" />
     <ProjectReference Include="../UiAtlas.Core.Reader/UiAtlas.Core.Reader.csproj" />
+    <ProjectReference Include="../UiAtlas.Core.Desktop/UiAtlas.Core.Desktop.csproj"
+                      ReferenceOutputAssembly="false" Private="false" />
     <ProjectReference Include="../UiAtlas.Core.Migration.Firebird/UiAtlas.Core.Migration.Firebird.csproj"
                       ReferenceOutputAssembly="false"
                       AdditionalProperties="Platform=x86" />
@@ -41,6 +43,21 @@
       Projects="$(MSBuildThisFileDirectory)..\UiAtlas.Core.Desktop\UiAtlas.Core.Desktop.csproj"
       Targets="Publish"
       Properties="Configuration=$(Configuration);PublishDir=$(PublishDir);PublishDesktopExplorer=false" />
+  </Target>
+  <Target Name="StageDesktopExplorer" AfterTargets="Build" Condition="'$(DesignTimeBuild)' != 'true'">
+    <!-- Ask the dependency for its actual output, including isolated build roots. -->
+    <MSBuild Projects="$(MSBuildThisFileDirectory)..\UiAtlas.Core.Desktop\UiAtlas.Core.Desktop.csproj"
+             Targets="GetDesktopExplorerDeploymentFiles"
+             Properties="Configuration=$(Configuration)">
+      <Output TaskParameter="TargetOutputs" ItemName="_DesktopExplorerDeploymentFiles" />
+    </MSBuild>
+    <Error Condition="'@(_DesktopExplorerDeploymentFiles)' == ''" Text="The map viewer was not built with the recorder." />
+    <Copy SourceFiles="@(_DesktopExplorerDeploymentFiles)"
+          DestinationFiles="@(_DesktopExplorerDeploymentFiles->'$(TargetDir)viewer\%(ExplorerRelativePath)')"
+          SkipUnchangedFiles="true" />
+    <ItemGroup>
+      <FileWrites Include="@(_DesktopExplorerDeploymentFiles->'$(TargetDir)viewer\%(ExplorerRelativePath)')" />
+    </ItemGroup>
   </Target>
   <Target Name="CopyFirebirdMigrationAdapter" AfterTargets="Build" Condition="'$(DesignTimeBuild)' != 'true'">
     <ItemGroup>

@@ -63,6 +63,8 @@ Run focused provider/scene/state/reader regressions, full Core and Windows suite
 
 ## Recovery
 
+Follow-up: [recorder/viewer build mismatch RCA and PR rollout amendment](2026-10-10-map-open-build-mismatch-rca.md) records the newly reported map-open failure, the normal-build path missed by the original qualification, and its corrective gates.
+
 Keep the sealed recording and previous maps. Build new maps in a separate catalog, validate and inspect them before adoption. Old executables/maps remain usable. Rejected provider payloads missing from historical recordings cannot be recovered by replay; a fresh capture is required for those diagnostics.
 
 ## Execution record

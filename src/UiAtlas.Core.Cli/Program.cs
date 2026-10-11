@@ -5503,28 +5503,7 @@ internal static class Program
 
     internal static void OpenMapViewer(string graphPath, string? evidencePath)
     {
-        var basePath = AppContext.BaseDirectory;
-        var executable = Path.Combine(basePath, "UiAtlas.Core.Desktop.exe");
-        var assembly = Path.Combine(basePath, "UiAtlas.Core.Desktop.dll");
-        if (!File.Exists(executable) && !File.Exists(assembly))
-        {
-            var outputDirectory = new DirectoryInfo(basePath.TrimEnd(Path.DirectorySeparatorChar));
-            var configuration = outputDirectory.Parent?.Name;
-            var repository = Path.GetFullPath(Path.Combine(basePath, "..", "..", "..", "..", ".."));
-            if (configuration is not null)
-                assembly = Path.Combine(repository, "src", "UiAtlas.Core.Desktop", "bin", configuration, "net10.0-windows10.0.19041.0", "UiAtlas.Core.Desktop.dll");
-        }
-        ProcessStartInfo start;
-        if (File.Exists(executable)) start = new(executable);
-        else if (File.Exists(assembly)) { start = new("dotnet"); start.ArgumentList.Add(assembly); }
-        else throw new InvalidOperationException("Desktop explorer is not installed beside the CLI.");
-        start.ArgumentList.Add(Path.GetFullPath(graphPath));
-        if (!string.IsNullOrWhiteSpace(evidencePath))
-        {
-            start.ArgumentList.Add("--evidence");
-            start.ArgumentList.Add(Path.GetFullPath(evidencePath));
-        }
-        Process.Start(start);
+        Process.Start(DesktopExplorerLauncher.CreateStartInfo(AppContext.BaseDirectory, graphPath, evidencePath));
     }
 
     private static readonly JsonSerializerOptions JsonLineOptions = new(JsonDefaults.Options) { WriteIndented = false };

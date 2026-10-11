@@ -2257,7 +2257,15 @@ public sealed class ExplorerWindow : Window
 
     private static Process StartResumeRecorderProcess(string graphPath, bool manualReview = false)
     {
-        var basePath = AppContext.BaseDirectory;
+        return Process.Start(CreateResumeRecorderStartInfo(AppContext.BaseDirectory, graphPath, manualReview))
+            ?? throw new InvalidOperationException("The recorder process could not be started.");
+    }
+
+    internal static ProcessStartInfo CreateResumeRecorderStartInfo(string basePath, string graphPath, bool manualReview = false)
+    {
+        var directory = new DirectoryInfo(basePath.TrimEnd(System.IO.Path.DirectorySeparatorChar));
+        if (directory.Name.Equals("viewer", StringComparison.OrdinalIgnoreCase) && directory.Parent is { } recorderDirectory)
+            basePath = recorderDirectory.FullName;
         var executable = System.IO.Path.Combine(basePath, "ui-atlas.exe");
         var assembly = System.IO.Path.Combine(basePath, "ui-atlas.dll");
         if (!File.Exists(executable) && !File.Exists(assembly))
@@ -2292,7 +2300,7 @@ public sealed class ExplorerWindow : Window
         start.ArgumentList.Add(System.IO.Path.GetFullPath(graphPath));
         if (manualReview)
             start.ArgumentList.Add("--manual-review");
-        return Process.Start(start) ?? throw new InvalidOperationException("The recorder process could not be started.");
+        return start;
     }
 
     private void ShowExportMenu(Button anchor)

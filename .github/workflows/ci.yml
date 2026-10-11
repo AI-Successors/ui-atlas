@@ -14,6 +14,8 @@ jobs:
           dotnet-version: 10.0.200
       - run: dotnet restore UiAtlas.Core.slnx --locked-mode
       - run: dotnet build UiAtlas.Core.slnx -c Release --no-restore -m:1 -nr:false
+      - shell: pwsh
+        run: ./tools/Test-RecorderViewerBuild.ps1 -Configuration Release
       - run: dotnet test UiAtlas.Core.slnx -c Release --no-build --no-restore -m:1
       - shell: pwsh
         run: ./tools/Test-RepositoryBoundary.ps1
