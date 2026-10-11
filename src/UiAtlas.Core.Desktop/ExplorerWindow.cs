@@ -62,6 +62,7 @@ public sealed class ExplorerWindow : Window
     private readonly Grid _appMapViewport = new() { Background = Brush("#F4F5F9"), ClipToBounds = true };
     private readonly ContentControl _traceBannerHost = new() { Visibility = Visibility.Collapsed };
     private bool _updatingRawStreams;
+    private string? _rawStreamSurfaceId;
     private readonly Button _frameStreamsButton = new() { Content = "Frame streams", Margin = new Thickness(8, 0, 0, 0) };
     private readonly ComboBox _rawStreamFilter = new() { MinWidth = 150, MaxWidth = 280,
         Margin = new Thickness(6, 0, 0, 0), Visibility = Visibility.Collapsed };
@@ -3585,9 +3586,11 @@ public sealed class ExplorerWindow : Window
         var streamNames = new[] { "All raw records (combined)" }.Concat(streamChoices.Keys).ToArray();
         // Derived views have no raw attempts. Do not let their synthetic "all"
         // selection override the useful provider default on first entering raw.
-        if (isRaw && !streamNames.SequenceEqual(_rawStreamFilter.Items.Cast<string>()))
+        if (isRaw && (_rawStreamSurfaceId != _selectedSurface.Id ||
+            !streamNames.SequenceEqual(_rawStreamFilter.Items.Cast<string>())))
         {
-            var selectedStream = _rawStreamFilter.SelectedItem as string;
+            var selectedStream = _rawStreamSurfaceId == _selectedSurface.Id ? _rawStreamFilter.SelectedItem as string : null;
+            _rawStreamSurfaceId = _selectedSurface.Id;
             _updatingRawStreams = true;
             try
             {
