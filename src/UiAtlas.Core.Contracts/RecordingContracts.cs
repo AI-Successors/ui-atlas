@@ -156,7 +156,10 @@ public sealed record AutomationObservation(
     string? OcrText = null,
     string? VisualGroupId = null,
     int? TableRow = null,
-    int? TableColumn = null);
+    int? TableColumn = null,
+    long? QueryWindowHwnd = null,
+    long? NativeWindowHwnd = null,
+    string? ScopeStatus = null);
 
 public sealed record ControlEvidenceObservation(
     string EvidenceId,
@@ -244,7 +247,12 @@ public sealed record FrameObservation(
     string? Derivation = null,
     IReadOnlyList<RawDataStreamObservation>? RawStreams = null,
     string? RecordKind = null,
-    RawObservationAcquisition? Acquisition = null);
+    RawObservationAcquisition? Acquisition = null,
+    IReadOnlyList<WindowImageObservation>? WindowImages = null);
+
+/// <summary>An independently acquired HWND image. Missing entries never imply inherited pixels.</summary>
+public sealed record WindowImageObservation(long Hwnd, RectI Bounds, string? Entry,
+    DateTimeOffset StartedUtc, DateTimeOffset CompletedUtc, string Method, string Status);
 
 /// <summary>Acquisition facts, not a claim that the target process was atomically frozen.</summary>
 public sealed record RawObservationAcquisition(

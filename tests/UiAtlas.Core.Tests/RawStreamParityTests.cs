@@ -105,7 +105,7 @@ public sealed class RawStreamParityTests
         Assert.Equal("ok", familyVariants[0].CaptureStatus);
         Assert.Equal("supplementary", familyVariants[1].RecordKind);
         Assert.Single(RawVariantPresentation.Filter(familyVariants, false, false));
-        Assert.Equal(2, pipeline.Nodes.Count(node => node.Kind == UiPipelineNodeKind.StreamEvidence));
+        Assert.DoesNotContain(pipeline.Nodes, node => node.Kind == UiPipelineNodeKind.StreamEvidence);
         Assert.DoesNotContain(pipeline.Nodes.Where(node => node.Kind == UiPipelineNodeKind.NativeSurface), node => node.DisplayName.Contains("Unknown"));
         foreach (var control in layer.Controls.Where(control => UiMappingReadModel.Property(control.Source, "rawEvidenceKind") == "image-derived"))
         {

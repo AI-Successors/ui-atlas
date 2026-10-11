@@ -1818,6 +1818,7 @@ public sealed partial class ManualRecordingSession : IAsyncDisposable
         var pixelsCompleted = captureStarted;
         var pixelStatus = "not-requested";
         var captureMethod = "not-requested";
+        IReadOnlyList<WindowImageObservation>? windowImages = null;
 
         async Task CollectAutomationAsync()
         {
@@ -1968,6 +1969,30 @@ public sealed partial class ManualRecordingSession : IAsyncDisposable
             }
         }
 
+        if (options.FullRawObservation && persistFrame && captureScreenshot)
+        {
+            IReadOnlyList<WindowSnapshotCapture.WindowImageCapture> planes;
+            try
+            {
+                planes = await CaptureScreenshotAsync(token => WindowSnapshotCapture.CaptureIndependentAsync(
+                    scopedTargets.Select(target => target with { Bounds = scopedWindows.Single(item => item.Hwnd == target.Hwnd).Bounds }).ToArray(),
+                    sequence, token), cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                var now = DateTimeOffset.UtcNow;
+                planes = scopedWindows.Select(item => new WindowSnapshotCapture.WindowImageCapture(
+                    new(item.Hwnd, item.Bounds, null, now, now, "windows-graphics-capture", "cancelled"), null)).ToArray();
+            }
+            lock (_stateGate)
+            {
+                if (_finalized) throw new OperationCanceledException("Recording finalized before window images were persisted.");
+                foreach (var plane in planes)
+                    if (plane.Png is not null) _writer.WriteBytes(plane.Observation.Entry!, plane.Png);
+            }
+            windowImages = planes.Select(plane => plane.Observation).ToArray();
+        }
+
         var cancelled = false;
         try
         {
@@ -2013,7 +2038,8 @@ public sealed partial class ManualRecordingSession : IAsyncDisposable
             var stability = cancelled ? "interrupted" : await CheckObservationStabilityAsync(
                 scopedWindows, screenshotBounds, sequence, captureStarted, cancellationToken).ConfigureAwait(false);
             cancelled |= cancellationToken.IsCancellationRequested;
-            var incomplete = pixelStatus != "ok" || HasIncompleteRawStreams(retained);
+            var incomplete = pixelStatus != "ok" || HasIncompleteRawStreams(retained) ||
+                windowImages?.Any(plane => plane.Status != "ok") == true;
             incomplete |= discoveredTargets.Length > scopedTargets.Length;
             status = cancelled ? "cancelled" : stability == "changed" ? "interrupted" :
                 incomplete || stability != "stable" ? "partial" : "ok";
@@ -2028,7 +2054,7 @@ public sealed partial class ManualRecordingSession : IAsyncDisposable
             options.EpisodeSequence, options.PostTriggerDelayMs, options.CapturePhase, options.ActionObservedUtc,
             options.ObservationScope, options.ObservedWindowHwnds, screenshotBounds, options.BaseFrameSequence,
             options.InteractionSource, options.InteractionId, extraction,
-            RecordKind: options.RecordKind, Acquisition: acquisition);
+            RecordKind: options.RecordKind, Acquisition: acquisition, WindowImages: windowImages);
         if (!persistFrame)
             return observation;
 

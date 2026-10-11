@@ -2389,6 +2389,34 @@ public static class BoundedAutomationCollector
         // Breadth-first traversal keeps shallow Ribbon/navigation controls ahead of
         // Excel's very large worksheet subtree while preserving every visited item.
         var queue = new Queue<(AutomationElement Element, string Parent, int Depth)>();
+        var scopeCache = new Dictionary<string, string>(StringComparer.Ordinal);
+        var rootIdentity = string.Join('.', root.GetRuntimeId());
+        var rootMatches = root.Current.NativeWindowHandle == hwnd;
+        string Scope(AutomationElement candidate)
+        {
+            var path = new List<string>();
+            var status = "unverified";
+            try
+            {
+                AutomationElement? cursor = candidate;
+                for (var depth = 0; cursor is not null && depth < 128; depth++)
+                {
+                    var id = string.Join('.', cursor.GetRuntimeId());
+                    if (scopeCache.TryGetValue(id, out var known)) { status = known; break; }
+                    if (path.Contains(id)) break;
+                    path.Add(id);
+                    if (id == rootIdentity) { status = rootMatches ? "verified" : "unverified"; break; }
+                    var native = (nint)cursor.Current.NativeWindowHandle;
+                    if (native != 0 && native != (nint)hwnd && NativeMethods.GetAncestor(native, NativeMethods.GaRoot) == native)
+                    { status = "outside-target"; break; }
+                    cursor = TreeWalker.RawViewWalker.GetParent(cursor);
+                    if (cursor is null) status = "outside-target";
+                }
+            }
+            catch (Exception ex) when (IsRecoverableAutomationException(ex)) { }
+            foreach (var id in path) scopeCache[id] = status;
+            return status;
+        }
         queue.Enqueue((root, "", 0));
         while (queue.Count > 0 && visitedNodes < maxNodes)
         {
@@ -2400,6 +2428,7 @@ public static class BoundedAutomationCollector
             try
             {
                 var current = element.Current;
+                var scope = Scope(element);
                 var rect = current.BoundingRectangle;
                 var controlType = current.ControlType?.ProgrammaticName ?? "";
                 var name = controlType.EndsWith(".Edit", StringComparison.Ordinal) || controlType.EndsWith(".Document", StringComparison.Ordinal)
@@ -2412,8 +2441,10 @@ public static class BoundedAutomationCollector
                     .ToArray();
                 var isSelected = TryGetSelectionState(element);
                 result.Add(new(runtime, parent, Clamp(current.AutomationId, 512), Clamp(name, 4_096), Clamp(controlType, 256),
-                    Clamp(current.ClassName, 512), ToRect(rect), current.IsEnabled, current.IsOffscreen, Clamp(current.FrameworkId, 128), hwnd,
-                    patterns, current.HasKeyboardFocus, isSelected));
+                    Clamp(current.ClassName, 512), ToRect(rect), current.IsEnabled, current.IsOffscreen, Clamp(current.FrameworkId, 128),
+                    scope == "verified" ? hwnd : 0, patterns, current.HasKeyboardFocus, isSelected,
+                    QueryWindowHwnd: hwnd, NativeWindowHwnd: current.NativeWindowHandle, ScopeStatus: scope));
+                if (scope != "verified") continue;
             }
             catch (Exception ex) when (IsRecoverableAutomationException(ex)) { continue; }
 

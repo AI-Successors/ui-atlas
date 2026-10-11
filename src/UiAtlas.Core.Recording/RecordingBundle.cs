@@ -312,6 +312,33 @@ public static class RecordingBundleValidator
                     issues.Add(new("bundle.observation", "error", entry, "Automation field exceeds limit."));
             if (frame.Extraction is not null && !ValidExtraction(frame.Extraction))
                 issues.Add(new("bundle.extraction", "error", entry, "Adaptive extraction evidence exceeds limits."));
+            if (frame.WindowImages is { } planes)
+            {
+                if (planes.Count > RecordingContractLimits.MaxScopedWindows || planes.Any(plane => plane is null) ||
+                    planes.Where(plane => plane is not null).Select(plane => plane.Hwnd).Distinct().Count() != planes.Count)
+                    issues.Add(new("bundle.window-image", "error", entry, "Window image inventory is invalid."));
+                foreach (var plane in planes.Where(plane => plane is not null))
+                {
+                    var canonical = $"raw/frames/frame-{frame.Sequence:D6}-window-{plane.Hwnd:X}.png";
+                    if (!scopedHwnds.Contains(plane.Hwnd) || plane.Bounds is null ||
+                        plane.Status == "ok" && !ControlGeometry.IsRenderable(plane.Bounds) ||
+                        plane.StartedUtc > plane.CompletedUtc || plane.CompletedUtc > frame.TimestampUtc ||
+                        frame.Acquisition is { } timing && (plane.StartedUtc < timing.StartedUtc || plane.CompletedUtc > timing.SealedUtc) ||
+                        plane.Method != "windows-graphics-capture" || plane.Status is not ("ok" or "timeout" or "unavailable" or "cancelled") ||
+                        (plane.Status == "ok") != (plane.Entry is not null) ||
+                        plane.Entry is not null && (plane.Entry != canonical || !manifest.Privacy.ScreenshotsRetained || !bundle.Entries.Contains(canonical)))
+                        issues.Add(new("bundle.window-image", "error", entry, "Window image scope, timing or reference is invalid."));
+                    else if (plane.Entry is not null)
+                    {
+                        referencedFrames.Add(plane.Entry);
+                        var pixels = bundle.ReadBytes(plane.Entry, 16 * 1024 * 1024);
+                        if (!IsBoundedPng(pixels) ||
+                            System.Buffers.Binary.BinaryPrimitives.ReadInt32BigEndian(pixels.AsSpan(16, 4)) != plane.Bounds.Width ||
+                            System.Buffers.Binary.BinaryPrimitives.ReadInt32BigEndian(pixels.AsSpan(20, 4)) != plane.Bounds.Height)
+                            issues.Add(new("bundle.window-image", "error", entry, "Window image dimensions do not match its recorded bounds."));
+                    }
+                }
+            }
             if (frame.RecordKind is not (null or "observation" or "supplementary") ||
                 frame.RawStreams is not null && !ValidRawStreams(frame))
                 issues.Add(new("bundle.raw-streams", "error", entry, "Raw streams are invalid or refer to another observation."));
@@ -373,7 +400,8 @@ public static class RecordingBundleValidator
         item.Bounds is not null && item.RuntimeId is not null && item.ParentRuntimeId is not null && item.AutomationId is not null && item.Name is not null &&
         item.ControlType is not null && item.ClassName is not null && item.FrameworkId is not null && item.RuntimeId.Length <= 4_096 &&
         item.ParentRuntimeId.Length <= 4_096 && item.AutomationId.Length <= 512 && item.Name.Length <= 4_096 &&
-        item.ControlType.Length <= 512 && item.ClassName.Length <= 512 && item.FrameworkId.Length <= 512;
+        item.ControlType.Length <= 512 && item.ClassName.Length <= 512 && item.FrameworkId.Length <= 512 &&
+        item.ScopeStatus is null or "verified" or "outside-target" or "unverified";
 
     private static bool ValidRawStreams(FrameObservation frame)
     {

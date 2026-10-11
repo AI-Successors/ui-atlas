@@ -558,8 +558,10 @@ public sealed class RecordingGraphBuilder
             node.AddProperty("title", window.Title, sensitive: true);
             node.AddProperty("nativeWindowType", RawObservationSemantics.NativeKind(window));
             node.AddProperty("evidenceKind", "native-window");
+            var plane = frame.WindowImages?.SingleOrDefault(item => item.Hwnd == window.Hwnd);
             node.AddProperty("pixelCoverage", RawObservationSemantics.Coverage(window.Bounds,
-                string.IsNullOrEmpty(frame.FrameEntry) ? null : frame.ScreenshotBounds ?? frame.Window.Bounds));
+                plane is { Status: "ok" } ? plane.Bounds : string.IsNullOrEmpty(frame.FrameEntry) ? null : frame.ScreenshotBounds ?? frame.Window.Bounds));
+            node.AddProperty("pixelProvenance", plane is { Status: "ok" } ? "independent-hwnd" : "screen/composite; isolation unverified");
             node.AddProperty("acquisitionStatus", frame.Acquisition?.Status ?? "legacy-unknown");
             node.AddProperty("stabilityStatus", frame.Acquisition?.StabilityStatus ?? "not-checked");
             node.AddProperty("style", window.Style.ToString("x", CultureInfo.InvariantCulture));
@@ -651,7 +653,9 @@ public sealed class RecordingGraphBuilder
             var imageSource = RawObservationSemantics.IsImageSource(item.Source);
             var reportedNativeOwner = !imageSource && windows.Any(window => window.Hwnd == windowHwnd);
             node.AddObservation(new(manifest.SessionId, frame.Sequence, control, reportedNativeOwner ? windowHwnd : 0,
-                imageSource ? "source-image" : reportedNativeOwner ? "reported" : "unresolved", visible, frame.Derivation ?? "recorded"));
+                imageSource ? "source-image" : reportedNativeOwner ?
+                    control.ScopeStatus == "verified" ? "verified-query-subtree" : "legacy-query-target-unverified"
+                    : "unresolved", visible, frame.Derivation ?? "recorded"));
             node.AddProperty("layer", RawDataStreamsLayer);
             node.AddProperty("geometryStatus", renderable ? "available" : "unavailable");
             node.AddProperty("sourcePackageId", packageId);
@@ -660,6 +664,9 @@ public sealed class RecordingGraphBuilder
             node.AddProperty("rawStreamId", item.StreamId);
             node.AddProperty("rawStreamSource", item.Source);
             node.AddProperty("rawEvidenceKind", RawObservationSemantics.Kind(item.Source));
+            node.AddProperty("scopeStatus", control.ScopeStatus ?? "legacy-unverified");
+            node.AddProperty("queryWindowHwnd", control.QueryWindowHwnd?.ToString("X", CultureInfo.InvariantCulture), sensitive: true);
+            node.AddProperty("nativeWindowHwnd", control.NativeWindowHwnd?.ToString("X", CultureInfo.InvariantCulture), sensitive: true);
             node.AddProperty("runtimeId", control.RuntimeId, sensitive: true);
             node.AddProperty("parentRuntimeId", control.ParentRuntimeId, sensitive: true);
             node.AddProperty("automationId", control.AutomationId);

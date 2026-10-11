@@ -4,6 +4,13 @@ namespace UiAtlas.Core.Reader;
 
 public sealed record RawSurfaceImageLayout(RectI SourcePixels, RectI WindowLocalBounds, string Coverage)
 {
+    public static IReadOnlyList<RectI> Occluders(FrameObservation frame, WindowObservation window) =>
+        (frame.ScopedWindows ?? [frame.Window])
+        .Where(other => other.Hwnd != window.Hwnd && other.IsVisible && !other.IsMinimized && !other.IsCloaked &&
+            (other.ZOrder < window.ZOrder || other.OwnerHwnd == window.Hwnd))
+        .Select(other => RawObservationSemantics.Intersection(window.Bounds, other.Bounds))
+        .Where(bounds => bounds is not null).Cast<RectI>().ToArray();
+
     public static RawSurfaceImageLayout? Create(RectI window, RectI image, int pixelWidth, int pixelHeight)
     {
         var overlap = RawObservationSemantics.Intersection(window, image);
@@ -23,6 +30,9 @@ public sealed record RawSurfaceImageLayout(RectI SourcePixels, RectI WindowLocal
 
 public static class RawVariantPresentation
 {
+    public static bool AllowsOverlay(FrameObservation? frame) =>
+        frame?.Acquisition is { StabilityStatus: "stable", Status: "ok" or "partial" };
+
     public static UiMapVariantView? SelectionInScope(UiMapVariantView? current,
         IEnumerable<UiMapSurfaceView> surfaces) => current is null ? null : surfaces
         .SelectMany(surface => surface.Variants)

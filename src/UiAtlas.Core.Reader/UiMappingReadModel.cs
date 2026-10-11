@@ -822,7 +822,7 @@ public sealed class UiMappingReadModel
         nodes.Add(new(appNodeId, UiPipelineNodeKind.Application, 0, 0, processName,
             $"Application identity | {Application.Id}", null, null, [Application.Id]));
         nodes.Add(new(processNodeId, UiPipelineNodeKind.Process, 1, 0, processName,
-            $"Process | {LayerFor(UiUnderstandingLevel.RawDataStreams).Surfaces.Count} Raw Data Streams variants", null, null, [Application.Id]));
+            $"Process | {LayerFor(UiUnderstandingLevel.RawDataStreams).Surfaces.Count(surface => surface.Source.Kind == GraphNodeKind.Window)} native window observations", null, null, [Application.Id]));
         edges.Add(new(appNodeId, processNodeId, "process"));
 
         var rawStreams = LayerFor(UiUnderstandingLevel.RawDataStreams);
@@ -855,17 +855,8 @@ public sealed class UiMappingReadModel
             edges.Add(new(processNodeId, id, "raw data stream"));
             foreach (var surface in surfaces) nativeNodeByRdsSurface[surface.Id] = id;
         }
-        var sourceRow = nativeGroups.Length;
-        foreach (var group in rawStreams.Surfaces.Where(surface => Property(surface.Source, "role") is "source-evidence" or "unresolved")
-                     .GroupBy(surface => Property(surface.Source, "evidenceKind")))
-        {
-            var surfaces = group.OrderBy(surface => surface.Evidence.FirstOrDefault()?.FrameSequence).ToArray();
-            var id = "pipeline:evidence:" + StableSuffix(group.Key ?? "unassigned");
-            nodes.Add(new(id, UiPipelineNodeKind.StreamEvidence, 2, sourceRow++, group.Key is null ? "Legacy unassigned records" : surfaces[0].DisplayName,
-                $"Source evidence | {surfaces.Length} observations", surfaces[0].Id, UiUnderstandingLevel.RawDataStreams,
-                surfaces.Select(surface => surface.Id).ToArray()));
-            edges.Add(new(processNodeId, id, "source evidence"));
-        }
+        // Provider-only records remain in the graph and frame-stream inspector;
+        // they are not native window families in the environment hierarchy.
 
         if (horizon >= UiUnderstandingLevel.RawWorld)
         {

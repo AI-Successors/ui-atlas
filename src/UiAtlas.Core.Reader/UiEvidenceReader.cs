@@ -12,7 +12,9 @@ public sealed record UiEvidenceImage(
     InteractionObservation? Interaction,
     FrameObservation Observation,
     long ScreenshotFrameSequence = 0,
-    DateTimeOffset? ScreenshotTimestampUtc = null)
+    DateTimeOffset? ScreenshotTimestampUtc = null,
+    string PixelProvenance = "frame image",
+    IReadOnlyList<RectI>? OccludedRegions = null)
 {
     public bool InheritedPixels => ScreenshotFrameSequence != 0 && ScreenshotFrameSequence != Observation.Sequence;
 }
@@ -144,6 +146,29 @@ public sealed class UiEvidenceReader : IDisposable
         if (!_bundles.TryGetValue(bundleId, out var bundle) || frameSequence <= 0)
             throw new InvalidDataException("Unknown observation.");
         return bundle.ReadJson<FrameObservation>($"raw/observations/frame-{frameSequence:D6}.json");
+    }
+
+    public UiEvidenceImage? ReadWindow(EvidenceRef evidence, long hwnd)
+    {
+        // Validate the canonical frame reference even when a separate HWND image exists.
+        var original = Read(evidence);
+        var frame = ReadObservation(evidence.BundleId, evidence.FrameSequence);
+        var window = (frame.ScopedWindows ?? [frame.Window]).SingleOrDefault(item => item.Hwnd == hwnd)
+            ?? throw new InvalidDataException("Selected HWND is not in this observation.");
+        var plane = frame.WindowImages?.SingleOrDefault(item => item.Hwnd == hwnd);
+        if (plane is { Status: "ok", Entry: not null })
+        {
+            var canonical = $"raw/frames/frame-{frame.Sequence:D6}-window-{hwnd:X}.png";
+            if (plane.Entry != canonical) throw new InvalidDataException("Window image reference is not canonical.");
+            return new(_bundles[evidence.BundleId].ReadBytes(plane.Entry, 16 * 1024 * 1024), null,
+                plane.Entry, plane.Bounds, frame.InteractionSource, null, frame, frame.Sequence,
+                plane.CompletedUtc, "independent HWND image (" + plane.Method + ")");
+        }
+        if (original is null) return null;
+        var occluders = RawSurfaceImageLayout.Occluders(frame, window);
+        return original with { PixelProvenance = plane is null
+            ? "legacy screen/composite crop; isolation unverified"
+            : $"screen crop; isolated capture {plane.Status}", OccludedRegions = occluders };
     }
 
     public ObservationScene ReadScene(string bundleId, long frameSequence)

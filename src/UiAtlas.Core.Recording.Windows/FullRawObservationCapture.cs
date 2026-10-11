@@ -11,7 +11,8 @@ public sealed partial class ManualRecordingSession
     internal static bool HasIncompleteRawStreams(IReadOnlyList<RawDataStreamObservation> streams) =>
         streams.Count > UiAtlas.Core.Recording.RawFrameEvidence.MaxStreams - 2 ||
         streams.Sum(stream => (long)stream.Controls.Count) > UiAtlas.Core.Recording.RawFrameEvidence.MaxControls ||
-        streams.Any(stream => stream.Truncated || stream.Status is not ("ok" or "not-configured" or "not-applicable"));
+        streams.Any(stream => stream.Truncated || stream.Status is not ("ok" or "not-configured" or "not-applicable") ||
+            stream.Controls.Any(control => control.ScopeStatus is "outside-target" or "unverified"));
 
     public async Task<FrameObservation> CaptureFullObservationAsync(string trigger, CancellationToken cancellationToken,
         string? interactionId = null, AutomationObservation? interactionSource = null)

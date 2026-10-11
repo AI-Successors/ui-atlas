@@ -75,6 +75,20 @@ public sealed class RawObservationCaptureTests
                     Assert.NotNull(observation.Acquisition);
                     Assert.Equal(RawObservationSemantics.Version, observation.Acquisition.FormatVersion);
                     Assert.Equal("screen-bounds-explicit", observation.Acquisition.CaptureMethod);
+                    Assert.NotEmpty(observation.WindowImages!);
+                    Assert.All(observation.WindowImages!, plane => {
+                        Assert.Equal(host.Hwnd, plane.Hwnd);
+                        Assert.True(plane.CompletedUtc <= observation.Acquisition.SealedUtc);
+                        if (plane.Status == "ok") Assert.Contains(plane.Entry!, bundle.Entries);
+                        else Assert.Null(plane.Entry);
+                    });
+                    Assert.All(observation.RawStreams!.Where(stream => stream.Source.StartsWith("uia."))
+                        .SelectMany(stream => stream.Controls), control => {
+                            Assert.Equal(host.Hwnd, control.QueryWindowHwnd);
+                            Assert.NotNull(control.NativeWindowHwnd);
+                            Assert.NotNull(control.ScopeStatus);
+                            if (control.ScopeStatus != "verified") Assert.Equal(0, control.WindowHwnd);
+                        });
                     Assert.All(observation.RawStreams!.Where(stream => stream.Source.StartsWith("uia.") || stream.Source.StartsWith("msaa/")),
                         stream => Assert.Equal(host.Hwnd, stream.TargetWindowHwnd));
                     var frames = entries.Select(bundle.ReadJson<FrameObservation>).ToArray();
