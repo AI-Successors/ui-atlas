@@ -70,7 +70,7 @@ public sealed class RawSemanticWorldTests
         var rawDataStreamOwnerId = Property(rawDataStreamChoice, "rawDataStreamSurfaceId");
         var rawDataStreamOwner = Assert.Single(Nodes(graph, GraphNodeKind.Window, "raw-data-streams"),
             node => node.Id == rawDataStreamOwnerId);
-        Assert.Equal("RawWindow", Property(rawDataStreamOwner, "nativeWindowType"));
+        Assert.Equal("normal-window", Property(rawDataStreamOwner, "nativeWindowType"));
     }
 
     [Fact]

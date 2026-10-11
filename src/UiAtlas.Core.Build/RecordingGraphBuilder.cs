@@ -556,7 +556,12 @@ public sealed class RecordingGraphBuilder
             node.AddProperty("processName", manifest.Target.ProcessName, sensitive: true);
             node.AddProperty("className", window.ClassName);
             node.AddProperty("title", window.Title, sensitive: true);
-            node.AddProperty("nativeWindowType", ClassifySurface(window, windowRole, frame.Window.Bounds));
+            node.AddProperty("nativeWindowType", RawObservationSemantics.NativeKind(window));
+            node.AddProperty("evidenceKind", "native-window");
+            node.AddProperty("pixelCoverage", RawObservationSemantics.Coverage(window.Bounds,
+                string.IsNullOrEmpty(frame.FrameEntry) ? null : frame.ScreenshotBounds ?? frame.Window.Bounds));
+            node.AddProperty("acquisitionStatus", frame.Acquisition?.Status ?? "legacy-unknown");
+            node.AddProperty("stabilityStatus", frame.Acquisition?.StabilityStatus ?? "not-checked");
             node.AddProperty("style", window.Style.ToString("x", CultureInfo.InvariantCulture));
             node.AddProperty("exStyle", window.ExStyle.ToString("x", CultureInfo.InvariantCulture));
             node.AddProperty("dpi", window.Dpi.ToString(CultureInfo.InvariantCulture));
@@ -568,26 +573,36 @@ public sealed class RecordingGraphBuilder
             surfaceByWindow[window.Hwnd] = id;
         }
 
-        foreach (var unresolved in controls.Where(control => !surfaceByWindow.ContainsKey(control.WindowHwnd))
-                     .GroupBy(control => control.WindowHwnd).OrderBy(group => group.Key))
+        var evidenceSurfaceByKey = new Dictionary<string, string>(StringComparer.Ordinal);
+        string EvidenceKey(string source, long hwnd) => RawObservationSemantics.IsImageSource(source)
+            ? "image" : $"unassigned:{hwnd}";
+        foreach (var unresolved in rawControls.Where(item => RawObservationSemantics.IsImageSource(item.Source) ||
+                     !surfaceByWindow.ContainsKey(item.Control.WindowHwnd))
+                     .GroupBy(item => EvidenceKey(item.Source, item.Control.WindowHwnd)).OrderBy(group => group.Key))
         {
-            var id = StableIdentity.Create("rds-unresolved", manifest.SessionId, frame.Sequence.ToString(CultureInfo.InvariantCulture),
-                unresolved.Key.ToString(CultureInfo.InvariantCulture));
-            var evidence = Evidence(manifest, frame, unresolved.First().Bounds);
-            var node = GetNode(nodes, id, GraphNodeKind.Window, appId, id, "Unresolved provider owner");
+            var image = unresolved.Key == "image";
+            var id = StableIdentity.Create("rds-evidence", manifest.SessionId, frame.Sequence.ToString(CultureInfo.InvariantCulture), unresolved.Key);
+            var evidence = Evidence(manifest, frame, frame.ScreenshotBounds ?? frame.Window.Bounds);
+            var node = GetNode(nodes, id, GraphNodeKind.Surface, appId, id,
+                image ? "Image streams" : "Unassigned native records");
             node.AddEvidence(evidence);
             node.AddProperty("layer", RawDataStreamsLayer);
             node.AddProperty("sourcePackageId", packageId);
             node.AddProperty("sourceStateId", frame.Sequence.ToString(CultureInfo.InvariantCulture));
-            node.AddProperty("hwnd", $"0x{unresolved.Key:X}", sensitive: true);
-            node.AddProperty("ownershipStatus", "reported HWND absent from captured windows");
+            node.AddProperty("evidenceKind", image ? "image-derived" : "unassigned-native");
+            node.AddProperty("ownershipStatus", image ? "source image; no native owner asserted" : "reported HWND absent from captured windows");
             node.AddProperty("observationScope", frame.ObservationScope);
             node.AddProperty("recordKind", frame.RecordKind ?? "legacy");
-            node.AddProperty("nativeWindowType", "UnresolvedObservation");
-            node.AddProperty("role", "unresolved");
-            surfaceByWindow[unresolved.Key] = id;
+            node.AddProperty("role", "source-evidence");
+            node.AddProperty("acquisitionStatus", frame.Acquisition?.Status ?? "legacy-unknown");
+            node.AddProperty("stabilityStatus", frame.Acquisition?.StabilityStatus ?? "not-checked");
+            evidenceSurfaceByKey[unresolved.Key] = id;
             AddContains(edges, appId, id, evidence);
         }
+
+        string? ResolveEvidenceSurface(string source, long hwnd) => RawObservationSemantics.IsImageSource(source)
+            ? evidenceSurfaceByKey.GetValueOrDefault("image")
+            : surfaceByWindow.GetValueOrDefault(hwnd) ?? evidenceSurfaceByKey.GetValueOrDefault(EvidenceKey(source, hwnd));
 
         var orderedControls = rawControls
             .Select((item, ordinal) => new { item.Control, item.StreamId, item.Source, Ordinal = ordinal })
@@ -600,7 +615,8 @@ public sealed class RecordingGraphBuilder
         foreach (var item in orderedControls)
         {
             var windowHwnd = item.Control.WindowHwnd;
-            if (!surfaceByWindow.TryGetValue(windowHwnd, out var surfaceId))
+            var surfaceId = ResolveEvidenceSurface(item.Source, windowHwnd);
+            if (surfaceId is null)
                 continue;
             var instance = !string.IsNullOrWhiteSpace(item.Control.RuntimeId)
                 ? item.Control.RuntimeId
@@ -615,7 +631,8 @@ public sealed class RecordingGraphBuilder
         {
             var control = item.Control;
             var windowHwnd = control.WindowHwnd;
-            if (!surfaceByWindow.TryGetValue(windowHwnd, out var surfaceId))
+            var surfaceId = ResolveEvidenceSurface(item.Source, windowHwnd);
+            if (surfaceId is null)
                 continue;
             var instance = !string.IsNullOrWhiteSpace(control.RuntimeId)
                 ? control.RuntimeId
@@ -631,8 +648,10 @@ public sealed class RecordingGraphBuilder
             node.AddEvidence(evidence);
             var renderable = ControlGeometry.IsRenderable(control.Bounds);
             var visible = renderable && effectivelyVisible.Contains(control);
-            node.AddObservation(new(manifest.SessionId, frame.Sequence, control, windows.Any(window => window.Hwnd == windowHwnd) ? windowHwnd : 0,
-                windows.Any(window => window.Hwnd == windowHwnd) ? "reported" : "unresolved", visible, frame.Derivation ?? "recorded"));
+            var imageSource = RawObservationSemantics.IsImageSource(item.Source);
+            var reportedNativeOwner = !imageSource && windows.Any(window => window.Hwnd == windowHwnd);
+            node.AddObservation(new(manifest.SessionId, frame.Sequence, control, reportedNativeOwner ? windowHwnd : 0,
+                imageSource ? "source-image" : reportedNativeOwner ? "reported" : "unresolved", visible, frame.Derivation ?? "recorded"));
             node.AddProperty("layer", RawDataStreamsLayer);
             node.AddProperty("geometryStatus", renderable ? "available" : "unavailable");
             node.AddProperty("sourcePackageId", packageId);
@@ -640,6 +659,7 @@ public sealed class RecordingGraphBuilder
             node.AddProperty("rawDataStreamSurfaceId", surfaceId);
             node.AddProperty("rawStreamId", item.StreamId);
             node.AddProperty("rawStreamSource", item.Source);
+            node.AddProperty("rawEvidenceKind", RawObservationSemantics.Kind(item.Source));
             node.AddProperty("runtimeId", control.RuntimeId, sensitive: true);
             node.AddProperty("parentRuntimeId", control.ParentRuntimeId, sensitive: true);
             node.AddProperty("automationId", control.AutomationId);

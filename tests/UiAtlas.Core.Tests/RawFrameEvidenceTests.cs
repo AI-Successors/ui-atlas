@@ -165,7 +165,7 @@ public sealed class RawFrameEvidenceTests
         return bundle.ReadJson<FrameObservation>($"raw/observations/frame-{sequence:D6}.json");
     }
 
-    private static string Rewrite(string source, string directory, Func<FrameObservation, FrameObservation> transform)
+    internal static string Rewrite(string source, string directory, Func<FrameObservation, FrameObservation> transform)
     {
         using var bundle = RecordingBundle.Open(source);
         using var writer = new RecordingBundleWriter(Path.Combine(directory, "rewrite-" + Guid.NewGuid().ToString("N")));

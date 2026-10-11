@@ -21,7 +21,10 @@ public sealed record UiMapVariantView(
     string Reason = "observed",
     string DedupedIntoVariantId = "",
     string ObservationScope = "",
-    IReadOnlyDictionary<string, long>? ControlSourceFrames = null);
+    IReadOnlyDictionary<string, long>? ControlSourceFrames = null,
+    string RecordKind = "observation",
+    string CaptureStatus = "legacy-unknown",
+    string SurfaceId = "");
 
 public enum UiMapProjectionMode
 {
@@ -584,6 +587,7 @@ public enum UiPipelineNodeKind
     Application,
     Process,
     NativeSurface,
+    StreamEvidence,
     RawSurface,
     SemanticSurface
 }
@@ -773,12 +777,19 @@ public sealed class UiMappingReadModel
 
     public IReadOnlyList<UiMapVariantView> VariantsFor(
         IReadOnlyList<UiMapSurfaceView> surfaces,
-        UiMapControlView? requiredControl = null) => surfaces
-        .SelectMany(surface => surface.Variants)
+        UiMapControlView? requiredControl = null)
+    {
+        var variants = surfaces.SelectMany(surface => surface.Variants)
         .Where(variant => variant.IsVisibleByDefault ||
                           requiredControl is not null && requiredControl.Evidence.Any(evidence =>
                               evidence.FrameSequence == variant.FrameSequence &&
-                              string.Equals(evidence.BundleId, variant.BundleId, StringComparison.Ordinal)))
+                              string.Equals(evidence.BundleId, variant.BundleId, StringComparison.Ordinal)));
+        // A native family can contain two HWNDs in the same observation. Keep each
+        // instance and its capture health; grouping solely by frame loses both.
+        if (surfaces.All(surface => surface.Level == UiUnderstandingLevel.RawDataStreams))
+            return variants.OrderBy(variant => variant.BundleId, StringComparer.Ordinal)
+                .ThenBy(variant => variant.FrameSequence).ThenBy(variant => variant.SurfaceId, StringComparer.Ordinal).ToArray();
+        return variants
         .GroupBy(variant => (variant.BundleId, variant.FrameSequence))
         .OrderBy(group => group.Key.BundleId, StringComparer.Ordinal)
         .ThenBy(group => group.Key.FrameSequence)
@@ -799,6 +810,7 @@ public sealed class UiMappingReadModel
                 ControlSourceFrames: values.All(value => value.ControlSourceFrames is null) ? null : values.SelectMany(value => value.ControlSourceFrames ?? new Dictionary<string, long>())
                     .GroupBy(value => value.Key).ToDictionary(group => group.Key, group => group.Max(value => value.Value)));
         }).ToArray();
+    }
 
     public UiPipelineView BuildPipeline(UiUnderstandingLevel horizon)
     {
@@ -815,11 +827,11 @@ public sealed class UiMappingReadModel
 
         var rawStreams = LayerFor(UiUnderstandingLevel.RawDataStreams);
         var nativeGroups = rawStreams.Surfaces
+            .Where(surface => Property(surface.Source, "role") is not ("source-evidence" or "unresolved"))
             .GroupBy(surface => string.Join('|',
                 Property(surface.Source, "nativeWindowType") ?? surface.SurfaceKind,
                 Property(surface.Source, "className") ?? string.Empty,
-                Property(surface.Source, "role") ??
-                (Property(surface.Source, "ownerHwnd") is null ? "root" : "owned")), StringComparer.Ordinal)
+                Property(surface.Source, "processName") ?? string.Empty), StringComparer.Ordinal)
             .OrderBy(group => group.Any(IsPrimaryPipelineSurface) ? 0 : 1)
             .ThenBy(group => group.Min(surface => surface.Evidence.FirstOrDefault()?.FrameSequence ?? long.MaxValue))
             .ThenBy(group => group.Key, StringComparer.Ordinal)
@@ -837,11 +849,22 @@ public sealed class UiMappingReadModel
                 ? representative.DisplayName.Trim()
                 : NativeDisplayName(nativeKind, representative.DisplayName);
             nodes.Add(new(id, UiPipelineNodeKind.NativeSurface, 2, nativeRow, display,
-                $"{NativeKindDisplay(nativeKind)} | {surfaces.Length} raw variants", representative.Id,
+                $"{NativeKindDisplay(nativeKind)} | {Property(representative.Source, "className")} | {surfaces.Length} raw variants", representative.Id,
                 UiUnderstandingLevel.RawDataStreams,
                 surfaces.Select(surface => surface.Id).ToArray()));
             edges.Add(new(processNodeId, id, "raw data stream"));
             foreach (var surface in surfaces) nativeNodeByRdsSurface[surface.Id] = id;
+        }
+        var sourceRow = nativeGroups.Length;
+        foreach (var group in rawStreams.Surfaces.Where(surface => Property(surface.Source, "role") is "source-evidence" or "unresolved")
+                     .GroupBy(surface => Property(surface.Source, "evidenceKind")))
+        {
+            var surfaces = group.OrderBy(surface => surface.Evidence.FirstOrDefault()?.FrameSequence).ToArray();
+            var id = "pipeline:evidence:" + StableSuffix(group.Key ?? "unassigned");
+            nodes.Add(new(id, UiPipelineNodeKind.StreamEvidence, 2, sourceRow++, group.Key is null ? "Legacy unassigned records" : surfaces[0].DisplayName,
+                $"Source evidence | {surfaces.Length} observations", surfaces[0].Id, UiUnderstandingLevel.RawDataStreams,
+                surfaces.Select(surface => surface.Id).ToArray()));
+            edges.Add(new(processNodeId, id, "source evidence"));
         }
 
         if (horizon >= UiUnderstandingLevel.RawWorld)
@@ -916,7 +939,7 @@ public sealed class UiMappingReadModel
             surface.SurfaceKind.Equals("SemanticWindow", StringComparison.OrdinalIgnoreCase))
             return true;
         var nativeType = Property(surface.Source, "nativeWindowType") ?? string.Empty;
-        if (nativeType.Equals("Normal", StringComparison.OrdinalIgnoreCase) || nativeType.Equals("RawWindow", StringComparison.OrdinalIgnoreCase))
+        if (nativeType.Equals("normal-window", StringComparison.OrdinalIgnoreCase) || nativeType.Equals("Normal", StringComparison.OrdinalIgnoreCase) || nativeType.Equals("RawWindow", StringComparison.OrdinalIgnoreCase))
             return true;
         var semanticClass = Property(surface.Source, "semanticClass") ?? string.Empty;
         return semanticClass.Equals("SemanticWindow", StringComparison.OrdinalIgnoreCase);
@@ -926,7 +949,8 @@ public sealed class UiMappingReadModel
     {
         var surfaceKind = level == UiUnderstandingLevel.RawDataStreams ? GraphNodeKind.Window : GraphNodeKind.Surface;
         var surfaceNodes = graph.Nodes
-            .Where(node => node.Kind == surfaceKind && Property(node, "layer") == layer)
+            .Where(node => (node.Kind == surfaceKind || level == UiUnderstandingLevel.RawDataStreams && node.Kind == GraphNodeKind.Surface)
+                && Property(node, "layer") == layer)
             .Where(node => level != UiUnderstandingLevel.SemanticWorld || Property(node, "semanticSurfaceKind") != "PopupFamily")
             .OrderBy(node => node.Label, StringComparer.OrdinalIgnoreCase)
             .ThenBy(node => node.Id, StringComparer.Ordinal)
@@ -1001,7 +1025,10 @@ public sealed class UiMappingReadModel
                             : Property(sourceState, "observationScope") ?? string.Empty,
                         ControlSourceFrames: reconstructed ? visibleFrameControls.ToDictionary(control => control.Id,
                             control => control.Evidence.Where(item => item.BundleId == group.Key.BundleId && item.FrameSequence <= group.Key.FrameSequence)
-                                .Max(item => item.FrameSequence)) : null);
+                                .Max(item => item.FrameSequence)) : null,
+                        RecordKind: Property(node, "recordKind") ?? "legacy",
+                        CaptureStatus: Property(node, "acquisitionStatus") ?? "legacy-unknown",
+                        SurfaceId: node.Id);
                 }).ToArray();
             return new UiMapSurfaceView(
                 node.Id,
@@ -1195,8 +1222,11 @@ public sealed class UiMappingReadModel
 
     private static string NativeDisplayName(string kind, string fallback) => kind switch
     {
-        "RawWindow" => "Main Window",
-        "RawDialogWindow" => "Dialog Window",
+        "RawWindow" or "normal-window" => "Main Window",
+        "RawDialogWindow" or "dialog-window" => "Dialog Window",
+        "borderless-tool-window" => "Borderless Tool Window",
+        "borderless-window" => "Borderless Window",
+        "tool-window" => "Tool Window",
         "RawPopupWindow" => "Popup Window",
         "RawToolWindow" => "Tool Window",
         _ => fallback
@@ -1204,8 +1234,11 @@ public sealed class UiMappingReadModel
 
     private static string NativeKindDisplay(string kind) => kind switch
     {
-        "RawWindow" => "Normal window",
-        "RawDialogWindow" => "Dialog window",
+        "RawWindow" or "normal-window" => "Normal window",
+        "RawDialogWindow" or "dialog-window" => "Dialog window",
+        "borderless-tool-window" => "Borderless tool window",
+        "borderless-window" => "Borderless window",
+        "tool-window" => "Tool window",
         "RawPopupWindow" => "Popup window",
         "RawToolWindow" => "Tool window",
         _ => kind

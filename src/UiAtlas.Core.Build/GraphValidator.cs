@@ -280,17 +280,20 @@ public static class GraphValidator
         ValidateOwnerTopology(ownerByRawSurface, issues);
         foreach (var stream in rawStreamNodes.Values)
         {
-            if (stream.Kind is not (GraphNodeKind.Window or GraphNodeKind.Control))
+            var sourceEvidence = stream.Kind == GraphNodeKind.Surface &&
+                stream.Properties.Any(property => property.Name == "role" && property.Value == "source-evidence") &&
+                stream.Properties.Any(property => property.Name == "evidenceKind" && property.Value is "image-derived" or "unassigned-native");
+            if (stream.Kind is not (GraphNodeKind.Window or GraphNodeKind.Control) && !sourceEvidence)
             {
                 issues.Add(new("graph.layer-kind", "error", stream.Id, "Raw Data Streams contains an unsupported node kind."));
                 continue;
             }
             if (!byId.TryGetValue(stream.ParentId, out var parent)) continue;
             var parentLayer = LayerOf(layersByNode, parent.Id);
-            if (stream.Kind == GraphNodeKind.Window && (parent.Kind != GraphNodeKind.Application || parentLayer != "shared"))
+            if ((stream.Kind == GraphNodeKind.Window || sourceEvidence) && (parent.Kind != GraphNodeKind.Application || parentLayer != "shared"))
                 issues.Add(new("graph.rds-parent", "error", stream.Id, "Raw Data Streams surface parent is invalid."));
             if (stream.Kind == GraphNodeKind.Control &&
-                (parentLayer != "raw-data-streams" || parent.Kind is not (GraphNodeKind.Window or GraphNodeKind.Control)))
+                (parentLayer != "raw-data-streams" || parent.Kind is not (GraphNodeKind.Window or GraphNodeKind.Control or GraphNodeKind.Surface)))
                 issues.Add(new("graph.rds-parent", "error", stream.Id, "Raw Data Streams control parent is invalid."));
         }
         foreach (var semantic in nodes.Where(node => layersByNode[node.Id].Contains("semantic-world", StringComparer.Ordinal)))

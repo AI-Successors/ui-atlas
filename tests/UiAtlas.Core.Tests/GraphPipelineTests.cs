@@ -896,7 +896,7 @@ public sealed class GraphPipelineTests
             node.Label == "Untitled - Field Service Mission" &&
             node.Properties.Any(property => property.Name == "layer" && property.Value == "raw-data-streams"));
         Assert.Contains(rds.Properties, property => property.Name == "role" && property.Value == "peer-root");
-        Assert.Contains(rds.Properties, property => property.Name == "nativeWindowType" && property.Value == "RawWindow");
+        Assert.Contains(rds.Properties, property => property.Name == "nativeWindowType" && property.Value == "normal-window");
         Assert.Contains(rds.Evidence, evidence =>
             evidence.FrameSequence == 2 && evidence.ScreenshotEntry == "raw/frames/frame-000002.png");
 
@@ -967,7 +967,7 @@ public sealed class GraphPipelineTests
         Assert.Contains(graph.Nodes, node =>
             node.Kind == GraphNodeKind.Window &&
             node.Properties.Any(property => property.Name == "layer" && property.Value == "raw-data-streams") &&
-            node.Properties.Any(property => property.Name == "nativeWindowType" && property.Value == "RawDialogWindow") &&
+            node.Properties.Any(property => property.Name == "nativeWindowType" && property.Value == "dialog-window") &&
             node.Evidence.Any(evidence => evidence.FrameSequence == 2));
         Assert.DoesNotContain(graph.Nodes, node =>
             node.Kind == GraphNodeKind.Surface &&
