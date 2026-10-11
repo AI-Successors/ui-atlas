@@ -336,6 +336,12 @@ legacy evidence. Roll back an implementation stage by reverting its scoped commi
 never repair a capture failure by mutating the original recording. Do not silently
 fall back to cross-frame reconstruction if a new capture is incomplete.
 
+## 22:47 video follow-up
+
+The [menu-context and label repair](2026-10-11-raw-menu-context-and-labels.md)
+documents the remaining captured-menu, provider-provenance and canvas-label
+issues, the bounded repair, and its acceptance checks. It extends this rollout.
+
 ## Execution log
 
 - 2026-10-11: Authorized rollout documented before implementation. Existing working

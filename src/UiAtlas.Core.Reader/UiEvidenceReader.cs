@@ -14,7 +14,9 @@ public sealed record UiEvidenceImage(
     long ScreenshotFrameSequence = 0,
     DateTimeOffset? ScreenshotTimestampUtc = null,
     string PixelProvenance = "frame image",
-    IReadOnlyList<RectI>? OccludedRegions = null)
+    IReadOnlyList<RectI>? OccludedRegions = null,
+    RectI? DisplayBounds = null,
+    IReadOnlyList<RectI>? VisibleRegions = null)
 {
     public bool InheritedPixels => ScreenshotFrameSequence != 0 && ScreenshotFrameSequence != Observation.Sequence;
 }
@@ -155,6 +157,16 @@ public sealed class UiEvidenceReader : IDisposable
         var frame = ReadObservation(evidence.BundleId, evidence.FrameSequence);
         var window = (frame.ScopedWindows ?? [frame.Window]).SingleOrDefault(item => item.Hwnd == hwnd)
             ?? throw new InvalidDataException("Selected HWND is not in this observation.");
+        var context = RawSurfaceImageLayout.WindowContext(frame, window);
+        if (original is not null && context.Count > 1)
+        {
+            // Display only a crop of this frame's already recorded pixels. Do not
+            // compose independent HWND images or import any popup control records.
+            return original with {
+                PixelProvenance = $"captured frame crop with {context.Count - 1} owned popup(s)",
+                DisplayBounds = RawSurfaceImageLayout.ContextBounds(context),
+                VisibleRegions = RawSurfaceImageLayout.VisibleContextRegions(frame, context) };
+        }
         var plane = frame.WindowImages?.SingleOrDefault(item => item.Hwnd == hwnd);
         if (plane is { Status: "ok", Entry: not null })
         {

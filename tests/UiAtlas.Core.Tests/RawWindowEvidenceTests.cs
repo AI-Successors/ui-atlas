@@ -21,6 +21,7 @@ public sealed class RawWindowEvidenceTests
 
     [Theory]
     [InlineData("valid")]
+    [InlineData("owned-menu")]
     [InlineData("foreign-frame")]
     [InlineData("foreign-window")]
     [InlineData("missing-entry")]
@@ -40,6 +41,9 @@ public sealed class RawWindowEvidenceTests
             Height = System.Buffers.Binary.BinaryPrimitives.ReadInt32BigEndian(png.AsSpan(20, 4)) };
         var plane = new WindowImageObservation(frame.Window.Hwnd, imageBounds, canonical,
             frame.TimestampUtc, frame.TimestampUtc, "windows-graphics-capture", "ok");
+        if (mode == "owned-menu") frame = frame with { ScopedWindows = [frame.Window, frame.Window with {
+            Hwnd = 987, OwnerHwnd = frame.Window.Hwnd, ClassName = "Net UI Tool Window", IsToolWindow = true,
+            Style = 0x80000000L, Bounds = new(frame.Window.Bounds.X + 20, frame.Window.Bounds.Y + 20, 30, 30), ZOrder = -1 }] };
         plane = mode switch {
             "foreign-frame" => plane with { Entry = canonical.Replace("000001", "000002") },
             "foreign-window" => plane with { Hwnd = 987654321 },
@@ -59,14 +63,14 @@ public sealed class RawWindowEvidenceTests
             writer.Complete(output);
         }
         var report = RecordingBundleValidator.Validate(output);
-        if (mode != "valid")
+        if (mode is not ("valid" or "owned-menu"))
         { Assert.Contains(report.Issues, issue => issue.Code == "bundle.window-image"); return; }
         Assert.True(report.IsValid, string.Join(";", report.Issues.Select(issue => issue.Message)));
         using var reader = UiEvidenceReader.Open(output);
         var reference = new EvidenceRef("golden", 1, "raw/observations/frame-000001.json", frame.Window.Bounds);
         var image = Assert.IsType<UiEvidenceImage>(reader.ReadWindow(reference, frame.Window.Hwnd));
-        Assert.Equal(canonical, image.Entry);
-        Assert.Contains("independent HWND", image.PixelProvenance);
+        Assert.Equal(mode == "owned-menu" ? frame.FrameEntry : canonical, image.Entry);
+        Assert.Contains(mode == "owned-menu" ? "owned popup" : "independent HWND", image.PixelProvenance);
         Assert.Null(image.OccludedRegions);
         Assert.Equal(frame.FrameEntry, reader.Read(reference)!.Entry);
         Assert.Throws<InvalidDataException>(() => reader.ReadWindow(reference, 987654321));
