@@ -102,6 +102,11 @@ Grid behavior was preserved in code but no fresh grid export was performed.
   zero failed, three up-to-date. Recorder and staged viewer identify implementation
   commit `b4a83fbc82cd74fcff55005345959ac511cd7ec3`. Normal outputs include the user's
   pre-existing working changes.
+- After correcting only the Show excluded tooltip to match the final policy,
+  normal Visual Studio Build produced **2.0.85**, seven succeeded, zero failed,
+  seven up-to-date. Recorder and staged viewer both identify `d1a929c`; the managed
+  map was reopened with this build. The broader suites above qualified the same
+  behavior before this wording-only change.
 - Replayed the recorder's actual enrichment, build, speculative projection and
   session-registration path against the preserved bundle. It produced a strict-valid
   map with 26,252 nodes. This followed the observed Finish Map failure and recovery;
