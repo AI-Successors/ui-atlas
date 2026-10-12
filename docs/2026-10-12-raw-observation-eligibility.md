@@ -86,3 +86,7 @@ source recording rewrite is required. Validation results are appended after exec
 - Windows capture tests and the seven native desktop cases were not rerun for this
   presentation/build-metadata follow-up. Existing capture timeout and stability
   limitations remain explicit; no fresh recording or grid export is claimed.
+- Repository boundary checks passed. Normal Visual Studio Build produced **UI Atlas
+  Core 2.0.81**: ten projects built, four up-to-date, zero failures. The recorder
+  and staged viewer both identify implementation commit `efa6e11`. Normal output
+  includes the user's existing changes; the clean qualification above excludes them.
