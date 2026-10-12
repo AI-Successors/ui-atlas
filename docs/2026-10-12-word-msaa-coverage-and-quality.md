@@ -39,14 +39,14 @@ timeouts remain reportable; this is a bounded Word qualification, not a fleet cl
 
 ## Rollout and acceptance
 
-- [ ] Correct foreground-card eligibility; regress interrupted Colors with a
+- [x] Correct foreground-card eligibility; regress interrupted Colors with a
       successful response and preserve the background-window/overlay safeguards.
-- [ ] Correct MSAA subtree traversal; verify All Fonts descendants are captured
+- [x] Correct MSAA subtree traversal; verify All Fonts descendants are captured
       from the popup itself, not borrowed from another stream.
-- [ ] Build using normal Visual Studio outputs and record a fresh manual session.
-- [ ] Finish, validate, and reopen the new map; compare source records to stored
+- [x] Build using normal Visual Studio outputs and record a fresh manual session.
+- [x] Finish, validate, and reopen the new map; compare source records to stored
       graph facts and inspect menu/dialog presentation.
-- [ ] Run focused and broader relevant checks; report counts, coverage, acquisition
+- [x] Run focused and broader relevant checks; report counts, coverage, acquisition
       timing, remaining failures, and exact qualification boundaries.
 
 Rollback is limited to these collector/presentation changes; there is no storage
@@ -89,7 +89,56 @@ times are 9.6 seconds (baseline), 47.9 seconds (dropdown repeat), 132.7 seconds 
 95.0 seconds (palette), and 91.4 seconds (Colors). These are too slow for fluid use.
 Grid behavior was preserved in code but no fresh grid export was performed.
 
-Checks so far: 30 focused presentation/parity cases, 15 MSAA cases, 24 geometry/input
-cases, and **479/479 clean Core tests** passed. Seven native Core desktop cases remain
-outside this run, as documented in the parent rollout. Final Windows, viewer, and
-normal-output qualification follows below.
+## Final qualification
+
+- **479/479 clean Core tests and 536/536 clean Windows tests passed.** Focused runs
+  also passed: 30 presentation/parity, 15 MSAA, and 24 geometry/input cases. Seven
+  native Core desktop cases remain outside the local run, as documented in the
+  parent rollout. Counts from focused runs overlap the broader suites.
+- Clean Release solution build: zero warnings/errors; repository boundary checks
+  passed. The clean snapshot excludes unrelated working changes; its SDK selection
+  matches the installed feature band.
+- Normal Visual Studio Build produced **UI Atlas Core 2.0.84**: 11 succeeded,
+  zero failed, three up-to-date. Recorder and staged viewer identify implementation
+  commit `b4a83fbc82cd74fcff55005345959ac511cd7ec3`. Normal outputs include the user's
+  pre-existing working changes.
+- Replayed the recorder's actual enrichment, build, speculative projection and
+  session-registration path against the preserved bundle. It produced a strict-valid
+  map with 26,252 nodes. This followed the observed Finish Map failure and recovery;
+  it is not a claim that the original Finish Map click succeeded.
+- Opened the new map in the normal editor and inspected Raw Data Streams. Dropdown
+  frame 4 selects its own 658-record MSAA attempt; rectangles cover the visible All
+  Fonts rows. Colors frame 7 shows its independent image with 18 UIA Raw records
+  (16 with usable geometry). Font frame 7 is excluded behind Colors. Main offers
+  frames 1–4, excluding background frames 5–7. No Image streams family is shown.
+- Imported through the editor into Saved Maps as `word-quality`, including its
+  bundle, and reopened the managed copy. Repeated the raw audit on that copy:
+  **24,233 expected, 24,233 stored, zero missing/extra**. The source bundle SHA-256
+  remains `b96c20698e489a8a05028930feb81815f76c0ab7da7efa2432e610d631ab2a45`.
+
+Hosted CI for implementation `b4a83fb` is **not green**: run
+[38199238326](https://github.com/AI-Successors/ui-atlas/actions/runs/38199238326)
+failed six native desktop cases (three mapper-overlay cases and three opaque-grid
+cases). The same six case names fail on the preceding `644` baseline run
+[38195356089](https://github.com/AI-Successors/ui-atlas/actions/runs/38195356089).
+These remain qualification gates; they are not counted among the local passes.
+
+Local deliverables: `%LOCALAPPDATA%/UiAtlas/Core/maps/word-quality.db` and
+`%LOCALAPPDATA%/UiAtlas/Core/recordings/word-quality.mlrec`. Private logs, field-level
+audits and editor screenshots (`dropdown-editor.png`, `colors-editor.png`) are under
+`%USERPROFILE%/.codex/tmp/ui-atlas-word-quality-20261012/`; they are not committed.
+
+## Assessment and remaining work
+
+The specific dropdown coverage, missing Colors card and finish-map raw-geometry
+failures are repaired and qualified with actual Word evidence. This does **not**
+establish complete or fast capture for every provider. MSAA ownership is reported as
+unverified; a direct query target is not a proved ancestry chain. UIA gives the font
+dropdown only a root, and all three UIA views time out on Font. Raw capture retains
+those outcomes without inventing control data.
+
+Next work should prioritize the timed-out modal UIA queries and observation latency,
+then improve provider ownership verification and qualify native grid behavior on
+an interactive desktop. Keep per-provider attempts, timing and failure evidence
+visible during that work. Draft PR #1 remains unmerged; hosted CI qualification is
+separate from the local test results above.

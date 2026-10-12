@@ -84,7 +84,7 @@ public sealed class ExplorerWindow : Window
     private readonly ToggleButton _predictionLayerToggle = new() { Content = "Predicted", IsChecked = true };
     private readonly Button _editMapButton = new();
     private readonly CheckBox _showExcludedRaw = new() { Content = "Show excluded", Margin = new Thickness(8, 0, 0, 0),
-        ToolTip = "Include background, interrupted and empty observations for diagnosis. All records remain in Frame streams." };
+        ToolTip = "Include background and evidence-empty observations for diagnosis. All records remain in Frame streams." };
     private readonly Dictionary<string, string?> _rawExclusionReasons = new(StringComparer.Ordinal);
     private readonly CheckBox _showSupplementaryRaw = new() { Content = "Supplementary", Margin = new Thickness(8, 0, 0, 0) };
     private readonly CheckBox _showRawLabels = new() { Content = "Show labels", IsChecked = false,
