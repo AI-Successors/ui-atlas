@@ -106,6 +106,8 @@ public sealed class ExplorerWindow : Window
     private readonly Dictionary<UiUnderstandingLevel, TextBlock> _levelButtonLabels = new();
     private readonly Dictionary<string, Button> _viewModeButtons = new(StringComparer.Ordinal);
     private readonly Dictionary<string, Border> _topologyShapes = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, string?> _rawCaptureWarnings = new(StringComparer.Ordinal);
+    private readonly Dictionary<(string Bundle, long Frame, long Hwnd), string> _popupAttempts = new();
     private readonly Dictionary<string, Button> _variantCardButtons = new(StringComparer.Ordinal);
     private readonly Dictionary<string, TextBlock> _variantCardSummaries = new(StringComparer.Ordinal);
     private readonly Dictionary<string, TreeViewItem> _hierarchyItems = new(StringComparer.Ordinal);
@@ -2980,7 +2982,7 @@ public sealed class ExplorerWindow : Window
             if (!positions.TryGetValue(node.Id, out var point)) continue;
             var border = new Border { Width = 175, Height = 55, CornerRadius = new CornerRadius(7), Background = NodeBackground(node.Kind),
                 BorderBrush = NodeBrush(node.Kind), BorderThickness = new Thickness(1.2), Padding = new Thickness(9, 7, 9, 5), Cursor = Cursors.Hand,
-                Tag = node.Kind };
+                Tag = node };
             var text = new StackPanel();
             text.Children.Add(Text(node.DisplayName, 11, FontWeights.SemiBold, NodeBrush(node.Kind), textTrimming: TextTrimming.CharacterEllipsis));
             text.Children.Add(Text(node.Subtitle, 9, FontWeights.Normal, Muted, textTrimming: TextTrimming.CharacterEllipsis));
@@ -3203,9 +3205,9 @@ public sealed class ExplorerWindow : Window
         Border? selectedShape = null;
         foreach (var pair in _topologyShapes)
         {
-            var selected = pair.Key == surfaceId;
-            var kind = pair.Value.Tag is UiPipelineNodeKind nodeKind
-                ? nodeKind
+            var selected = pair.Value.Tag is UiPipelineNodeView node && node.RepresentsSurface(surfaceId);
+            var kind = pair.Value.Tag is UiPipelineNodeView pipelineNode
+                ? pipelineNode.Kind
                 : UiPipelineNodeKind.RawSurface;
             pair.Value.Background = selected ? Brush("#E9D5FF") : NodeBackground(kind);
             pair.Value.BorderBrush = selected ? Brush("#6D28D9") : NodeBrush(kind);
@@ -3239,6 +3241,7 @@ public sealed class ExplorerWindow : Window
         if (_model is null) return;
         var variants = _model.VariantsFor(_selectedSurfaceScope, _selectedControl);
         _rawExclusionReasons.Clear();
+        _rawCaptureWarnings.Clear();
         if (_inspectionLevel == UiUnderstandingLevel.RawDataStreams)
         {
             var frames = new Dictionary<(string Bundle, long Sequence), FrameObservation>();
@@ -3254,6 +3257,7 @@ public sealed class ExplorerWindow : Window
                         var key = (variant.BundleId, variant.FrameSequence);
                         if (!frames.TryGetValue(key, out var frame))
                             frames[key] = frame = _evidence.ReadObservation(key.BundleId, key.FrameSequence);
+                        _rawCaptureWarnings[variant.Id] = RawVariantPresentation.CaptureWarning(frame);
                         var observedSurface = ResolveSurfaceForVariant(variant);
                         var hwnd = observedSurface is null ? null : PropertyValue(observedSurface.Source, "hwnd");
                         reason = long.TryParse(hwnd?.Replace("0x", ""), System.Globalization.NumberStyles.HexNumber,
@@ -3311,8 +3315,9 @@ public sealed class ExplorerWindow : Window
             var summary = Text(VariantCardSummary(variant), 9, FontWeights.Normal, Muted);
             summary.TextTrimming = TextTrimming.CharacterEllipsis;
             var exclusion = _rawExclusionReasons.GetValueOrDefault(variant.Id);
-            var capture = Text($"{(exclusion is null ? variant.CaptureStatus : "excluded")} • {variant.BundleId}", 9, FontWeights.Normal,
-                variant.CaptureStatus is "interrupted" or "cancelled" ? Brush("#B45309") : Muted);
+            var warning = _inspectionLevel == UiUnderstandingLevel.RawDataStreams ? _rawCaptureWarnings.GetValueOrDefault(variant.Id) : null;
+            var capture = Text($"{(exclusion is not null ? "excluded" : warning is not null ? "Incomplete capture" : variant.CaptureStatus)} • {variant.BundleId}", 9, FontWeights.Normal,
+                warning is not null ? Brush("#B45309") : Muted);
             capture.TextTrimming = TextTrimming.CharacterEllipsis;
             var content = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
             content.Children.Add(title);
@@ -3338,10 +3343,11 @@ public sealed class ExplorerWindow : Window
                 Template = RoundedButtonTemplate(8)
             };
             var accessibleName = VariantCardAccessibleName(variant);
-            button.ToolTip = VariantCardToolTip(variant) + (exclusion is null ? "" : $"\nExcluded: {exclusion}");
+            button.ToolTip = VariantCardToolTip(variant) + (exclusion is null ? "" : $"\nExcluded: {exclusion}") +
+                (warning is null ? "" : $"\n{warning}");
             System.Windows.Automation.AutomationProperties.SetName(button, accessibleName);
             System.Windows.Automation.AutomationProperties.SetHelpText(button,
-                (exclusion is null ? "" : $"Excluded: {exclusion} ") +
+                (exclusion is null ? "" : $"Excluded: {exclusion} ") + (warning is null ? "" : warning + " ") +
                 "Select this observed variant. Use Left and Right to move between cards, or Home and End for the first and last card.");
             button.Click += (_, _) => SelectVariant(variant);
             button.PreviewKeyDown += (_, args) =>
@@ -3522,6 +3528,7 @@ public sealed class ExplorerWindow : Window
         }
         var evidence = ResolveSelectedEvidence();
         UiEvidenceImage? evidenceImage = null;
+        FrameObservation? rawFrame = null;
         BitmapSource? bitmap = null;
         string? evidenceError = null;
         var contentOriginX = _selectedSurface.Bounds.X;
@@ -3533,6 +3540,7 @@ public sealed class ExplorerWindow : Window
                 var hwndText = PropertyValue(_selectedSurface.Source, "hwnd");
                 var nativeWindow = isRaw && hwndText is not null && long.TryParse(hwndText.Replace("0x", ""),
                     System.Globalization.NumberStyles.HexNumber, System.Globalization.CultureInfo.InvariantCulture, out _);
+                if (isRaw) rawFrame = _evidence.ReadObservation(evidence.BundleId, evidence.FrameSequence);
                 var frame = nativeWindow
                     ? _evidence.ReadWindow(evidence, Convert.ToInt64(hwndText, 16))
                     : _evidence.Read(evidence, allowInheritedPixels: !isRaw);
@@ -3591,7 +3599,7 @@ public sealed class ExplorerWindow : Window
         _appMapViewport.Height = height;
         _appMapOverlay.Width = width;
         _appMapOverlay.Height = height;
-        var projection = isRaw ? RawVariantPresentation.PolicyFor(projectionMode, evidenceImage?.Observation,
+        var projection = isRaw ? RawVariantPresentation.PolicyFor(projectionMode, rawFrame,
             _showRawLabels.IsChecked == true) : UiMapPresentation.PolicyFor(projectionMode);
         _appMapImage.Visibility = projection.ShowsScene ? Visibility.Visible : Visibility.Collapsed;
         _appMapImage.Opacity = projection.SceneOpacity;
@@ -3663,9 +3671,46 @@ public sealed class ExplorerWindow : Window
         }
         var rawStream = _rawStreamFilter.SelectedItem as string;
         var selectedStreamId = rawStream is null ? null : streamChoices.GetValueOrDefault(rawStream);
-        var controls = scopedControls
+        var selectedControls = scopedControls
             .Where(control => !isRaw || selectedStreamId is null ||
-                (PropertyValue(control.Source, "rawStreamId") ?? "legacy") == selectedStreamId)
+                (PropertyValue(control.Source, "rawStreamId") ?? "legacy") == selectedStreamId).ToList();
+        var popupPanel = new StackPanel();
+        var popupLayers = isRaw && rawFrame is not null && _selectedVariant is { } contextVariant
+            ? RawPopupLayer.ForContext(_model.LayerFor(_inspectionLevel), rawFrame, contextVariant.BundleId, selectedHwnd)
+            : [];
+        var popupSurfaceIds = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var layer in popupLayers)
+        {
+            var key = (_selectedVariant!.BundleId, _selectedVariant.FrameSequence, layer.Window.Hwnd);
+            var choices = new Dictionary<string, string> { ["Hidden"] = "hidden" };
+            foreach (var stream in layer.Streams)
+                choices[$"{stream.Source} [{stream.StreamId}] · {stream.Status} · {stream.Controls.Count} records"] = stream.StreamId;
+            var attempt = _popupAttempts.GetValueOrDefault(key) ?? RawPopupLayer.PreferredAttempt(layer.Streams, layer.Controls)?.StreamId;
+            var row = new WrapPanel { Margin = new Thickness(0, 3, 0, 3) };
+            var label = $"Popup 0x{layer.Window.Hwnd:X} · {layer.Window.Title} · separate source";
+            row.Children.Add(Text(label, 11, FontWeights.SemiBold, Green, verticalAlignment: VerticalAlignment.Center));
+            var selector = new ComboBox { ItemsSource = choices.Keys, MinWidth = 180, MaxWidth = 470,
+                Margin = new Thickness(8, 0, 0, 0), SelectedItem = choices.FirstOrDefault(choice => choice.Value == attempt).Key ?? "Hidden" };
+            System.Windows.Automation.AutomationProperties.SetName(selector, label + " provider");
+            selector.SelectionChanged += (_, _) =>
+            {
+                if (selector.SelectedItem is string choice)
+                { _popupAttempts[key] = choices[choice]; RenderAppMap(); }
+            };
+            row.Children.Add(selector);
+            popupPanel.Children.Add(row);
+            var selectedAttempt = layer.Streams.FirstOrDefault(stream => stream.StreamId == attempt);
+            popupPanel.Children.Add(Text(selectedAttempt is null
+                ? layer.Streams.Count == 0 ? "No native provider attempt was recorded for this popup." : "Popup geometry hidden; captured context pixels remain visible."
+                : RawVariantPresentation.ScopeSummary(selectedAttempt.Controls, layer.Window.Hwnd),
+                10, FontWeights.Normal, Muted, textWrapping: TextWrapping.Wrap));
+            if (layer.Surface is null || selectedAttempt is null) continue;
+            scopedSurfaceById[layer.Surface.Id] = layer.Surface;
+            popupSurfaceIds.Add(layer.Surface.Id);
+            selectedControls.AddRange(layer.Controls.Where(control => PropertyValue(control.Source, "rawStreamId") == attempt));
+        }
+        if (isRaw) rawVisibleIds = RawVariantPresentation.VisibleControlIds(selectedControls);
+        var controls = selectedControls
             .Where(control => isRaw || _includeRetainedControls.IsChecked == true || PropertyValue(control.Source, "sceneStatus") != "retained")
             .Where(control => isRaw || !UiMapPresentation.IsStaleCachedControlForFrame(
                 control, frameSequence, frameBundleId, scopedControls))
@@ -3700,8 +3745,31 @@ public sealed class ExplorerWindow : Window
             .ToArray();
         var viewportBounds = new RectI(contentOriginX, contentOriginY, width, height);
         _renderedViewportBounds = viewportBounds;
+        var controlImages = new Dictionary<string, (UiEvidenceImage? Evidence, BitmapSource? Bitmap)>();
+        var cropErrors = new HashSet<string>(StringComparer.Ordinal);
+        (UiEvidenceImage? Evidence, BitmapSource? Bitmap) ControlImage(UiMapSurfaceView owner)
+        {
+            if (controlImages.TryGetValue(owner.Id, out var cached)) return cached;
+            UiEvidenceImage? image = null;
+            BitmapSource? source = null;
+            try
+            {
+                if (_evidence is not null && evidence is not null && long.TryParse(PropertyValue(owner.Source, "hwnd")?.Replace("0x", ""),
+                    System.Globalization.NumberStyles.HexNumber, System.Globalization.CultureInfo.InvariantCulture, out var hwnd))
+                {
+                    image = _evidence.ReadWindow(evidence, hwnd, includeOwnedPopups: false);
+                    if (image is not null)
+                        source = RenderRawWindowImage(WindowSnapshotCapture.DecodeOpaquePng(image.Png), viewportBounds,
+                            image.ScreenshotBounds, image.OccludedRegions);
+                }
+            }
+            catch (Exception ex) when (ex is IOException or InvalidDataException or NotSupportedException or
+                FileFormatException or System.Runtime.InteropServices.COMException or ArgumentException)
+            { cropErrors.Add($"Control image unavailable for {owner.DisplayName}: {ex.Message}"); }
+            return controlImages[owner.Id] = (image, source);
+        }
         var overlayBlocked = isRaw && projection.ShowsScene && projection.ShowsControlGeometry &&
-            !RawVariantPresentation.AllowsOverlay(evidenceImage?.Observation);
+            !RawVariantPresentation.AllowsOverlay(rawFrame);
         if (projection.ShowsControlGeometry && !overlayBlocked)
         {
             foreach (var item in controls)
@@ -3711,11 +3779,28 @@ public sealed class ExplorerWindow : Window
                 var ownerSurface = item.Surface!;
                 var local = UiMapPresentation.ProjectToSurface(item.Bounds, viewportBounds);
                 if (local is null) continue;
+                Geometry? visibleClip = null;
+                if (isRaw && rawFrame is not null && long.TryParse(PropertyValue(ownerSurface.Source, "hwnd")?.Replace("0x", ""),
+                    System.Globalization.NumberStyles.HexNumber, System.Globalization.CultureInfo.InvariantCulture, out var ownerHwnd) &&
+                    (rawFrame.ScopedWindows ?? [rawFrame.Window]).FirstOrDefault(window => window.Hwnd == ownerHwnd) is { } ownerWindow)
+                {
+                    var regions = RawSurfaceImageLayout.VisibleControlRegions(rawFrame, ownerWindow, item.Bounds);
+                    if (regions.Count == 0) continue;
+                    var clip = new GeometryGroup { FillRule = FillRule.Nonzero };
+                    foreach (var region in regions)
+                        clip.Children.Add(new RectangleGeometry(new Rect(region.X - viewportBounds.X - local.X,
+                            region.Y - viewportBounds.Y - local.Y, region.Width, region.Height)));
+                    visibleClip = clip;
+                }
                 ImageBrush? controlCrop = null;
-                if (projection.ShowsControlCrops && bitmap is not null &&
-                    UiMapPresentation.ShouldUseControlCrop(control, ownerSurface) &&
-                    TryClipBitmapRect(local, bitmap, out var cropRect))
-                    controlCrop = new ImageBrush(new CroppedBitmap(bitmap, cropRect)) { Stretch = Stretch.Fill };
+                if (projection.ShowsControlCrops && UiMapPresentation.ShouldUseControlCrop(control, ownerSurface))
+                {
+                    var image = isRaw ? ControlImage(ownerSurface) : (Evidence: evidenceImage, Bitmap: bitmap);
+                    if (image.Bitmap is not null && (!isRaw || image.Evidence is not null &&
+                        RawSurfaceImageLayout.CanCropControl(image.Evidence, item.Bounds)) &&
+                        TryClipBitmapRect(local, image.Bitmap, out var cropRect))
+                        controlCrop = new ImageBrush(new CroppedBitmap(image.Bitmap, cropRect)) { Stretch = Stretch.Fill };
+                }
                 var isSelected = control.Id == _selectedControl?.Id;
                 var isUnverified = GraphControlConfirmation.IsUnverified(control.Source);
                 var isButtonCandidate = !isRaw && GraphControlConfirmation.IsConfirmableButtonCandidate(control.Source);
@@ -3727,7 +3812,8 @@ public sealed class ExplorerWindow : Window
                 var rectangle = new Rectangle { Width = Math.Max(1, local.Width), Height = Math.Max(1, local.Height),
                     Stroke = isSelected || isButtonCandidate || isCompactPopupAction
                         ? new SolidColorBrush(highlightColor)
-                        : LevelBrush(_inspectionLevel),
+                        : popupSurfaceIds.Contains(ownerSurface.Id) ? Green : LevelBrush(_inspectionLevel),
+                    Clip = visibleClip,
                     StrokeThickness = isSelected ? 4 : isButtonCandidate || isCompactPopupAction ? 2 : 1.2,
                     StrokeDashArray = !isSelected && isButtonCandidate && !isCompactPopupAction ? [4, 2] : null,
                     Fill = isSelected
@@ -3739,7 +3825,9 @@ public sealed class ExplorerWindow : Window
                         ? new DropShadowEffect { Color = highlightColor, BlurRadius = 14, ShadowDepth = 0, Opacity = 0.8 }
                         : null,
                     Cursor = canMove ? Cursors.SizeAll : Cursors.Hand,
-                    ToolTip = canMove ? "Drag to move button" :
+                    ToolTip = canMove ? "Drag to move button" : isRaw
+                        ? $"{control.DisplayName} • {PropertyValue(control.Source, "rawStreamSource")} [{PropertyValue(control.Source, "rawStreamId")}] • window {PropertyValue(ownerSurface.Source, "hwnd")} • frame {frameSequence}"
+                        :
                         $"{control.DisplayName} • {PropertyValue(control.Source, "sceneStatus")} from frame {PropertyValue(control.Source, "sourceFrame")}" };
                 rectangle.MouseLeftButtonDown += (_, args) =>
                 {
@@ -3767,6 +3855,11 @@ public sealed class ExplorerWindow : Window
                     var label = Text(control.DisplayName, 9, FontWeights.Normal, Ink, textTrimming: TextTrimming.CharacterEllipsis);
                     label.MaxWidth = Math.Max(30, local.Width - 4);
                     label.IsHitTestVisible = false;
+                    if (visibleClip is not null)
+                    {
+                        label.Clip = visibleClip.Clone();
+                        label.Clip.Transform = new TranslateTransform(-2, -1);
+                    }
                     Canvas.SetLeft(label, local.X + 2); Canvas.SetTop(label, local.Y + 1); _appMapOverlay.Children.Add(label);
                 }
                 if (isSelected && _mapEditing && _inspectionLevel == UiUnderstandingLevel.SemanticWorld)
@@ -3796,7 +3889,8 @@ public sealed class ExplorerWindow : Window
                 ? (_selectedVariant is { } chosen && _rawExclusionReasons.GetValueOrDefault(chosen.Id) is { } exclusion
                     ? $"Excluded observation: {exclusion} " : "") +
                     $"{_rawExclusionReasons.Count(pair => pair.Value is not null)} excluded observations in this selection • " +
-                    $"{scopedControls.Length} recorded source entries • {controls.Length} in selected attempt • {unavailableGeometry} without usable geometry • " +
+                    $"{scopedControls.Length} selected-window source entries • {controls.Count(item => item.Surface!.Id == _selectedSurface.Id)} in selected window attempt(s) • " +
+                    $"{controls.Count(item => popupSurfaceIds.Contains(item.Surface!.Id))} in separate popup layers • {unavailableGeometry} without usable geometry • " +
                     RawVariantPresentation.ScopeSummary(selectedAttempts.SelectMany(stream => stream.Controls), selectedHwnd) + " • " +
                     $"{evidenceError ?? evidenceImage?.PixelProvenance ?? "Image unavailable"} • {pixelStatus}. " +
                     $"Capture: {evidenceImage?.Observation.Acquisition?.Status ?? _selectedVariant?.CaptureStatus ?? "unknown"}. " +
@@ -3808,8 +3902,23 @@ public sealed class ExplorerWindow : Window
                         ? "Control crops withheld: frame stability is not established. Showing provider geometry. " : "") +
                     $"Offscreen records and hidden descendants {(_showOffscreenRaw.IsChecked == true ? "shown" : "hidden on canvas")}; all records remain in Frame streams."
                 : $"{coverage} • {controls.Length - retainedCount} current + {retainedCount} retained controls • {pixelStatus}.{legend}";
-            _traceBannerHost.Content = Text(summary,
-                11, FontWeights.Normal, Muted, textWrapping: TextWrapping.Wrap);
+            var banner = new StackPanel();
+            if (isRaw && RawVariantPresentation.CaptureWarning(rawFrame) is { } warning)
+                banner.Children.Add(new Border { Background = Brush("#FFF4DE"), BorderBrush = Brush("#B45309"),
+                    BorderThickness = new Thickness(0, 0, 0, 2), Padding = new Thickness(10, 8, 10, 8),
+                    Child = Text(warning, 13, FontWeights.SemiBold, Brush("#92400E"), textWrapping: TextWrapping.Wrap) });
+            if (popupLayers.Count > 0)
+            {
+                popupPanel.Children.Insert(0, Text("Owned popup layers · same frame · green outlines · each source stays separate",
+                    11, FontWeights.SemiBold, Green));
+                banner.Children.Add(popupPanel);
+            }
+            foreach (var error in cropErrors)
+                banner.Children.Add(Text(error, 11, FontWeights.Normal, Brush("#92400E"), textWrapping: TextWrapping.Wrap));
+            var details = Text(summary, 11, FontWeights.Normal, Muted, textWrapping: TextWrapping.Wrap);
+            if (isRaw) banner.Children.Add(new Expander { Header = "Capture and source details", Content = details });
+            else banner.Children.Add(details);
+            _traceBannerHost.Content = banner;
             _traceBannerHost.Visibility = Visibility.Visible;
         }
         if (projectionMode == UiMapProjectionMode.Trace)

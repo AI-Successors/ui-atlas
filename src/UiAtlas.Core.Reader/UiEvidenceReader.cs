@@ -150,7 +150,7 @@ public sealed class UiEvidenceReader : IDisposable
         return bundle.ReadJson<FrameObservation>($"raw/observations/frame-{frameSequence:D6}.json");
     }
 
-    public UiEvidenceImage? ReadWindow(EvidenceRef evidence, long hwnd)
+    public UiEvidenceImage? ReadWindow(EvidenceRef evidence, long hwnd, bool includeOwnedPopups = true)
     {
         // Validate the canonical frame reference even when a separate HWND image exists.
         var original = Read(evidence);
@@ -158,7 +158,7 @@ public sealed class UiEvidenceReader : IDisposable
         var window = (frame.ScopedWindows ?? [frame.Window]).SingleOrDefault(item => item.Hwnd == hwnd)
             ?? throw new InvalidDataException("Selected HWND is not in this observation.");
         var context = RawSurfaceImageLayout.WindowContext(frame, window);
-        if (original is not null && context.Count > 1)
+        if (includeOwnedPopups && original is not null && context.Count > 1)
         {
             // Display only a crop of this frame's already recorded pixels. Do not
             // compose independent HWND images or import any popup control records.

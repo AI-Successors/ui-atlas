@@ -68,6 +68,19 @@ public sealed record RawSurfaceImageLayout(RectI SourcePixels, RectI WindowLocal
         .Select(other => RawObservationSemantics.Intersection(window.Bounds, other.Bounds))
         .Where(bounds => bounds is not null).Cast<RectI>().ToArray();
 
+    public static IReadOnlyList<RectI> VisibleControlRegions(FrameObservation frame, WindowObservation window, RectI bounds)
+    {
+        IEnumerable<RectI> regions = ControlGeometry.IsRenderable(bounds) ? [bounds] : [];
+        foreach (var occluder in Occluders(frame, window))
+            regions = regions.SelectMany(region => Subtract(region, occluder)).ToArray();
+        return regions.ToArray();
+    }
+
+    public static bool CanCropControl(UiEvidenceImage image, RectI bounds) =>
+        ControlGeometry.IsRenderable(bounds) &&
+        RawObservationSemantics.Intersection(bounds, image.ScreenshotBounds) == bounds &&
+        !(image.OccludedRegions ?? []).Any(region => RawObservationSemantics.Intersection(bounds, region) is not null);
+
     public static RawSurfaceImageLayout? Create(RectI window, RectI image, int pixelWidth, int pixelHeight)
     {
         var overlap = RawObservationSemantics.Intersection(window, image);
@@ -162,6 +175,12 @@ public static class RawVariantPresentation
 
     public static bool AllowsOverlay(FrameObservation? frame) =>
         frame?.Acquisition is { StabilityStatus: "stable", Status: "ok" or "partial" };
+
+    public static string? CaptureWarning(FrameObservation? frame) => AllowsOverlay(frame) ? null :
+        $"Incomplete capture — {frame?.Acquisition?.Status ?? "timing unknown"}. " +
+        "The screenshot and control records may show different moments. " +
+        "Controls and Structure show geometry only; overlays and control images are withheld. " +
+        "Choose a stable observation to inspect paired evidence. All attempts remain in Frame streams.";
 
     public static UiMapVariantView? SelectionInScope(UiMapVariantView? current,
         IEnumerable<UiMapSurfaceView> surfaces) => current is null ? null : surfaces

@@ -1,6 +1,7 @@
 # Raw Data Streams capture and editor parity rollout
 
-Latest follow-up: [MSAA dropdown coverage and fresh Word quality qualification](2026-10-12-word-msaa-coverage-and-quality.md).
+Latest follow-up: [popup evidence, incomplete captures and selection repairs](2026-10-12-raw-popup-evidence-repairs.md).
+Previous qualification: [MSAA dropdown coverage and fresh Word quality qualification](2026-10-12-word-msaa-coverage-and-quality.md).
 This corrects the overly broad interrupted-frame exclusion in the
 [foreground eligibility follow-up](2026-10-12-raw-observation-eligibility.md):
 foreground provider evidence stays visible with timing warnings, while unsafe

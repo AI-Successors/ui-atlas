@@ -601,7 +601,10 @@ public sealed record UiPipelineNodeView(
     string Subtitle,
     string? SurfaceId,
     UiUnderstandingLevel? InspectionLevel,
-    IReadOnlyList<string> SourceIds);
+    IReadOnlyList<string> SourceIds)
+{
+    public bool RepresentsSurface(string surfaceId) => SurfaceId == surfaceId || SourceIds.Contains(surfaceId);
+}
 
 public sealed record UiPipelineEdgeView(string SourceId, string TargetId, string DisplayName);
 
