@@ -112,7 +112,7 @@ public static class RecordingGraphInputValidator
 
             if (frame.Automation is not null)
             foreach (var automation in frame.Automation)
-                if (automation is null || !ValidAutomation(automation) ||
+                if (automation is null || !ValidAutomation(automation, allowUnresolvedReportedOwners) ||
                     !allowUnresolvedReportedOwners && automation.WindowHwnd != 0 && !scopedHwnds.Contains(automation.WindowHwnd))
                     Add("live.automation", path, "UI Automation evidence is invalid or outside the captured family.");
             if (frame.Extraction is not null && !ValidExtraction(frame.Extraction, scopedHwnds))
@@ -204,12 +204,12 @@ public static class RecordingGraphInputValidator
         }) == true;
     }
 
-    private static bool ValidAutomation(AutomationObservation item) =>
+    private static bool ValidAutomation(AutomationObservation item, bool rawPayload = false) =>
         item.RuntimeId is { Length: <= 4_096 } && item.ParentRuntimeId is { Length: <= 4_096 } &&
         item.AutomationId is { Length: <= 4_096 } && item.Name is { Length: <= 16_384 } &&
         item.ControlType is { Length: <= 512 } && item.ClassName is { Length: <= 512 } &&
-        item.FrameworkId is { Length: <= 512 } && item.Bounds.Width >= 0 && item.Bounds.Height >= 0 &&
-        (long)item.Bounds.Width * item.Bounds.Height <= 16_000_000 &&
+        item.FrameworkId is { Length: <= 512 } && item.Bounds is not null &&
+        (rawPayload || ControlGeometry.IsBounded(item.Bounds)) &&
         item.SupportedPatterns is not { Count: > 128 } &&
         item.SupportedPatterns?.Any(pattern => pattern is null || pattern.Length > 512) != true;
 

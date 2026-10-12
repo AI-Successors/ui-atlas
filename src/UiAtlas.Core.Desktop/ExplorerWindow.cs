@@ -3800,6 +3800,8 @@ public sealed class ExplorerWindow : Window
                     RawVariantPresentation.ScopeSummary(selectedAttempts.SelectMany(stream => stream.Controls), selectedHwnd) + " • " +
                     $"{evidenceError ?? evidenceImage?.PixelProvenance ?? "Image unavailable"} • {pixelStatus}. " +
                     $"Capture: {evidenceImage?.Observation.Acquisition?.Status ?? _selectedVariant?.CaptureStatus ?? "unknown"}. " +
+                    (isRaw && !RawVariantPresentation.AllowsOverlay(evidenceImage?.Observation)
+                        ? "Timing uncertain: image and provider records may describe different moments. " : "") +
                     (evidenceImage?.OccludedRegions?.Count > 0 ? "Known covering windows masked; obscured pixels are unavailable. " : "") +
                     (overlayBlocked ? "Overlay withheld: frame stability is not established. Inspect provider records in Controls or Frame streams. " : "") +
                     (projectionMode == UiMapProjectionMode.Controls && !projection.ShowsControlCrops

@@ -60,7 +60,9 @@ public sealed class RecordingGraphBuilder
         app.AddProperty("layer", "shared");
         var prepared = inputs.Select(input => SuppressRecordedVisualDuplicates(
             CarryForwardStableNativeChrome(CarryForwardExcelBottomChrome(
-                SuppressDuplicateNativeCaptionButtons(input.Observations), input.Manifest.Target)))).ToArray();
+                SuppressDuplicateNativeCaptionButtons(input.Observations.Select(frame => frame with {
+                    Automation = frame.Automation.Where(control => ControlGeometry.IsBounded(control.Bounds)).ToArray()
+                }).ToArray()), input.Manifest.Target)))).ToArray();
         var ambiguousSignatures = FindAmbiguousControlSignatures(prepared.SelectMany(frames => frames));
         var inputIndex = 0;
         foreach (var input in inputs)

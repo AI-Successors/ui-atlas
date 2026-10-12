@@ -27,8 +27,8 @@ internal static class MsaaDialogCollector
         if (roots.Count == 0) return [];
         // GetWindowRect is DPI-virtualized in the isolated worker, but MSAA's
         // accLocation values are physical screen coordinates. Use the largest
-        // accessibility root as the coordinate authority before filtering the
-        // tree; otherwise the right and bottom of scaled Office dialogs are lost.
+        // accessibility root as the coordinate authority for the wrapper. Tree
+        // records keep their provider bounds, including scrollable extents.
         windowRect = ResolveProviderWindowRect(roots, windowRect);
         var accessible = roots[0];
         var result = new List<AutomationObservation>(Math.Min(maxNodes, 512));
@@ -306,7 +306,7 @@ internal static class MsaaDialogCollector
         }
     }
 
-    private static void AppendTree(
+    internal static void AppendTree(
         IAccessible accessible,
         string runtimePrefix,
         string rootParentRuntime,
@@ -315,12 +315,14 @@ internal static class MsaaDialogCollector
         List<AutomationObservation> result,
         int maxNodes,
         int maxDepth,
-        ref int sequence)
+        ref int sequence,
+        Func<IAccessible, IReadOnlyList<object>>? readChildren = null)
     {
         var queue = new Queue<(IAccessible Accessible, string Runtime, int Depth)>();
         queue.Enqueue((accessible, rootParentRuntime, 0));
+        var visited = 0;
 
-        while (queue.Count > 0 && result.Count < maxNodes)
+        while (queue.Count > 0 && result.Count < maxNodes && visited < maxNodes)
         {
             var (parent, currentParentRuntime, depth) = queue.Dequeue();
             if (depth >= maxDepth) continue;
@@ -332,13 +334,20 @@ internal static class MsaaDialogCollector
             int obtained;
             try
             {
-                if (NativeMethods.AccessibleChildren(parent, 0, childCount, children, out obtained) < 0)
+                if (readChildren is not null)
+                {
+                    var supplied = readChildren(parent).Take(childCount).ToArray();
+                    supplied.CopyTo(children, 0);
+                    obtained = supplied.Length;
+                }
+                else if (NativeMethods.AccessibleChildren(parent, 0, childCount, children, out obtained) < 0)
                     continue;
             }
             catch (COMException) { continue; }
 
-            for (var index = 0; index < obtained && result.Count < maxNodes; index++)
+            for (var index = 0; index < obtained && result.Count < maxNodes && visited < maxNodes; index++)
             {
+                visited++;
                 var value = children[index];
                 var childId = value is int id ? id : ChildSelf;
                 var childAccessible = value as IAccessible;
@@ -350,8 +359,14 @@ internal static class MsaaDialogCollector
                 var propertyOwner = childAccessible ?? parent;
                 var propertyChild = childAccessible is null ? childId : ChildSelf;
                 var runtime = $"{runtimePrefix}.{++sequence:x}";
-                if (Add(propertyOwner, propertyChild, runtime, currentParentRuntime, outputHwnd, windowRect, result) &&
-                    childAccessible is not null)
+                // Scrolling containers may extend beyond the HWND viewport.
+                // Their reported bounds are evidence, not a traversal boundary:
+                // dropping the All Fonts container also dropped visible items.
+                _ = Add(propertyOwner, propertyChild, runtime, currentParentRuntime,
+                    outputHwnd, windowRect, result, requireContainedGeometry: false);
+                if (childAccessible is not null)
+                    // An unreadable parent's ID remains unresolved rather than
+                    // inventing an edge to a different ancestor.
                     queue.Enqueue((childAccessible, runtime, depth + 1));
             }
         }
@@ -388,13 +403,14 @@ internal static class MsaaDialogCollector
         string parentRuntime,
         long hwnd,
         NativeMethods.Rect windowRect,
-        List<AutomationObservation> result)
+        List<AutomationObservation> result,
+        bool requireContainedGeometry = true)
     {
         try
         {
             accessible.accLocation(out var x, out var y, out var width, out var height, child);
-            if (width <= 0 || height <= 0 || x < windowRect.Left - 6 || y < windowRect.Top - 6 ||
-                x + width > windowRect.Right + 6 || y + height > windowRect.Bottom + 6)
+            if (requireContainedGeometry && (width <= 0 || height <= 0 || x < windowRect.Left - 6 || y < windowRect.Top - 6 ||
+                (long)x + width > (long)windowRect.Right + 6 || (long)y + height > (long)windowRect.Bottom + 6))
                 return false;
             var role = Convert.ToInt32(accessible.get_accRole(child), System.Globalization.CultureInfo.InvariantCulture);
             var stateValue = accessible.get_accState(child);

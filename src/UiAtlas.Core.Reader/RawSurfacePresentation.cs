@@ -108,8 +108,9 @@ public static class RawVariantPresentation
             owner = parent;
         if (front is not null && owner.Hwnd != front.Hwnd && front.ZOrder < owner.ZOrder)
             return $"Background window; {(string.IsNullOrEmpty(front.Title) ? front.ClassName : front.Title)} (0x{front.Hwnd:X}) is in front.";
-        if (!AllowsOverlay(frame))
-            return $"Capture is {frame.Acquisition?.Status ?? "unknown"}; stability is {frame.Acquisition?.StabilityStatus ?? "unknown"}.";
+        // Acquisition timing controls image/geometry pairing, not whether a
+        // successful provider response exists. Keep foreground evidence even
+        // when another attempt was interrupted; AllowsOverlay gates the pairing.
         // Image-only menus/tooltips are still valid raw surfaces. Normal windows
         // and dialogs need a usable native response, not just a root rectangle.
         if (Standalone(window) && !StreamsForWindow(frame, hwnd).Any(stream =>
@@ -151,7 +152,7 @@ public static class RawVariantPresentation
         var rejected = entries.Count(control => control.ScopeStatus is "outside-target" or "unverified" ||
             control.QueryWindowHwnd is { } target && target != hwnd);
         return $"Query target 0x{hwnd:X} • {verified} verified • {rejected} rejected/unresolved • " +
-            $"{entries.Length - verified - rejected} legacy scope unverified";
+            $"{entries.Length - verified - rejected} without ownership verification";
     }
 
     public static UiMapProjectionPolicy PolicyFor(UiMapProjectionMode mode, FrameObservation? frame, bool showLabels = false) =>

@@ -27,6 +27,7 @@ public static class OfflineRecordingEnricher
             // A late provider result can mention a window which has already closed.
             // Keep it in RecordedObservations, but do not promote it into the current scene.
             var frame = recordedFrame with { Automation = recordedFrame.Automation
+                .Where(control => ControlGeometry.IsBounded(control.Bounds))
                 .Where(control => control.WindowHwnd == 0 || windowIds.Contains(control.WindowHwnd)).ToArray() };
             if (string.IsNullOrEmpty(frame.FrameEntry))
             {
@@ -201,6 +202,7 @@ public static class OfflineRecordingEnricher
             // A late provider result can mention a window which has already closed.
             // Keep it in RecordedObservations, but do not promote it into the current scene.
             var frame = recordedFrame with { Automation = recordedFrame.Automation
+                .Where(control => ControlGeometry.IsBounded(control.Bounds))
                 .Where(control => control.WindowHwnd == 0 || windowIds.Contains(control.WindowHwnd)).ToArray() };
             if (string.IsNullOrEmpty(frame.FrameEntry))
             {

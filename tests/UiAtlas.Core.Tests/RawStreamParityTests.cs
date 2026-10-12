@@ -8,6 +8,38 @@ namespace UiAtlas.Core.Tests;
 
 public sealed class RawStreamParityTests
 {
+    [Fact]
+    public async Task NonDrawableMsaaRollupSurvivesEnrichmentBuildSaveAndReopenAsRawEvidence()
+    {
+        using var temp = new TempDirectory();
+        var source = SyntheticBundleFactory.Create(temp.Path, includeScreenshot: true);
+        var path = RawFrameEvidenceTests.Rewrite(source, temp.Path, frame => {
+            var reported = frame.Automation.First() with { RuntimeId = "msaa-invalid", Bounds = new(100, 200, 215, -14) };
+            return frame with { Automation = frame.Automation.Append(reported).ToArray(),
+                RawStreams = [RawFrameEvidenceTests.Stream(frame, "msaa", reported)] };
+        });
+        using var bundle = RecordingBundle.Open(path);
+        var manifest = bundle.ReadJson<RecordingManifest>("manifest.json");
+        var recorded = bundle.ReadJson<FrameObservation>("raw/observations/frame-000001.json");
+        var projected = Assert.Single(await UiAtlas.Core.Recording.Windows.OfflineRecordingEnricher.RepairAsync(bundle, [recorded]));
+        Assert.False(RecordingGraphInputValidator.Validate(new(manifest, [recorded], [])).IsValid);
+        var input = new RecordingGraphInput(manifest, [projected], [], [recorded]);
+        Assert.True(RecordingGraphInputValidator.Validate(input).IsValid);
+        foreach (var graph in new[] { new RecordingGraphBuilder().Build(input), new RecordingGraphBuilder().Build(path) })
+        {
+            var database = Path.Combine(temp.Path, Guid.NewGuid() + ".db");
+            SqliteGraphStore.Save(graph, database);
+            var reopened = SqliteGraphStore.Load(database);
+            Assert.True(GraphValidator.Validate(reopened).IsValid);
+            var model = new UiMappingReadModel(reopened);
+            var raw = model.LayerFor(UiUnderstandingLevel.RawDataStreams).Controls;
+            Assert.All(raw, c => Assert.Equal(-14, Assert.Single(c.Source.Observations!).Control.Bounds.Height));
+            Assert.NotEmpty(raw);
+            Assert.All(model.LayerFor(UiUnderstandingLevel.RawWorld).Controls,
+                c => Assert.True(ControlGeometry.IsBounded(c.Bounds)));
+        }
+    }
+
     [Theory]
     [InlineData("valid")]
     [InlineData("foreign-observation")]

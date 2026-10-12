@@ -2,6 +2,12 @@
 
 Follow-up to PR #1 and the [Raw Data Streams rollout](2026-10-11-raw-data-streams-parity-pr-rollout.md).
 
+**Correction:** the interrupted-frame exclusion described below was too broad.
+The [MSAA coverage and quality follow-up](2026-10-12-word-msaa-coverage-and-quality.md)
+keeps foreground observations with real provider evidence, including Colors 11,
+and withholds only unsafe image/geometry pairing. The execution results below
+describe the earlier build, not the corrected acceptance policy.
+
 ## Evidence and root cause
 
 Reviewed the 199.6-second `20261012-0156-08.8869690.mp4`, its narration,

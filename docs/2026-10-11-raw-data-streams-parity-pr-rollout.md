@@ -1,8 +1,10 @@
 # Raw Data Streams capture and editor parity rollout
 
-Latest follow-up: [foreground observation eligibility and hidden MSAA descendants](2026-10-12-raw-observation-eligibility.md).
-This makes excluded observations opt-in in response to the next Word video review;
-all raw frame evidence remains retained and inspectable.
+Latest follow-up: [MSAA dropdown coverage and fresh Word quality qualification](2026-10-12-word-msaa-coverage-and-quality.md).
+This corrects the overly broad interrupted-frame exclusion in the
+[foreground eligibility follow-up](2026-10-12-raw-observation-eligibility.md):
+foreground provider evidence stays visible with timing warnings, while unsafe
+overlays remain withheld and background windows remain excluded.
 
 Status: corrective implementation complete and qualified below (2026-10-11). The earlier qualification
 proved record retention and crop alignment, not isolated window pixels, reliable

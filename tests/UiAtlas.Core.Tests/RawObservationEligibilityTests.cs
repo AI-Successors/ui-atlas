@@ -48,15 +48,24 @@ public sealed class RawObservationEligibilityTests
     [InlineData("interrupted", "changed")]
     [InlineData("cancelled", "stable")]
     [InlineData("ok", "unknown")]
-    public void IncompleteCapturesAreNotPresentedAsOrdinaryObservations(string status, string stability)
+    public void IncompleteCapturesRetainForegroundEvidenceWithoutSynchronizedOverlays(string status, string stability)
     {
         var frame = Frame(Window(1, 0, "OpusApp", 0));
         frame = frame with { Acquisition = frame.Acquisition! with { Status = status, StabilityStatus = stability } };
         var reason = RawVariantPresentation.ExclusionReason(frame, 1);
-        Assert.StartsWith("Capture is", reason);
+        Assert.Null(reason);
+        Assert.False(RawVariantPresentation.AllowsOverlay(frame));
+        Assert.False(RawVariantPresentation.PolicyFor(UiMapProjectionMode.Controls, frame).ShowsControlCrops);
         var variant = new UiMapVariantView("one", "one", "bundle", 1, 20, null, []);
-        Assert.Empty(RawVariantPresentation.Filter([variant], true, false, _ => reason));
+        Assert.Single(RawVariantPresentation.Filter([variant], true, false, _ => reason));
         Assert.Single(RawVariantPresentation.Filter([variant], false, false, _ => reason));
+
+        var colors = Window(2, 1, "bosa_sdm_msword", 0);
+        var dialogs = Frame(Window(1, 0, "bosa_sdm_msword", 1), colors);
+        dialogs = dialogs with { Acquisition = frame.Acquisition };
+        Assert.StartsWith("Background window", RawVariantPresentation.ExclusionReason(dialogs, 1));
+        Assert.Null(RawVariantPresentation.ExclusionReason(dialogs, 2));
+        Assert.False(RawVariantPresentation.AllowsOverlay(dialogs));
     }
 
     [Fact]
