@@ -530,7 +530,9 @@ public sealed class RecordingGraphBuilder
         controls = rawControls.Select(item => item.Control).ToArray();
         var surfaceByWindow = new Dictionary<long, string>();
         var packageId = StableIdentity.Create("package", manifest.SessionId, frame.Sequence.ToString(CultureInfo.InvariantCulture));
-        var effectivelyVisible = AutomationObservationVisibility.FilterEffectivelyVisible(controls).ToHashSet();
+        var effectivelyVisible = rawControls.GroupBy(item => item.StreamId).SelectMany(attempt =>
+            AutomationObservationVisibility.FilterEffectivelyVisible(attempt.Select(item => item.Control))
+                .Select(control => (attempt.Key, control))).ToHashSet();
         foreach (var window in windows)
         {
             var windowRole = NativeRole(frame, window);
@@ -649,7 +651,7 @@ public sealed class RecordingGraphBuilder
             var node = GetNode(nodes, id, GraphNodeKind.Control, parentId, id, StableDisplay(control));
             node.AddEvidence(evidence);
             var renderable = ControlGeometry.IsRenderable(control.Bounds);
-            var visible = renderable && effectivelyVisible.Contains(control);
+            var visible = renderable && effectivelyVisible.Contains((item.StreamId, control));
             var imageSource = RawObservationSemantics.IsImageSource(item.Source);
             var reportedNativeOwner = !imageSource && windows.Any(window => window.Hwnd == windowHwnd);
             node.AddObservation(new(manifest.SessionId, frame.Sequence, control, reportedNativeOwner ? windowHwnd : 0,

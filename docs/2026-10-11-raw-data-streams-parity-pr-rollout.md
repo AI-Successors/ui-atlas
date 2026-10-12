@@ -1,5 +1,9 @@
 # Raw Data Streams capture and editor parity rollout
 
+Latest follow-up: [foreground observation eligibility and hidden MSAA descendants](2026-10-12-raw-observation-eligibility.md).
+This makes excluded observations opt-in in response to the next Word video review;
+all raw frame evidence remains retained and inspectable.
+
 Status: corrective implementation complete and qualified below (2026-10-11). The earlier qualification
 proved record retention and crop alignment, not isolated window pixels, reliable
 native ownership, or coherent overlays. The live-word review exposed those gaps.

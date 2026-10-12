@@ -83,7 +83,9 @@ public sealed class ExplorerWindow : Window
     private readonly Button _manualReviewButton = new() { Visibility = Visibility.Collapsed };
     private readonly ToggleButton _predictionLayerToggle = new() { Content = "Predicted", IsChecked = true };
     private readonly Button _editMapButton = new();
-    private readonly CheckBox _skipEmptyRaw = new() { Content = "Skip empty", Margin = new Thickness(8, 0, 0, 0) };
+    private readonly CheckBox _showExcludedRaw = new() { Content = "Show excluded", Margin = new Thickness(8, 0, 0, 0),
+        ToolTip = "Include background, interrupted and empty observations for diagnosis. All records remain in Frame streams." };
+    private readonly Dictionary<string, string?> _rawExclusionReasons = new(StringComparer.Ordinal);
     private readonly CheckBox _showSupplementaryRaw = new() { Content = "Supplementary", Margin = new Thickness(8, 0, 0, 0) };
     private readonly CheckBox _showRawLabels = new() { Content = "Show labels", IsChecked = false,
         Margin = new Thickness(8, 0, 0, 0), ToolTip = "Draw provider names on the raw canvas. Tooltips and properties are always available." };
@@ -655,7 +657,7 @@ public sealed class ExplorerWindow : Window
                 new RawStreamInspectorWindow(_model, _evidence, _selectedVariant) { Owner = this }.Show();
         };
         modes.Children.Add(_frameStreamsButton);
-        foreach (var filter in new[] { _skipEmptyRaw, _showSupplementaryRaw, _showOffscreenRaw, _showRawLabels })
+        foreach (var filter in new[] { _showExcludedRaw, _showSupplementaryRaw, _showOffscreenRaw, _showRawLabels })
         {
             filter.VerticalAlignment = VerticalAlignment.Center;
             filter.Click += (_, _) =>
@@ -3236,8 +3238,36 @@ public sealed class ExplorerWindow : Window
     {
         if (_model is null) return;
         var variants = _model.VariantsFor(_selectedSurfaceScope, _selectedControl);
+        _rawExclusionReasons.Clear();
         if (_inspectionLevel == UiUnderstandingLevel.RawDataStreams)
-            variants = RawVariantPresentation.Filter(variants, _skipEmptyRaw.IsChecked == true, _showSupplementaryRaw.IsChecked == true);
+        {
+            var frames = new Dictionary<(string Bundle, long Sequence), FrameObservation>();
+            foreach (var variant in variants)
+            {
+                string? reason;
+                try
+                {
+                    if (_evidence is null || !_evidence.SessionIds.Contains(variant.BundleId))
+                        reason = "Recording evidence is not attached; eligibility cannot be checked.";
+                    else
+                    {
+                        var key = (variant.BundleId, variant.FrameSequence);
+                        if (!frames.TryGetValue(key, out var frame))
+                            frames[key] = frame = _evidence.ReadObservation(key.BundleId, key.FrameSequence);
+                        var observedSurface = ResolveSurfaceForVariant(variant);
+                        var hwnd = observedSurface is null ? null : PropertyValue(observedSurface.Source, "hwnd");
+                        reason = long.TryParse(hwnd?.Replace("0x", ""), System.Globalization.NumberStyles.HexNumber,
+                            System.Globalization.CultureInfo.InvariantCulture, out var value)
+                            ? RawVariantPresentation.ExclusionReason(frame, value) : "Native window identity is unavailable.";
+                    }
+                }
+                catch (Exception ex) when (ex is IOException or InvalidDataException or System.Text.Json.JsonException)
+                { reason = $"Recording evidence could not be read: {ex.Message}"; }
+                _rawExclusionReasons[variant.Id] = reason;
+            }
+            variants = RawVariantPresentation.Filter(variants, _showExcludedRaw.IsChecked != true,
+                _showSupplementaryRaw.IsChecked == true, variant => _rawExclusionReasons.GetValueOrDefault(variant.Id));
+        }
         _visibleVariants = variants;
         var requestedFrame = _selectedVariant?.FrameSequence;
         var requestedBundle = _selectedVariant?.BundleId;
@@ -3265,7 +3295,9 @@ public sealed class ExplorerWindow : Window
 
         if (variants.Count == 0)
         {
-            var empty = Text("No observed variants", 11, FontWeights.Normal, Muted,
+            var empty = Text(_inspectionLevel == UiUnderstandingLevel.RawDataStreams
+                ? "No eligible observations. Use Show excluded or Frame streams to inspect the recorded evidence."
+                : "No observed variants", 11, FontWeights.Normal, Muted,
                 verticalAlignment: VerticalAlignment.Center);
             empty.Margin = new Thickness(6, 0, 6, 0);
             _variantCardsPanel.Children.Add(empty);
@@ -3278,7 +3310,8 @@ public sealed class ExplorerWindow : Window
             title.TextTrimming = TextTrimming.CharacterEllipsis;
             var summary = Text(VariantCardSummary(variant), 9, FontWeights.Normal, Muted);
             summary.TextTrimming = TextTrimming.CharacterEllipsis;
-            var capture = Text($"{variant.CaptureStatus} • {variant.BundleId}", 9, FontWeights.Normal,
+            var exclusion = _rawExclusionReasons.GetValueOrDefault(variant.Id);
+            var capture = Text($"{(exclusion is null ? variant.CaptureStatus : "excluded")} • {variant.BundleId}", 9, FontWeights.Normal,
                 variant.CaptureStatus is "interrupted" or "cancelled" ? Brush("#B45309") : Muted);
             capture.TextTrimming = TextTrimming.CharacterEllipsis;
             var content = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
@@ -3305,9 +3338,10 @@ public sealed class ExplorerWindow : Window
                 Template = RoundedButtonTemplate(8)
             };
             var accessibleName = VariantCardAccessibleName(variant);
-            button.ToolTip = VariantCardToolTip(variant);
+            button.ToolTip = VariantCardToolTip(variant) + (exclusion is null ? "" : $"\nExcluded: {exclusion}");
             System.Windows.Automation.AutomationProperties.SetName(button, accessibleName);
             System.Windows.Automation.AutomationProperties.SetHelpText(button,
+                (exclusion is null ? "" : $"Excluded: {exclusion} ") +
                 "Select this observed variant. Use Left and Right to move between cards, or Home and End for the first and last card.");
             button.Click += (_, _) => SelectVariant(variant);
             button.PreviewKeyDown += (_, args) =>
@@ -3468,7 +3502,7 @@ public sealed class ExplorerWindow : Window
         var isRaw = _inspectionLevel == UiUnderstandingLevel.RawDataStreams;
         _editMapButton.Visibility = isRaw ? Visibility.Collapsed : Visibility.Visible;
         foreach (var control in _derivedViewControls) control.Visibility = isRaw ? Visibility.Collapsed : Visibility.Visible;
-        foreach (var filter in new[] { _skipEmptyRaw, _showSupplementaryRaw, _showOffscreenRaw, _showRawLabels })
+        foreach (var filter in new[] { _showExcludedRaw, _showSupplementaryRaw, _showOffscreenRaw, _showRawLabels })
             filter.Visibility = isRaw ? Visibility.Visible : Visibility.Collapsed;
         foreach (var mode in new[] { "Trace", "Routes" })
             if (_viewModeButtons.TryGetValue(mode, out var button)) button.Visibility = isRaw ? Visibility.Collapsed : Visibility.Visible;
@@ -3478,7 +3512,13 @@ public sealed class ExplorerWindow : Window
         if (isRaw)
         {
             if (_viewMode is "Trace" or "Routes") SetViewMode("Window");
-            if (_selectedVariant is null) return;
+            if (_selectedVariant is null)
+            {
+                _traceBannerHost.Content = Text("No eligible observations for this selection. Use Show excluded or Frame streams to inspect all recorded attempts.",
+                    12, FontWeights.Normal, Muted, textWrapping: TextWrapping.Wrap);
+                _traceBannerHost.Visibility = Visibility.Visible;
+                return;
+            }
         }
         var evidence = ResolveSelectedEvidence();
         UiEvidenceImage? evidenceImage = null;
@@ -3577,6 +3617,7 @@ public sealed class ExplorerWindow : Window
             .Where(control => _selectedVariant is null || _selectedVariant.ControlIds.Contains(control.Id))
             .Select(control => UiMapPresentation.ForVariant(control, _selectedVariant))
             .ToArray();
+        var rawVisibleIds = isRaw ? RawVariantPresentation.VisibleControlIds(scopedControls) : null;
         var selectedHwnd = long.TryParse(PropertyValue(_selectedSurface.Source, "hwnd")?.Replace("0x", ""),
             System.Globalization.NumberStyles.HexNumber, System.Globalization.CultureInfo.InvariantCulture, out var parsedHwnd) ? parsedHwnd : 0;
         var recordedStreams = isRaw && _selectedVariant is { } rawVariant && _evidence is not null &&
@@ -3604,7 +3645,10 @@ public sealed class ExplorerWindow : Window
                 _rawStreamFilter.ItemsSource = streamNames;
                 var preferred = recordedStreams.Where(stream => scopedControls.Any(control =>
                         PropertyValue(control.Source, "rawStreamId") == stream.StreamId))
-                    .OrderBy(stream => stream.Status == "ok" ? 0 : 1)
+                    .OrderByDescending(stream => scopedControls.Any(control => rawVisibleIds?.Contains(control.Id) == true &&
+                        PropertyValue(control.Source, "rawStreamId") == stream.StreamId &&
+                        !string.IsNullOrEmpty(PropertyValue(control.Source, "parentRuntimeId"))))
+                    .ThenBy(stream => stream.Status == "ok" ? 0 : 1)
                     .ThenBy(stream => stream.Controls.Any(control => control.ScopeStatus is "outside-target" or "unverified") ? 1 : 0)
                     .ThenBy(stream => stream.Source.StartsWith("uia.raw/", StringComparison.Ordinal) ? 0 :
                         stream.Source.StartsWith("msaa/", StringComparison.Ordinal) ? 1 : 2)
@@ -3663,8 +3707,7 @@ public sealed class ExplorerWindow : Window
             foreach (var item in controls)
             {
                 var control = item.Control;
-                if (isRaw && _showOffscreenRaw.IsChecked != true &&
-                    string.Equals(PropertyValue(control.Source, "offscreen"), "True", StringComparison.OrdinalIgnoreCase)) continue;
+                if (isRaw && _showOffscreenRaw.IsChecked != true && rawVisibleIds?.Contains(control.Id) != true) continue;
                 var ownerSurface = item.Surface!;
                 var local = UiMapPresentation.ProjectToSurface(item.Bounds, viewportBounds);
                 if (local is null) continue;
@@ -3750,7 +3793,10 @@ public sealed class ExplorerWindow : Window
             var unavailableGeometry = controls.Count(item => !ControlGeometry.IsRenderable(item.Bounds));
             var selectedAttempts = recordedStreams.Where(stream => selectedStreamId is null || stream.StreamId == selectedStreamId);
             var summary = isRaw
-                ? $"{scopedControls.Length} recorded source entries • {controls.Length} in selected attempt • {unavailableGeometry} without usable geometry • " +
+                ? (_selectedVariant is { } chosen && _rawExclusionReasons.GetValueOrDefault(chosen.Id) is { } exclusion
+                    ? $"Excluded observation: {exclusion} " : "") +
+                    $"{_rawExclusionReasons.Count(pair => pair.Value is not null)} excluded observations in this selection • " +
+                    $"{scopedControls.Length} recorded source entries • {controls.Length} in selected attempt • {unavailableGeometry} without usable geometry • " +
                     RawVariantPresentation.ScopeSummary(selectedAttempts.SelectMany(stream => stream.Controls), selectedHwnd) + " • " +
                     $"{evidenceError ?? evidenceImage?.PixelProvenance ?? "Image unavailable"} • {pixelStatus}. " +
                     $"Capture: {evidenceImage?.Observation.Acquisition?.Status ?? _selectedVariant?.CaptureStatus ?? "unknown"}. " +
@@ -3758,7 +3804,7 @@ public sealed class ExplorerWindow : Window
                     (overlayBlocked ? "Overlay withheld: frame stability is not established. Inspect provider records in Controls or Frame streams. " : "") +
                     (projectionMode == UiMapProjectionMode.Controls && !projection.ShowsControlCrops
                         ? "Control crops withheld: frame stability is not established. Showing provider geometry. " : "") +
-                    $"Offscreen records {(_showOffscreenRaw.IsChecked == true ? "shown" : "hidden on canvas")}; all records remain in Frame streams."
+                    $"Offscreen records and hidden descendants {(_showOffscreenRaw.IsChecked == true ? "shown" : "hidden on canvas")}; all records remain in Frame streams."
                 : $"{coverage} • {controls.Length - retainedCount} current + {retainedCount} retained controls • {pixelStatus}.{legend}";
             _traceBannerHost.Content = Text(summary,
                 11, FontWeights.Normal, Muted, textWrapping: TextWrapping.Wrap);

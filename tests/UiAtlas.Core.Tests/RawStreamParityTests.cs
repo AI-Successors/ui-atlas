@@ -56,13 +56,13 @@ public sealed class RawStreamParityTests
     }
 
     [Fact]
-    public void EmptyFilterKeepsFailuresAndLegacyUnknownButSupplementaryIsOptIn()
+    public void EmptyAndFailedObservationsAreExcludedByDefaultButRemainInspectable()
     {
         UiMapVariantView Variant(string id, string status, string kind = "observation", int count = 0) =>
             new(id, id, "bundle", 1, count, null, [], RecordKind: kind, CaptureStatus: status);
         var variants = new[] { Variant("empty", "ok"), Variant("failed", "partial"),
             Variant("unknown", "legacy-unknown"), Variant("probe", "ok", "supplementary", 4), Variant("full", "ok", count: 3) };
-        Assert.Equal(new[] { "failed", "unknown", "full" }, RawVariantPresentation.Filter(variants, true, false).Select(item => item.Id));
+        Assert.Equal(new[] { "full" }, RawVariantPresentation.Filter(variants, true, false).Select(item => item.Id));
         Assert.Equal(5, RawVariantPresentation.Filter(variants, false, true).Count);
     }
 

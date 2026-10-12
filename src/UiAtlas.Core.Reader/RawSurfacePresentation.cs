@@ -1,4 +1,5 @@
 using UiAtlas.Core.Contracts;
+using UiAtlas.Core.Recording;
 
 namespace UiAtlas.Core.Reader;
 
@@ -86,6 +87,56 @@ public sealed record RawSurfaceImageLayout(RectI SourcePixels, RectI WindowLocal
 
 public static class RawVariantPresentation
 {
+    public static string? ExclusionReason(FrameObservation frame, long hwnd)
+    {
+        var windows = frame.ScopedWindows ?? [frame.Window];
+        var window = windows.FirstOrDefault(item => item.Hwnd == hwnd);
+        if (window is null) return "Window is not present in this frame.";
+        if (!window.IsVisible || window.IsMinimized || window.IsCloaked)
+            return "Window was not visible.";
+        static bool Standalone(WindowObservation item) => RawObservationSemantics.NativeKind(item)
+            is "normal-window" or "dialog-window" or "tool-window";
+        var front = windows.Where(item => item.ProcessId == window.ProcessId && item.IsVisible &&
+            !item.IsMinimized && !item.IsCloaked && Standalone(item))
+            .OrderBy(item => item.ZOrder).FirstOrDefault();
+        // Menus belong to the immediate owner chain; never follow a root owner
+        // through a foreground dialog back to a background application window.
+        var owner = window;
+        var visited = new HashSet<long>();
+        while (!Standalone(owner) && visited.Add(owner.Hwnd) &&
+               windows.FirstOrDefault(item => item.Hwnd == owner.OwnerHwnd && item.ProcessId == owner.ProcessId) is { } parent)
+            owner = parent;
+        if (front is not null && owner.Hwnd != front.Hwnd && front.ZOrder < owner.ZOrder)
+            return $"Background window; {(string.IsNullOrEmpty(front.Title) ? front.ClassName : front.Title)} (0x{front.Hwnd:X}) is in front.";
+        if (!AllowsOverlay(frame))
+            return $"Capture is {frame.Acquisition?.Status ?? "unknown"}; stability is {frame.Acquisition?.StabilityStatus ?? "unknown"}.";
+        // Image-only menus/tooltips are still valid raw surfaces. Normal windows
+        // and dialogs need a usable native response, not just a root rectangle.
+        if (Standalone(window) && !StreamsForWindow(frame, hwnd).Any(stream =>
+                stream.Status is "ok" or "partial" && AutomationObservationVisibility.FilterEffectivelyVisible(stream.Controls)
+                    .Any(control => control.WindowHwnd == hwnd && control.ScopeStatus is not ("outside-target" or "unverified") &&
+                        !string.IsNullOrEmpty(control.ParentRuntimeId) && RawObservationSemantics.Intersection(control.Bounds, window.Bounds) is not null)))
+            return "No visible native control records were returned for this window.";
+        return null;
+    }
+
+    public static IReadOnlySet<string> VisibleControlIds(IEnumerable<UiMapControlView> controls)
+    {
+        var result = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var attempt in controls.GroupBy(control => control.Source.Properties
+                     .FirstOrDefault(property => property.Name == "rawStreamId")?.Value ?? "legacy"))
+        {
+            var facts = attempt.Select(control => (View: control, Fact: control.Source.Observations?.SingleOrDefault()?.Control)).ToArray();
+            var visible = AutomationObservationVisibility.FilterEffectivelyVisible(facts.Where(item => item.Fact is not null)
+                .Select(item => item.Fact!)).ToHashSet();
+            foreach (var item in facts)
+                if (item.Fact is not null ? visible.Contains(item.Fact) :
+                    !item.View.Source.Properties.Any(property => property.Name is "offscreen" && property.Value == "True" ||
+                        property.Name == "effectivelyVisible" && property.Value == "False")) result.Add(item.View.Id);
+        }
+        return result;
+    }
+
     public static IReadOnlyList<RawDataStreamObservation> StreamsForWindow(FrameObservation frame, long hwnd) =>
         (frame.RawStreams ?? []).Where(stream =>
             RawObservationSemantics.Kind(stream.Source) == "native-automation" &&
@@ -117,9 +168,8 @@ public static class RawVariantPresentation
         .FirstOrDefault(variant => variant.Id == current.Id);
 
     public static IReadOnlyList<UiMapVariantView> Filter(IEnumerable<UiMapVariantView> variants,
-        bool skipEmpty, bool includeSupplementary) => variants
+        bool skipEmpty, bool includeSupplementary, Func<UiMapVariantView, string?>? exclusionReason = null) => variants
         .Where(variant => includeSupplementary || variant.RecordKind != "supplementary")
-        // Failed/unknown coverage is never hidden by the convenience empty filter.
-        .Where(variant => !skipEmpty || variant.ControlCount > 0 || variant.CaptureStatus != "ok")
+        .Where(variant => !skipEmpty || (exclusionReason is null ? variant.ControlCount > 0 : exclusionReason(variant) is null))
         .ToArray();
 }
