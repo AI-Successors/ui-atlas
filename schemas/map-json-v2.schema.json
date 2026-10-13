@@ -12,7 +12,7 @@
       "type": "object", "additionalProperties": false,
       "required": ["graphFormatVersion", "graphId", "semanticHash", "privacyProfile"],
       "properties": {
-        "graphFormatVersion": { "const": "ui-atlas.uikg/4" },
+        "graphFormatVersion": { "enum": ["ui-atlas.uikg/4", "ui-atlas.uikg/5"] },
         "graphId": { "type": "string" },
         "semanticHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
         "privacyProfile": { "const": "sensitive-identities/1" }

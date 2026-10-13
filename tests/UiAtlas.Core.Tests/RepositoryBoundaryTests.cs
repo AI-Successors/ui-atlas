@@ -46,9 +46,14 @@ public sealed partial class RepositoryBoundaryTests
 
     private static string FindRoot()
     {
-        var directory = new DirectoryInfo(AppContext.BaseDirectory);
-        while (directory is not null && !File.Exists(System.IO.Path.Combine(directory.FullName, "UiAtlas.Core.slnx"))) directory = directory.Parent;
-        return directory?.FullName ?? throw new InvalidOperationException("Repository root not found.");
+        foreach (var start in new[] { Environment.GetEnvironmentVariable("UI_ATLAS_REPOSITORY_ROOT"), AppContext.BaseDirectory, Environment.CurrentDirectory })
+        {
+            if (string.IsNullOrWhiteSpace(start)) continue;
+            var directory = new DirectoryInfo(start);
+            while (directory is not null && !File.Exists(System.IO.Path.Combine(directory.FullName, "UiAtlas.Core.slnx"))) directory = directory.Parent;
+            if (directory is not null) return directory.FullName;
+        }
+        throw new InvalidOperationException("Repository root not found.");
     }
 
     [GeneratedRegex(@"(?<![A-Za-z0-9])[A-Za-z]:\\(?:Users|stuff|home)\\", RegexOptions.IgnoreCase)]

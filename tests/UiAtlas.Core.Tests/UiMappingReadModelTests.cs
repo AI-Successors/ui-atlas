@@ -80,7 +80,8 @@ public sealed class UiMappingReadModelTests
         Assert.True(streams.Surfaces.SelectMany(surface => surface.Evidence).Select(item => item.FrameSequence).Distinct().Count() >= 2);
         var firstFrame = Assert.Single(streams.Surfaces.SelectMany(surface => surface.Variants),
             variant => variant.FrameSequence == 1);
-        Assert.Equal(2, firstFrame.ControlCount);
+        // Raw evidence includes the hidden provider record as well as visible controls.
+        Assert.Equal(3, firstFrame.ControlCount);
     }
 
     [Fact]
@@ -211,7 +212,7 @@ public sealed class UiMappingReadModelTests
     }
 
     [Fact]
-    public void AppMapHidesOffscreenCachedWorksheetCellsButKeepsOtherCachedHints()
+    public void AppMapNeverUsesHistoricalCacheHintsAsScreenshotGeometry()
     {
         var surfaceNode = new GraphNode("surface", GraphNodeKind.Surface, "app", "surface", "Excel",
             [new GraphProperty("surfaceClass", "RawWindow")], []);
@@ -222,8 +223,8 @@ public sealed class UiMappingReadModelTests
 
         Assert.False(UiMapPresentation.ShouldRenderControl(cell, surface, UiMapProjectionMode.Controls));
         Assert.False(UiMapPresentation.ShouldRenderControl(cell, surface, UiMapProjectionMode.Overlay));
-        Assert.True(UiMapPresentation.ShouldRenderControl(button, surface, UiMapProjectionMode.Controls));
-        Assert.True(UiMapPresentation.ShouldRenderControl(button, surface, UiMapProjectionMode.Overlay));
+        Assert.False(UiMapPresentation.ShouldRenderControl(button, surface, UiMapProjectionMode.Controls));
+        Assert.False(UiMapPresentation.ShouldRenderControl(button, surface, UiMapProjectionMode.Overlay));
     }
 
     [Fact]
@@ -469,6 +470,8 @@ public sealed class UiMappingReadModelTests
         Assert.Equal(new RectI(20, 30, 40, 50), UiMapPresentation.ProjectToSurface(new(120, 230, 40, 50), surface));
         Assert.Equal(new RectI(0, 0, 20, 20), UiMapPresentation.ProjectToSurface(new(80, 180, 40, 40), surface));
         Assert.Null(UiMapPresentation.ProjectToSurface(new(0, 0, 10, 10), surface));
+        Assert.Equal(new RectI(20, 30, 40, 50), UiMapPresentation.ProjectToSurface(
+            new(-780, -570, 40, 50), new(-800, -600, 800, 600)));
     }
 
     [Fact]

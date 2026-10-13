@@ -7,21 +7,42 @@ namespace UiAtlas.Core.Build;
 /// canonical graph builder. Durable recording authority remains the sealed
 /// recording bundle; this input supports live projections without a second
 /// Raw/Raw/Semantic implementation.
+/// RecordedObservations preserves the capture layer when Observations contains
+/// offline enrichment. It must cover the same frame identities.
 /// </summary>
 public sealed record RecordingGraphInput(
     RecordingManifest Manifest,
     IReadOnlyList<FrameObservation> Observations,
-    IReadOnlyList<InteractionObservation> Interactions);
+    IReadOnlyList<InteractionObservation> Interactions,
+    IReadOnlyList<FrameObservation>? RecordedObservations = null);
 
 public static class RecordingGraphInputValidator
 {
-    public static ValidationReport Validate(RecordingGraphInput input)
+    public static ValidationReport Validate(RecordingGraphInput input) => Validate(input, false);
+
+    private static ValidationReport Validate(RecordingGraphInput input, bool allowUnresolvedReportedOwners)
     {
         ArgumentNullException.ThrowIfNull(input);
         var issues = new List<ValidationIssue>();
         var manifest = input.Manifest;
         var observations = input.Observations;
         var interactions = input.Interactions;
+
+        // Offline enrichment may replace controls, but must preserve the sealed
+        // observations used by the raw-data-streams layer.
+        if (input.RecordedObservations is { } recorded)
+        {
+            var recordedValidation = Validate(input with { Observations = recorded, RecordedObservations = null }, true);
+            issues.AddRange(recordedValidation.Issues);
+            if (observations is not null && !observations.Select(frame => frame?.Sequence)
+                    .SequenceEqual(recorded.Select(frame => frame?.Sequence)))
+                issues.Add(new("live.recorded", "error", "recordedObservations", "Recorded and derived frame sequences must match."));
+            else if (observations is not null && observations.Zip(recorded).Any(pair =>
+                         pair.First is not null && pair.Second is not null &&
+                         (pair.First.TimestampUtc != pair.Second.TimestampUtc || pair.First.Window != pair.Second.Window ||
+                          pair.First.FrameEntry != pair.Second.FrameEntry)))
+                issues.Add(new("live.recorded", "error", "recordedObservations", "Enrichment cannot replace a frame's capture identity."));
+        }
 
         if (manifest is null || observations is null || interactions is null)
             return Invalid("live.required", "input", "Manifest, observations, and interactions are required.");
@@ -91,8 +112,8 @@ public static class RecordingGraphInputValidator
 
             if (frame.Automation is not null)
             foreach (var automation in frame.Automation)
-                if (automation is null || !ValidAutomation(automation) ||
-                    automation.WindowHwnd != 0 && !scopedHwnds.Contains(automation.WindowHwnd))
+                if (automation is null || !ValidAutomation(automation, allowUnresolvedReportedOwners) ||
+                    !allowUnresolvedReportedOwners && automation.WindowHwnd != 0 && !scopedHwnds.Contains(automation.WindowHwnd))
                     Add("live.automation", path, "UI Automation evidence is invalid or outside the captured family.");
             if (frame.Extraction is not null && !ValidExtraction(frame.Extraction, scopedHwnds))
                 Add("live.extraction", path, "Adaptive extraction evidence is invalid or outside the captured family.");
@@ -183,12 +204,12 @@ public static class RecordingGraphInputValidator
         }) == true;
     }
 
-    private static bool ValidAutomation(AutomationObservation item) =>
+    private static bool ValidAutomation(AutomationObservation item, bool rawPayload = false) =>
         item.RuntimeId is { Length: <= 4_096 } && item.ParentRuntimeId is { Length: <= 4_096 } &&
         item.AutomationId is { Length: <= 4_096 } && item.Name is { Length: <= 16_384 } &&
         item.ControlType is { Length: <= 512 } && item.ClassName is { Length: <= 512 } &&
-        item.FrameworkId is { Length: <= 512 } && item.Bounds.Width >= 0 && item.Bounds.Height >= 0 &&
-        (long)item.Bounds.Width * item.Bounds.Height <= 16_000_000 &&
+        item.FrameworkId is { Length: <= 512 } && item.Bounds is not null &&
+        (rawPayload || ControlGeometry.IsBounded(item.Bounds)) &&
         item.SupportedPatterns is not { Count: > 128 } &&
         item.SupportedPatterns?.Any(pattern => pattern is null || pattern.Length > 512) != true;
 

@@ -461,13 +461,8 @@ public static class AdaptiveExtractionCascade
             executedGapIds.Add(request.GapId);
         }
 
-        // A mature application cache already identifies the likely blind spots.
-        // Prefer its narrow probes over repeating two whole-window UIA walks.
-        // Cached controls remain unverified and disabled, so this optimization
-        // cannot authorize an automatic click by itself.
-        var hasStableProbeCoverage = (probeHints?.Count ?? 0) >= 24;
+        // Historical hints can guide probes, but cannot establish current coverage.
         var needsAlternateViews = providerCompatibility != ProviderCompatibilityStatus.ProviderOpaque &&
-                                  !hasStableProbeCoverage &&
                                   (rawTimedOut || rawStatus is not "ok" ||
                                    rawControls.Count(control => !control.IsOffscreen &&
                                        control.Bounds.Width > 0 && control.Bounds.Height > 0) < 24);

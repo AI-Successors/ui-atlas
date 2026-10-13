@@ -37,6 +37,19 @@ public static class GraphValidator
                 issues.Add(new("graph.count-limit", "error", node.Id, "Node collection exceeds limit."));
             ValidateProperties(node.Properties, node.Id, issues);
             ValidateEvidence(node.Evidence, node.Id, graph.Metadata, issues);
+            var rawPayload = node.Kind == GraphNodeKind.Control &&
+                node.Properties.Any(property => property is { Name: "layer", Value: "raw-data-streams" });
+            if (node.Observations is { } observations &&
+                (observations.Count > 10_000 || observations.Any(value => value is null || value.Control is null ||
+                    value.FrameSequence <= 0 || value.BundleId is null || !ValidObservationControl(value.Control, rawPayload) ||
+                    value.OwnershipReason is null or { Length: > 128 } || value.Derivation is null or { Length: > 128 } ||
+                    !node.Evidence.Any(evidence => evidence.BundleId == value.BundleId && evidence.FrameSequence == value.FrameSequence)) ||
+                 observations.Where(value => value is not null).GroupBy(value => (value.BundleId, value.FrameSequence)).Any(group => group.Count() > 1) ||
+                 graph.Metadata.PrivacyProfile == FormatVersions.SafeExportProfile))
+                issues.Add(new("graph.observation", "error", node.Id,
+                    !rawPayload && observations.Any(value => value?.Control is { } control && !ControlGeometry.IsBounded(control.Bounds))
+                        ? "Derived control observation bounds exceed supported geometry limits."
+                        : "Control observations require valid payloads, unique frame evidence and full-evidence privacy."));
             if (!ids.Add(node.Id)) issues.Add(new("graph.duplicate-id", "error", node.Id, "Duplicate node identifier."));
             if (node.Kind != GraphNodeKind.Application && string.IsNullOrWhiteSpace(node.ParentId))
                 issues.Add(new("graph.parent", "error", node.Id, "Non-application node has no parent."));
@@ -267,17 +280,20 @@ public static class GraphValidator
         ValidateOwnerTopology(ownerByRawSurface, issues);
         foreach (var stream in rawStreamNodes.Values)
         {
-            if (stream.Kind is not (GraphNodeKind.Window or GraphNodeKind.Control))
+            var sourceEvidence = stream.Kind == GraphNodeKind.Surface &&
+                stream.Properties.Any(property => property.Name == "role" && property.Value == "source-evidence") &&
+                stream.Properties.Any(property => property.Name == "evidenceKind" && property.Value is "image-derived" or "unassigned-native");
+            if (stream.Kind is not (GraphNodeKind.Window or GraphNodeKind.Control) && !sourceEvidence)
             {
                 issues.Add(new("graph.layer-kind", "error", stream.Id, "Raw Data Streams contains an unsupported node kind."));
                 continue;
             }
             if (!byId.TryGetValue(stream.ParentId, out var parent)) continue;
             var parentLayer = LayerOf(layersByNode, parent.Id);
-            if (stream.Kind == GraphNodeKind.Window && (parent.Kind != GraphNodeKind.Application || parentLayer != "shared"))
+            if ((stream.Kind == GraphNodeKind.Window || sourceEvidence) && (parent.Kind != GraphNodeKind.Application || parentLayer != "shared"))
                 issues.Add(new("graph.rds-parent", "error", stream.Id, "Raw Data Streams surface parent is invalid."));
             if (stream.Kind == GraphNodeKind.Control &&
-                (parentLayer != "raw-data-streams" || parent.Kind is not (GraphNodeKind.Window or GraphNodeKind.Control)))
+                (parentLayer != "raw-data-streams" || parent.Kind is not (GraphNodeKind.Window or GraphNodeKind.Control or GraphNodeKind.Surface)))
                 issues.Add(new("graph.rds-parent", "error", stream.Id, "Raw Data Streams control parent is invalid."));
         }
         foreach (var semantic in nodes.Where(node => layersByNode[node.Id].Contains("semantic-world", StringComparer.Ordinal)))
@@ -353,6 +369,17 @@ public static class GraphValidator
             }
         }
     }
+
+    private static bool ValidObservationControl(AutomationObservation control, bool rawPayload) =>
+        control.RuntimeId is { Length: <= 4096 } && control.ParentRuntimeId is { Length: <= 4096 } &&
+        control.AutomationId is { Length: <= 4096 } && control.Name is { Length: <= 16384 } &&
+        control.ControlType is { Length: <= 512 } && control.ClassName is { Length: <= 512 } &&
+        control.FrameworkId is { Length: <= 512 } && control.Bounds is not null &&
+        // Raw provider rectangles can be sentinel values or otherwise unusable.
+        // Preserve them as evidence; only derived controls require bounded geometry.
+        (rawPayload || ControlGeometry.IsBounded(control.Bounds)) &&
+        control.SupportedPatterns is not { Count: > 128 } &&
+        control.SupportedPatterns?.Any(pattern => pattern is null or { Length: > 512 }) != true;
 
     private static string? LayerOf(IReadOnlyDictionary<string, string[]> layersByNode, string id) =>
         layersByNode.TryGetValue(id, out var layers) && layers.Length == 1 ? layers[0] : null;

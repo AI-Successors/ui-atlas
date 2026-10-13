@@ -21,7 +21,17 @@ public sealed record GraphNode(
     string StableKey,
     string Label,
     IReadOnlyList<GraphProperty> Properties,
-    IReadOnlyList<EvidenceRef> Evidence);
+    IReadOnlyList<EvidenceRef> Evidence,
+    IReadOnlyList<GraphControlObservation>? Observations = null);
+
+public sealed record GraphControlObservation(
+    string BundleId,
+    long FrameSequence,
+    AutomationObservation Control,
+    long EffectiveOwnerHwnd,
+    string OwnershipReason,
+    bool EffectivelyVisible,
+    string Derivation = "recorded");
 
 public sealed record GraphEdge(
     string Id,

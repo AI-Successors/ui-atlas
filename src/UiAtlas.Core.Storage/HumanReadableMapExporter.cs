@@ -387,6 +387,7 @@ public static class HumanReadableMapExporter
 
     private static JsonObject Control(GraphNode control, IEnumerable<string> sourceControlIds, FrameIdentity? frame = null)
     {
+        if (frame is { } selected) control = ObservationStateProjection.ForObservation(control, selected.BundleId, selected.FrameSequence);
         var bounds = frame is null
             ? control.Evidence.FirstOrDefault()?.Bounds
             : control.Evidence.FirstOrDefault(evidence => MatchesFrame(evidence, frame.Value))?.Bounds;

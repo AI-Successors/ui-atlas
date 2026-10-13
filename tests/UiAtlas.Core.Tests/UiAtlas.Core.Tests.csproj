@@ -10,6 +10,7 @@
     <ProjectReference Include="../../src/UiAtlas.Core.Recording/UiAtlas.Core.Recording.csproj" />
     <ProjectReference Include="../../src/UiAtlas.Core.Build/UiAtlas.Core.Build.csproj" />
     <ProjectReference Include="../../src/UiAtlas.Core.Cli/UiAtlas.Core.Cli.csproj" />
+    <ProjectReference Include="../../src/UiAtlas.Core.Desktop/UiAtlas.Core.Desktop.csproj" />
     <ProjectReference Include="../../src/UiAtlas.Core.Storage/UiAtlas.Core.Storage.csproj" />
     <ProjectReference Include="../../src/UiAtlas.Core.Reader/UiAtlas.Core.Reader.csproj" />
     <ProjectReference Include="../../src/UiAtlas.Core.Migration/UiAtlas.Core.Migration.csproj" />

@@ -16,4 +16,14 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
   </ItemGroup>
+  <Target Name="GetDesktopExplorerDeploymentFiles" DependsOnTargets="GetTargetPath"
+          Returns="@(_DesktopExplorerDeploymentFiles)">
+    <ItemGroup>
+      <!-- Shared OutDir builds may already contain a staged viewer. Never nest it. -->
+      <_DesktopExplorerDeploymentFiles Include="$(TargetDir)**\*" Exclude="$(TargetDir)viewer\**\*" />
+      <_DesktopExplorerDeploymentFiles Update="@(_DesktopExplorerDeploymentFiles)">
+        <ExplorerRelativePath>%(RecursiveDir)%(Filename)%(Extension)</ExplorerRelativePath>
+      </_DesktopExplorerDeploymentFiles>
+    </ItemGroup>
+  </Target>
 </Project>

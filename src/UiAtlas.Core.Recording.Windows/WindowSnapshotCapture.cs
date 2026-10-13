@@ -21,6 +21,56 @@ public static class WindowSnapshotCapture
     private static readonly TimeSpan MaxCumulativeCaptureDuration = TimeSpan.FromSeconds(5);
     public sealed record CaptureResult(byte[] Png, string Method, bool UsedFallback, bool IsPartial = false);
 
+    internal sealed record WindowImageCapture(WindowImageObservation Observation, byte[]? Png);
+
+    internal static async Task<IReadOnlyList<WindowImageCapture>> CaptureIndependentAsync(
+        IReadOnlyList<WindowTarget> windows, long sequence, CancellationToken cancellationToken)
+    {
+        var result = new List<WindowImageCapture>();
+        var timer = System.Diagnostics.Stopwatch.StartNew();
+        var bytes = 0;
+        foreach (var window in windows.Take(MaxScopedWindows))
+        {
+            var started = DateTimeOffset.UtcNow;
+            var bounds = window.Bounds;
+            byte[]? png = null;
+            string status;
+            try
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var remaining = MaxCumulativeCaptureDuration - timer.Elapsed;
+                if (remaining <= TimeSpan.Zero) throw new TimeoutException();
+                if (!OperatingSystem.IsWindowsVersionAtLeast(10, 0, 19041) || !IsCapturable(window))
+                    throw new NotSupportedException();
+                png = await WindowsGraphicsCapture.CaptureWindowPngAsync((nint)window.Hwnd,
+                    remaining < TimeSpan.FromSeconds(2) ? remaining : TimeSpan.FromSeconds(2), cancellationToken).ConfigureAwait(false);
+                if (IsVisuallyBlankPng(png)) throw new InvalidOperationException("Blank HWND image.");
+                var image = DecodeOpaquePng(png);
+                // WGC may omit invisible resize borders. Never stretch that image
+                // to GetWindowRect: record its actual screen-space rectangle.
+                if (image.PixelWidth != bounds.Width || image.PixelHeight != bounds.Height)
+                {
+                    if (NativeMethods.DwmGetWindowRectAttribute((nint)window.Hwnd, 9, out var extended,
+                        Marshal.SizeOf<NativeMethods.Rect>()) != 0 ||
+                        image.PixelWidth != extended.Right - extended.Left || image.PixelHeight != extended.Bottom - extended.Top)
+                        throw new InvalidOperationException("HWND image geometry could not be established.");
+                    bounds = new(extended.Left, extended.Top, image.PixelWidth, image.PixelHeight);
+                }
+                if (png.Length > 16 * 1024 * 1024 || bytes > MaxCumulativeCaptureBytes - png.Length)
+                    throw new InvalidOperationException("Window image budget exhausted.");
+                bytes += png.Length;
+                status = "ok";
+            }
+            catch (OperationCanceledException) { png = null; status = "cancelled"; }
+            catch (Exception ex) when (IsRecoverableCaptureFailure(ex))
+            { png = null; status = ex is TimeoutException ? "timeout" : "unavailable"; }
+            result.Add(new(new(window.Hwnd, bounds,
+                png is null ? null : $"raw/frames/frame-{sequence:D6}-window-{window.Hwnd:X}.png",
+                started, DateTimeOffset.UtcNow, "windows-graphics-capture", status), png));
+        }
+        return result;
+    }
+
     public static WindowObservation Observe(WindowTarget target)
     {
         var hwnd = (nint)target.Hwnd;

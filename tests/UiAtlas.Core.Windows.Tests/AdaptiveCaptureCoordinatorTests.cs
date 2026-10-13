@@ -65,7 +65,7 @@ public sealed class AdaptiveCaptureCoordinatorTests
     [Fact]
     public async Task BoundedWorkReturnsWhenTheUnderlyingOperationDoesNotFinish()
     {
-        Assert.Equal(TimeSpan.FromSeconds(8), AdaptiveCaptureCoordinator.ManualRootRefreshTimeout);
+        Assert.Equal(TimeSpan.FromSeconds(14), AdaptiveCaptureCoordinator.ManualRootRefreshTimeout);
         Assert.True(AdaptiveCaptureCoordinator.CancelledRootDrainTimeout <= TimeSpan.FromSeconds(1));
         var pending = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
         var timer = System.Diagnostics.Stopwatch.StartNew();
@@ -1242,6 +1242,31 @@ public sealed class AdaptiveCaptureCoordinatorTests
         Assert.NotEqual(
             AdaptiveCaptureCoordinator.FingerprintControlDelta([off]),
             AdaptiveCaptureCoordinator.FingerprintControlDelta([on]));
+    }
+
+    [Fact]
+    public void ExternallyParentedProviderRootKeepsOriginalEvidenceAndNormalizesConnectedChildren()
+    {
+        var popup = Popup(new RectI(100, 200, 240, 300));
+        var controls = PopupControls(popup, "Choice");
+        controls[0] = controls[0] with { ParentRuntimeId = "outside-provider-parent" };
+        var normalized = AdaptiveCaptureCoordinator.NormalizePopupAutomation(popup, controls);
+        Assert.Equal(2, normalized.Count);
+        Assert.Equal("outside-provider-parent", controls[0].ParentRuntimeId);
+        Assert.Empty(normalized[0].ParentRuntimeId);
+        Assert.True(AdaptiveCaptureCoordinator.HasPopupContent(normalized));
+    }
+
+    [Fact]
+    public void ForeignOwnerAndDisconnectedItemsAreNotPromotedByExternalRootRecovery()
+    {
+        var popup = Popup(new RectI(100, 200, 240, 300));
+        var controls = PopupControls(popup, "Choice");
+        controls[0] = controls[0] with { ParentRuntimeId = "external" };
+        Assert.Empty(AdaptiveCaptureCoordinator.NormalizePopupAutomation(popup,
+            [controls[0], controls[1] with { ParentRuntimeId = "unrelated" }]));
+        Assert.Empty(AdaptiveCaptureCoordinator.NormalizePopupAutomation(popup,
+            controls.Select(control => control with { WindowHwnd = 99 }).ToArray()));
     }
 
     private static WindowTarget Popup(RectI bounds) =>

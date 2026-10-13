@@ -70,7 +70,7 @@ public sealed class RawSemanticWorldTests
         var rawDataStreamOwnerId = Property(rawDataStreamChoice, "rawDataStreamSurfaceId");
         var rawDataStreamOwner = Assert.Single(Nodes(graph, GraphNodeKind.Window, "raw-data-streams"),
             node => node.Id == rawDataStreamOwnerId);
-        Assert.Equal("RawWindow", Property(rawDataStreamOwner, "nativeWindowType"));
+        Assert.Equal("normal-window", Property(rawDataStreamOwner, "nativeWindowType"));
     }
 
     [Fact]
@@ -135,13 +135,16 @@ public sealed class RawSemanticWorldTests
     }
 
     [Fact]
-    public void NodeIdentitiesDoNotDependOnSessionOrWindowTitle()
+    public void WorldIdentitiesDoNotDependOnSessionOrWindowTitleWhileRawPackagesRemainDistinct()
     {
         using var temp = new TempDirectory();
         var first = new RecordingGraphBuilder().Build(SyntheticBundleFactory.Create(temp.Path, "first.mlrec", sessionId: "session-a", windowTitle: "First document"));
         var second = new RecordingGraphBuilder().Build(SyntheticBundleFactory.Create(temp.Path, "second.mlrec", sessionId: "session-b", windowTitle: "Another document"));
 
-        Assert.Equal(first.Nodes.Select(node => node.Id), second.Nodes.Select(node => node.Id));
+        Assert.Equal(first.Nodes.Where(node => Property(node, "layer") != "raw-data-streams").Select(node => node.Id),
+            second.Nodes.Where(node => Property(node, "layer") != "raw-data-streams").Select(node => node.Id));
+        Assert.Empty(first.Nodes.Where(node => Property(node, "layer") == "raw-data-streams").Select(node => node.Id)
+            .Intersect(second.Nodes.Where(node => Property(node, "layer") == "raw-data-streams").Select(node => node.Id)));
     }
 
     [Fact]

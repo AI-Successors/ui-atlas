@@ -148,6 +148,14 @@
       "uiatlas.core.contracts": {
         "type": "Project"
       },
+      "uiatlas.core.desktop": {
+        "type": "Project",
+        "dependencies": {
+          "UiAtlas.Core.Contracts": "[1.0.0, )",
+          "UiAtlas.Core.Reader": "[1.0.0, )",
+          "UiAtlas.Core.Recording.Windows": "[1.0.0, )"
+        }
+      },
       "uiatlas.core.migration": {
         "type": "Project"
       },

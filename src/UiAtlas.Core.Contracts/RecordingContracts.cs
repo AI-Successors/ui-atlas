@@ -9,6 +9,9 @@ public static class RecordingContractLimits
     public const int MaxControlsPerFrame = 100_000;
     public const int MaxScopedWindows = 32;
     public const int MaxBundleEntries = 100_000;
+    public const int MaxProviderObservations = 2_000;
+    public const int MaxProviderControls = 4_096;
+    public const long MaxProviderBytes = 32 * 1024 * 1024;
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter<RecordingOutcome>))]
@@ -153,7 +156,10 @@ public sealed record AutomationObservation(
     string? OcrText = null,
     string? VisualGroupId = null,
     int? TableRow = null,
-    int? TableColumn = null);
+    int? TableColumn = null,
+    long? QueryWindowHwnd = null,
+    long? NativeWindowHwnd = null,
+    string? ScopeStatus = null);
 
 public sealed record ControlEvidenceObservation(
     string EvidenceId,
@@ -237,7 +243,63 @@ public sealed record FrameObservation(
     long? BaseFrameSequence = null,
     AutomationObservation? InteractionSource = null,
     string? InteractionId = null,
-    AdaptiveExtractionSnapshot? Extraction = null);
+    AdaptiveExtractionSnapshot? Extraction = null,
+    string? Derivation = null,
+    IReadOnlyList<RawDataStreamObservation>? RawStreams = null,
+    string? RecordKind = null,
+    RawObservationAcquisition? Acquisition = null,
+    IReadOnlyList<WindowImageObservation>? WindowImages = null);
+
+/// <summary>An independently acquired HWND image. Missing entries never imply inherited pixels.</summary>
+public sealed record WindowImageObservation(long Hwnd, RectI Bounds, string? Entry,
+    DateTimeOffset StartedUtc, DateTimeOffset CompletedUtc, string Method, string Status);
+
+/// <summary>Acquisition facts, not a claim that the target process was atomically frozen.</summary>
+public sealed record RawObservationAcquisition(
+    string FormatVersion,
+    string ObservationId,
+    DateTimeOffset StartedUtc,
+    DateTimeOffset SealedUtc,
+    string Status,
+    string CaptureMethod,
+    string StabilityStatus,
+    string DiagnosticCode = "",
+    IReadOnlyList<RawWindowCoverage>? WindowCoverage = null);
+
+public sealed record RawWindowCoverage(long Hwnd, RectI Bounds, string Pixels);
+
+/// <summary>One provider response within a sealed observation; never a reconstructed scene.</summary>
+public sealed record RawDataStreamObservation(
+    string StreamId,
+    string Source,
+    DateTimeOffset StartedUtc,
+    DateTimeOffset CompletedUtc,
+    string Status,
+    IReadOnlyList<AutomationObservation> Controls,
+    int ReturnedCount = 0,
+    bool Truncated = false,
+    IReadOnlyList<WindowObservation>? Windows = null,
+    string? ScreenshotEntry = null,
+    string? EvidenceKind = null,
+    long? TargetWindowHwnd = null,
+    RectI? ImageBounds = null,
+    DateTimeOffset? QueuedUtc = null);
+
+/// <summary>A bounded, redacted provider response retained before popup normalization.</summary>
+public sealed record ProviderObservation(
+    long Sequence,
+    DateTimeOffset StartedUtc,
+    DateTimeOffset CompletedUtc,
+    WindowObservation TargetWindow,
+    long BaseFrameSequence,
+    string Provider,
+    string Status,
+    bool TimedOut,
+    int ReturnedControlCount,
+    IReadOnlyList<AutomationObservation> Controls,
+    int AcceptedControlCount,
+    string NormalizationStatus,
+    bool Truncated);
 
 public sealed record CaptureHealthEvent(
     DateTimeOffset TimestampUtc,

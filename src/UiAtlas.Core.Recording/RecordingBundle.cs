@@ -240,6 +240,26 @@ public static class RecordingBundleValidator
                      (x.StreamsSettledUtc.HasValue && x.ActionObservedUtc.HasValue && x.StreamsSettledUtc < x.ActionObservedUtc)))
             issues.Add(new("bundle.statebook", "error", "derived/statebook.json", "Derived statebook episode timing or capture status is invalid."));
 
+        var providerEntries = bundle.Entries.Where(entry => entry.StartsWith("raw/providers/", StringComparison.Ordinal)).ToArray();
+        if (providerEntries.Length > RecordingContractLimits.MaxProviderObservations ||
+            (manifest.Files ?? []).Where(file => file.Path.StartsWith("raw/providers/", StringComparison.Ordinal)).Sum(file => file.Length) > RecordingContractLimits.MaxProviderBytes)
+            issues.Add(new("bundle.provider-limit", "error", "raw/providers", "Provider evidence exceeds retention limits."));
+        foreach (var entry in providerEntries)
+        {
+            var attempt = bundle.ReadJson<ProviderObservation>(entry);
+            if (attempt.Sequence <= 0 || entry != $"raw/providers/attempt-{attempt.Sequence:D6}.json" ||
+                attempt.StartedUtc > attempt.CompletedUtc || attempt.BaseFrameSequence <= 0 ||
+                attempt.TargetWindow is null || !ValidWindow(attempt.TargetWindow) ||
+                attempt.TargetWindow.ProcessId != manifest.Target.ProcessId ||
+                attempt.Provider is null or { Length: > 128 } || attempt.Status is null or { Length: > 512 } ||
+                attempt.NormalizationStatus is null or { Length: > 128 } ||
+                attempt.Controls is null or { Count: > RecordingContractLimits.MaxProviderControls } ||
+                attempt.Controls.Any(control => control is null || !ValidAutomation(control)) ||
+                attempt.ReturnedControlCount < attempt.Controls.Count || attempt.AcceptedControlCount < 0 ||
+                attempt.AcceptedControlCount > attempt.ReturnedControlCount)
+                issues.Add(new("bundle.provider", "error", entry, "Provider observation is invalid."));
+        }
+
         var referencedFrames = new HashSet<string>(StringComparer.Ordinal);
         var observedFrameSequences = new HashSet<long>();
         foreach (var entry in bundle.Entries.Where(x => x.StartsWith("raw/observations/frame-", StringComparison.Ordinal) && x.EndsWith(".json", StringComparison.Ordinal)))
@@ -292,6 +312,50 @@ public static class RecordingBundleValidator
                     issues.Add(new("bundle.observation", "error", entry, "Automation field exceeds limit."));
             if (frame.Extraction is not null && !ValidExtraction(frame.Extraction))
                 issues.Add(new("bundle.extraction", "error", entry, "Adaptive extraction evidence exceeds limits."));
+            if (frame.WindowImages is { } planes)
+            {
+                if (planes.Count > RecordingContractLimits.MaxScopedWindows || planes.Any(plane => plane is null) ||
+                    planes.Where(plane => plane is not null).Select(plane => plane.Hwnd).Distinct().Count() != planes.Count)
+                    issues.Add(new("bundle.window-image", "error", entry, "Window image inventory is invalid."));
+                foreach (var plane in planes.Where(plane => plane is not null))
+                {
+                    var canonical = $"raw/frames/frame-{frame.Sequence:D6}-window-{plane.Hwnd:X}.png";
+                    if (!scopedHwnds.Contains(plane.Hwnd) || plane.Bounds is null ||
+                        plane.Status == "ok" && !ControlGeometry.IsRenderable(plane.Bounds) ||
+                        plane.StartedUtc > plane.CompletedUtc || plane.CompletedUtc > frame.TimestampUtc ||
+                        frame.Acquisition is { } timing && (plane.StartedUtc < timing.StartedUtc || plane.CompletedUtc > timing.SealedUtc) ||
+                        plane.Method != "windows-graphics-capture" || plane.Status is not ("ok" or "timeout" or "unavailable" or "cancelled") ||
+                        (plane.Status == "ok") != (plane.Entry is not null) ||
+                        plane.Entry is not null && (plane.Entry != canonical || !manifest.Privacy.ScreenshotsRetained || !bundle.Entries.Contains(canonical)))
+                        issues.Add(new("bundle.window-image", "error", entry, "Window image scope, timing or reference is invalid."));
+                    else if (plane.Entry is not null)
+                    {
+                        referencedFrames.Add(plane.Entry);
+                        var pixels = bundle.ReadBytes(plane.Entry, 16 * 1024 * 1024);
+                        if (!IsBoundedPng(pixels) ||
+                            System.Buffers.Binary.BinaryPrimitives.ReadInt32BigEndian(pixels.AsSpan(16, 4)) != plane.Bounds.Width ||
+                            System.Buffers.Binary.BinaryPrimitives.ReadInt32BigEndian(pixels.AsSpan(20, 4)) != plane.Bounds.Height)
+                            issues.Add(new("bundle.window-image", "error", entry, "Window image dimensions do not match its recorded bounds."));
+                    }
+                }
+            }
+            if (frame.RecordKind is not (null or "observation" or "supplementary") ||
+                frame.RawStreams is not null && !ValidRawStreams(frame))
+                issues.Add(new("bundle.raw-streams", "error", entry, "Raw streams are invalid or refer to another observation."));
+            if (frame.Acquisition is { } acquisition &&
+                (acquisition.FormatVersion != RawObservationSemantics.Version ||
+                 acquisition.ObservationId != $"observation:{frame.Sequence}" ||
+                 acquisition.StartedUtc > acquisition.SealedUtc || acquisition.SealedUtc > frame.TimestampUtc ||
+                 acquisition.Status is not ("ok" or "partial" or "interrupted" or "cancelled") ||
+                 acquisition.StabilityStatus is not ("stable" or "changed" or "unverified" or "interrupted") ||
+                 acquisition.Status == "ok" && acquisition.StabilityStatus != "stable" ||
+                 acquisition.CaptureMethod is null or { Length: > 128 } || acquisition.DiagnosticCode is null or { Length: > 256 } ||
+                 acquisition.WindowCoverage is not { } coverage || coverage.Count != scopedHwnds.Count ||
+                 coverage.Any(item => item is null) ||
+                 coverage.Select(item => item.Hwnd).Distinct().Count() != coverage.Count ||
+                 coverage.Any(item => !scopedHwnds.Contains(item.Hwnd) || item.Pixels is not ("full" or "partial" or "missing")) ||
+                 frame.RawStreams?.Any(stream => stream is null || stream.StartedUtc < acquisition.StartedUtc || stream.CompletedUtc > acquisition.SealedUtc) == true))
+                issues.Add(new("bundle.acquisition", "error", entry, "Observation acquisition identity, timing or coverage is invalid."));
         }
 
         if (statebook.RepresentativeFrames is not null && statebook.Episodes is not null &&
@@ -333,10 +397,31 @@ public static class RecordingBundleValidator
         (long)value.Bounds.Width * value.Bounds.Height <= 16_000_000 && value.Dpi is >= 48 and <= 960;
 
     private static bool ValidAutomation(AutomationObservation item) =>
-        item.RuntimeId is not null && item.ParentRuntimeId is not null && item.AutomationId is not null && item.Name is not null &&
+        item.Bounds is not null && item.RuntimeId is not null && item.ParentRuntimeId is not null && item.AutomationId is not null && item.Name is not null &&
         item.ControlType is not null && item.ClassName is not null && item.FrameworkId is not null && item.RuntimeId.Length <= 4_096 &&
         item.ParentRuntimeId.Length <= 4_096 && item.AutomationId.Length <= 512 && item.Name.Length <= 4_096 &&
-        item.ControlType.Length <= 512 && item.ClassName.Length <= 512 && item.FrameworkId.Length <= 512;
+        item.ControlType.Length <= 512 && item.ClassName.Length <= 512 && item.FrameworkId.Length <= 512 &&
+        item.ScopeStatus is null or "verified" or "outside-target" or "unverified";
+
+    private static bool ValidRawStreams(FrameObservation frame)
+    {
+        var streams = frame.RawStreams!;
+        if (streams.Count > RawFrameEvidence.MaxStreams || streams.Any(stream => stream is null) ||
+            streams.Select(stream => stream.StreamId).Distinct(StringComparer.Ordinal).Count() != streams.Count)
+            return false;
+        if (streams.Sum(stream => (long)(stream.Controls?.Count ?? 0)) > RawFrameEvidence.MaxControls) return false;
+        return streams.All(stream => stream.StreamId is { Length: > 0 and <= 256 } &&
+            stream.Source is { Length: > 0 and <= 128 } && stream.Status is { Length: > 0 and <= 128 } &&
+            stream.StartedUtc <= stream.CompletedUtc && stream.CompletedUtc <= frame.TimestampUtc &&
+            (stream.QueuedUtc is null || stream.QueuedUtc <= stream.StartedUtc) &&
+            (stream.EvidenceKind is null || stream.EvidenceKind == RawObservationSemantics.Kind(stream.Source)) &&
+            (stream.ImageBounds is null || ControlGeometry.IsRenderable(stream.ImageBounds)) &&
+            stream.Controls is not null && stream.Controls.All(control => control is not null && ValidAutomation(control)) &&
+            stream.ReturnedCount >= stream.Controls.Count &&
+            (stream.ScreenshotEntry is null || stream.ScreenshotEntry == frame.FrameEntry && frame.FrameEntry.Length > 0) &&
+            (stream.Windows is null || stream.Windows.Count <= RecordingContractLimits.MaxScopedWindows &&
+                stream.Windows.All(window => window is not null && ValidWindow(window))));
+    }
 
     private static bool ValidExtraction(AdaptiveExtractionSnapshot value)
     {

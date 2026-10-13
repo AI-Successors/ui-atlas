@@ -253,3 +253,5 @@ docs/specs/datagrid-demo/task-5-orders-excel.requirements.md,original,,,reposito
 docs/specs/datagrid-demo/task-5-orders-excel.implementation.md,original,,,repository copyright holder,MIT,app table extraction and Excel export,contract tests and attended MCP verification
 .agents/skills/ui-atlas-grid-export/SKILL.md,original,,,repository copyright holder,MIT,app table extraction and Excel export,contract tests and attended MCP verification
 .agents/skills/ui-atlas-grid-export/agents/openai.yaml,original,,,repository copyright holder,MIT,app table extraction and Excel export,contract tests and attended MCP verification
+docs/2026-10-07-word-recording-hierarchy-repair-pr-rollout.md,original,,,repository copyright holder,MIT,Word hierarchy repair rollout and qualification,source replay and regression tests
+tests/UiAtlas.Core.Tests/RecordingHierarchyRegressionTests.cs,original,,,repository copyright holder,MIT,synthetic hierarchy and evidence regressions,focused and full tests

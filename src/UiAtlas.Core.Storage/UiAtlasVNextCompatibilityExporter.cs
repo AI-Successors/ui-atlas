@@ -451,7 +451,7 @@ public static class UiAtlasVNextCompatibilityValidator
             RequireMembers(publication, PublicationNames, "UiAtlasCore", issues);
             if (Text(publication, "adapterVersion") != UiAtlasVNextCompatibilityExporter.AdapterVersion ||
                 Text(publication, "privacyProfile") != UiAtlasVNextCompatibilityExporter.PrivacyProfile ||
-                Text(publication, "sourceFormatVersion") is not (FormatVersions.Graph or FormatVersions.PreviousGraph) ||
+                Text(publication, "sourceFormatVersion") is not (FormatVersions.Graph or FormatVersions.InteractionGraph or FormatVersions.PreviousGraph) ||
                 !Hash(Text(publication, "sourceSemanticHash")))
                 issues.Add(Issue("compat.profile", "UiAtlasCore", "Compatibility profile declaration is invalid."));
             var revision = root.GetProperty("buildRevision");

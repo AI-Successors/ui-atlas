@@ -31,6 +31,7 @@ public static class GraphExport
                 StableKey = id,
                 Label = $"{node.Kind} {ordinal}",
                 Properties = [new GraphProperty("area", ExportArea(node))],
+                Observations = null,
                 Evidence = node.Evidence.Select(SanitizeEvidence).ToArray()
             };
         }).OrderBy(node => node.Id, StringComparer.Ordinal).ToArray();

@@ -1,3 +1,4 @@
+using System.IO;
 using UiAtlas.Core.Contracts;
 using UiAtlas.Core.Recording.Windows;
 
@@ -195,7 +196,7 @@ public sealed class VisualNativeVerificationTests
     }
 
     [Fact]
-    public void LaggedBackstageAutomationIsBorrowedFromTheFollowingMatchingFrame()
+    public async Task LaterBackstageAutomationCannotReplaceEarlierNativeEvidence()
     {
         var window = new WindowObservation(1, 1, 7, "XLMAIN", "Book1 - Excel",
             new RectI(0, 0, 1_000, 700), true, true, false, false, 96);
@@ -207,9 +208,23 @@ public sealed class VisualNativeVerificationTests
             [BackstageNavigation("open", "Open", isSelected: true)], false, "ok",
             "auto-backstage:navigation:opened:info", [window]);
 
-        var lagged = OfflineRecordingEnricher.FindLaggedBackstageAutomation(frame104, [frame104, frame105]);
-
-        Assert.Same(frame105, lagged);
+        var folder = Path.Combine(Path.GetTempPath(), "ui-atlas-enrichment-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(folder);
+        try
+        {
+            var path = Path.Combine(folder, "evidence.mlrec");
+            using (var writer = new UiAtlas.Core.Recording.RecordingBundleWriter(Path.Combine(folder, "staging")))
+            {
+                writer.WriteText("placeholder.txt", "No screenshot retained");
+                writer.Complete(path);
+            }
+            using var bundle = UiAtlas.Core.Recording.RecordingBundle.Open(path);
+            var repaired = await OfflineRecordingEnricher.RepairAsync(bundle, [frame104, frame105]);
+            Assert.Equal(frame104.Automation, repaired[0].Automation);
+            Assert.Equal(frame105.Automation, repaired[1].Automation);
+            Assert.Equal(frame104.TimestampUtc, repaired[0].TimestampUtc);
+        }
+        finally { Directory.Delete(folder, true); }
         Assert.True(OfflineRecordingEnricher.IsBackstageNavigationMismatch(frame104));
         Assert.False(OfflineRecordingEnricher.IsBackstageNavigationMismatch(
             frame104 with { Automation = frame105.Automation }));
@@ -226,7 +241,6 @@ public sealed class VisualNativeVerificationTests
             "auto-backstage:navigation:opened:info", [window], InteractionSource: infoSource);
 
         Assert.True(OfflineRecordingEnricher.IsBackstageNavigationMismatch(frame));
-        Assert.Null(OfflineRecordingEnricher.FindLaggedBackstageAutomation(frame, [frame]));
     }
 
     [Fact]

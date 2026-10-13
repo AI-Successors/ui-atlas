@@ -1,10 +1,16 @@
-param([string]$Configuration = 'Release')
+param([string]$Configuration = 'Release', [string]$IsolatedBuildRoot = '')
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 $cliExe = Join-Path $root "src\UiAtlas.Core.Cli\bin\$Configuration\net10.0-windows10.0.19041.0\ui-atlas.exe"
 $cliDll = Join-Path $root "src\UiAtlas.Core.Cli\bin\$Configuration\net10.0-windows10.0.19041.0\ui-atlas.dll"
 $consumerExe = Join-Path $root "samples\UiAtlas.Core.Consumer\bin\$Configuration\net10.0\UiAtlas.Core.Consumer.exe"
 $consumerDll = Join-Path $root "samples\UiAtlas.Core.Consumer\bin\$Configuration\net10.0\UiAtlas.Core.Consumer.dll"
+if ($IsolatedBuildRoot) {
+  $cliExe = Join-Path $IsolatedBuildRoot "bin\UiAtlas.Core.Cli\$Configuration\net10.0-windows10.0.19041.0\ui-atlas.exe"
+  $cliDll = [IO.Path]::ChangeExtension($cliExe, '.dll')
+  $consumerExe = Join-Path $IsolatedBuildRoot "bin\UiAtlas.Core.Consumer\$Configuration\net10.0\UiAtlas.Core.Consumer.exe"
+  $consumerDll = [IO.Path]::ChangeExtension($consumerExe, '.dll')
+}
 if (-not (Test-Path -LiteralPath $cliExe) -and -not (Test-Path -LiteralPath $cliDll)) { throw 'Build the solution before running the smoke test.' }
 if (-not (Test-Path -LiteralPath $consumerExe) -and -not (Test-Path -LiteralPath $consumerDll)) { throw 'Build the consumer before running the smoke test.' }
 function Invoke-Cli([Parameter(ValueFromRemainingArguments)] [string[]]$Arguments) {

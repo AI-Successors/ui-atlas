@@ -6,6 +6,37 @@ namespace UiAtlas.Core.Windows.Tests;
 public sealed class MsaaDialogCollectorTests
 {
     [Fact]
+    public void CompactTreeReconnectsChildrenOfDuplicateAncestorsAndPreservesNativePopupContent()
+    {
+        var bounds = new RectI(0, 0, 500, 500);
+        var root = Observation("root", "", "ControlType.Window", bounds);
+        var outer = Observation("outer", "root", "ControlType.Pane", bounds) with { Name = "" };
+        var inner = outer with { RuntimeId = "inner", ParentRuntimeId = "outer" };
+        var item = Observation("item", "inner", "ControlType.MenuItem", new RectI(5, 5, 100, 25));
+        var compact = MsaaDialogCollector.CompactTree([root, outer, inner, item]);
+        var ids = compact.Select(control => control.RuntimeId).ToHashSet();
+        Assert.All(compact.Where(control => control.ParentRuntimeId.Length > 0),
+            control => Assert.Contains(control.ParentRuntimeId, ids));
+        var popup = new WindowTarget(Hwnd, Hwnd, 1, "test", DateTimeOffset.UnixEpoch, "", "Net UI Tool Window", bounds);
+        Assert.Contains(AdaptiveCaptureCoordinator.NormalizePopupAutomation(popup, compact),
+            control => control.RuntimeId == "item");
+        Assert.Equal("outer", compact.Single(control => control.RuntimeId == "item").ParentRuntimeId);
+        Assert.Equal("inner", item.ParentRuntimeId);
+    }
+
+    [Fact]
+    public void CompactTreeDeduplicatesRepeatedLeavesWithoutConflatingState()
+    {
+        var item = Observation("item", "root", "ControlType.MenuItem", new RectI(5, 5, 100, 25));
+        var same = item with { RuntimeId = "duplicate" };
+        var selected = same with { RuntimeId = "selected", IsSelected = true };
+        var otherParent = same with { RuntimeId = "other-parent", ParentRuntimeId = "other" };
+        var compact = MsaaDialogCollector.CompactTree([item, same, selected, otherParent]);
+        Assert.Equal(2, compact.Count);
+        Assert.Equal("root", compact[0].ParentRuntimeId);
+    }
+
+    [Fact]
     public void OwnerDrawnCustomWithDefaultActionIsClassifiedAsButton()
     {
         Assert.Equal("ControlType.Button",

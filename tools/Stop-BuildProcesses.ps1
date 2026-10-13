@@ -14,6 +14,7 @@ if (-not [IO.Path]::IsPathRooted($TargetPath) -or [IO.Path]::GetExtension($Targe
 $assemblies = @([IO.Path]::GetFullPath($TargetPath))
 if ([IO.Path]::GetFileName($TargetPath) -eq 'ui-atlas.dll') {
   $assemblies += Join-Path (Split-Path -Parent $assemblies[0]) 'migration-firebird\ui-atlas-migrate-firebird.dll'
+  $assemblies += Join-Path (Split-Path -Parent $assemblies[0]) 'viewer\UiAtlas.Core.Desktop.dll'
 }
 $executables = @($assemblies | ForEach-Object { [IO.Path]::ChangeExtension($_, '.exe') })
 $names = @($assemblies | ForEach-Object { [IO.Path]::GetFileNameWithoutExtension($_) }) + 'dotnet'

@@ -1,5 +1,7 @@
 # UI Knowledge Graph v4
 
+This is the historical interaction contract. New maps use [UIKG v5](uikg-v5.md), which versions persisted observation facts and retains v4 read compatibility.
+
 `ui-atlas.uikg/4` retains the three grounding layers introduced by v2 and adds first-class causal `interaction` edges between Raw World states. Each edge identifies its source control, operation and attempt, actor, gesture, semantic action, outcome, order, frame references, diagnostic code, and evidence.
 
 Successful actions point to observed result states. `NoChange`, `Failed`, `TimedOut`, and `Cancelled` actions point back to the source state and remain negative evidence. UIA-derived affordances are stored on controls as possible actions; an unobserved affordance never receives an invented destination. Equal routes from resumed recordings are merged by the read model while their session steps remain separate.
