@@ -265,9 +265,13 @@ public sealed class RecordingGraphBuilder
                     foreach (var control in currentControls) materializedControls[control.Observation] = control;
                     // Membership describes the reconstructed scene; each node keeps only
                     // its original observation and evidence, never a fabricated delta fact.
+                    // A reused HWND can describe a different popup surface after its
+                    // content changes. Retain nodes only within their graph surface.
                     var frameControls = currentControls.Concat(observationScene.RetainedControls
                         .Where(control => control.EffectiveOwnerHwnd == window.Hwnd && materializedControls.ContainsKey(control.Control))
-                        .Select(control => materializedControls[control.Control] with { IsCurrent = false }))
+                        .Select(control => materializedControls[control.Control])
+                        .Where(control => rawControls[control.Id].RawSurfaceId == pair.Value.Id)
+                        .Select(control => control with { IsCurrent = false }))
                         .DistinctBy(control => control.Id).ToArray();
                     foreach (var control in frameControls.Where(control => control.IsCurrent))
                     {
